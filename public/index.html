@@ -89,8 +89,7 @@
       border: 2px solid var(--gray-200);
       border-radius: 8px;
       font-size: 15px;
-      letter-spacing: 2px;
-      text-transform: uppercase;
+      letter-spacing: 0.5px;
       transition: border-color 0.2s;
       outline: none;
     }
@@ -564,19 +563,26 @@
     <p>Secure access · Authorised staff only</p>
   </div>
   <div class="login-body">
-    <label for="invite-input">Invite Code</label>
+    <label for="email-input">Email</label>
     <input
-      type="text"
-      id="invite-input"
-      placeholder="e.g. PARA-7X42"
-      autocomplete="off"
+      type="email"
+      id="email-input"
+      placeholder="your.name@epsteinlaw.co.il"
+      autocomplete="email"
       spellcheck="false"
+    />
+    <label for="password-input" style="margin-top:16px">Password</label>
+    <input
+      type="password"
+      id="password-input"
+      placeholder="Enter your password"
+      autocomplete="current-password"
     />
     <button class="login-btn" id="login-btn">Sign In →</button>
     <div class="login-error" id="login-error"></div>
   </div>
   <div class="login-footer">
-    Don't have a code? Contact your system administrator.
+    Access issues? Contact your system administrator.
   </div>
 </div>
 
@@ -672,16 +678,20 @@ const agentIcons = {
 //  LOGIN
 // ══════════════════════════════════════════════════════════
 document.getElementById('login-btn').addEventListener('click', login);
-document.getElementById('invite-input').addEventListener('keydown', e => {
+document.getElementById('email-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') login();
+});
+document.getElementById('password-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') login();
 });
 
 async function login() {
-  const code  = document.getElementById('invite-input').value.trim();
+  const code  = document.getElementById('email-input').value.trim();
+  const pass  = document.getElementById('password-input').value;
   const btn   = document.getElementById('login-btn');
   const error = document.getElementById('login-error');
 
-  if (!code) return;
+  if (!code || !pass) return;
 
   btn.disabled    = true;
   btn.textContent = 'Signing in…';
@@ -691,7 +701,7 @@ async function login() {
     const res  = await fetch('/api/login', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ inviteCode: code }),
+      body:    JSON.stringify({ email: code, password: pass }),
     });
     const data = await res.json();
 

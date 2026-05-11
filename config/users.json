@@ -1,13 +1,12 @@
 {
-  "_instructions": "Users login with email + password. Role must match a key in agents.json > roles. Set disabled:true to revoke access without deleting the user.",
-
+  "_instructions": "Login with email + password. Role must match a key in agents.json > roles. Set disabled:true to revoke access.",
   "users": [
     {
       "id": "1",
       "name": "Yaakov",
       "role": "admin",
       "email": "yaakov@epsteinlaw.co.il",
-      "password": "$2b$10$AoyuO/3iRxnVh6Vp4FA0XuyEBM5lJ08/a1vOLu39K2DxcPgEY9KAu",
+      "password": "$2b$10$u76GT07EwI1wzyOS1cvmouQ9DN2wbwnv68cJ2qZuRkUQgAxcpSLOq",
       "disabled": false
     },
     {
@@ -15,7 +14,7 @@
       "name": "Sara Cohen",
       "role": "senior_lawyer",
       "email": "sara.cohen@epsteinlaw.co.il",
-      "password": "$2b$10$5jh1VzN/4WyWa/syqjowRuk2sLgZJt497jQrPISFYBsW4CwY1TEgu",
+      "password": "$2b$10$gFGKPaB4MfVcKIRooFL/zeFnUGD6iXR1aqCYpwwpzS/rakJdTSEli",
       "disabled": false
     },
     {
@@ -23,7 +22,7 @@
       "name": "David Levi",
       "role": "paralegal",
       "email": "david.levi@epsteinlaw.co.il",
-      "password": "$2b$10$C.oHne/j/5wu2CtQv673W./jEsnC4uExL9s5j.HpVgL5vQStf3dW2",
+      "password": "$2b$10$gMoh/Y1hOQbvpuPp6V7M.eaTcCzq7WieMcx.XgcUfSrPYhLdKK5Ci",
       "disabled": false
     },
     {
@@ -31,7 +30,7 @@
       "name": "Miriam Katz",
       "role": "marketing",
       "email": "miriam.katz@epsteinlaw.co.il",
-      "password": "$2b$10$qygX4sZ2s/bsVKtqEkzBTOVCT0dqNhd0TBInIkmYFHXmapk9pa7ba",
+      "password": "$2b$10$Js2EESZ.YXCCHHJmdytmBO93ZiRziN4SLCOK/EUmAIDYWeRn.Hscm",
       "disabled": false
     },
     {
@@ -39,7 +38,7 @@
       "name": "Reception",
       "role": "receptionist",
       "email": "reception@epsteinlaw.co.il",
-      "password": "$2b$10$XKILE29y3ahLx4AExpY6cuL5MtocUJXsS80V6nw/iMOEQFLCM.lmm",
+      "password": "$2b$10$VgjWQzVkbCrxbrar7OV62.ZrGSPyOXHw5L/iYb17PWjSPT4wsEbs.",
       "disabled": false
     }
   ]

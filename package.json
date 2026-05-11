@@ -11,7 +11,8 @@
     "@anthropic-ai/sdk": "^0.27.0",
     "bcrypt": "^5.1.1",
     "dotenv": "^16.4.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "nodemailer": "^6.9.13"
   },
   "engines": {
     "node": ">=18.0.0"

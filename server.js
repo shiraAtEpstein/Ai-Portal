@@ -12,8 +12,50 @@ const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const path = require('path');
 const fs = require('fs');
-const { spawn } = require('child_process');
+const childProcess = require('child_process');
+const { spawn } = childProcess;
 const os = require('os');
+
+// --- DIAGNOSTIC: monkey-patch child_process.spawn so we capture stderr
+//     from EVERY subprocess (including ones the Agent SDK spawns internally).
+//     This is heavy-handed but lets us see what the Claude Code process is
+//     actually saying before it exits.
+const _origSpawn = childProcess.spawn;
+childProcess.spawn = function patchedSpawn(...args) {
+  const cmd = args[0];
+  const argv = Array.isArray(args[1]) ? args[1] : [];
+  const child = _origSpawn.apply(this, args);
+  // Don't log our own startup probe spawn — too noisy
+  const isOurProbe = argv.some(a => String(a).endsWith('claude-agent-sdk/cli.js') && argv.includes('--version'));
+  if (!isOurProbe) {
+    console.log('[SPAWN-WATCH] cmd:', cmd, 'argv:', JSON.stringify(argv));
+  }
+  if (child.stderr) {
+    child.stderr.on('data', (chunk) => {
+      const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+      if (text && text.trim()) console.error('[SPAWN-STDERR]', text.trimEnd());
+    });
+  }
+  if (child.stdout && !isOurProbe) {
+    child.stdout.on('data', (chunk) => {
+      const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+      // Truncate stdout to avoid logging huge payloads, but show enough to debug
+      if (text && text.trim()) {
+        const preview = text.length > 500 ? text.slice(0, 500) + '...[truncated]' : text;
+        console.log('[SPAWN-STDOUT]', preview.trimEnd());
+      }
+    });
+  }
+  child.on('exit', (code, signal) => {
+    if (!isOurProbe) {
+      console.log('[SPAWN-EXIT] cmd:', cmd, 'code:', code, 'signal:', signal);
+    }
+  });
+  child.on('error', (err) => {
+    console.error('[SPAWN-ERROR]', cmd, err.code || '', err.message);
+  });
+  return child;
+};
 
 // --- PHASE 1 STARTUP PROBE: directly invoke the Claude Code CLI ---
 // Runs once at boot and dumps everything we can learn about why the

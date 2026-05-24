@@ -267,14 +267,18 @@ app.post('/api/chat', authenticate, async (req, res) => {
       options: {
         model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
         systemPrompt: systemPrompt,
-        allowedTools: [],            // PHASE 1: explicitly no tools
-        maxTurns: 1,                 // single-turn response, matches old behavior
-        permissionMode: 'bypassPermissions', // server context; no interactive prompts
-        // PHASE 1 DIAGNOSTIC: log subprocess stderr so we see why Claude Code exits
-        stderr: (chunk) => {
-          const text = typeof chunk === 'string' ? chunk : Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
-          if (text && text.trim()) console.error('[CLAUDE-CODE-STDERR]', text.trimEnd());
-        },
+        // PHASE 1: explicitly block every default Claude Code tool. An empty
+        // allowedTools array does NOT mean "no tools" to the SDK — it means
+        // "no allow-list, use defaults." We have to enumerate the disallow
+        // list to actually prevent tool use during a basic chat completion.
+        disallowedTools: [
+          'Task', 'TaskOutput', 'Bash', 'Glob', 'Grep', 'ExitPlanMode',
+          'Read', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'TodoWrite',
+          'WebSearch', 'KillShell', 'AskUserQuestion', 'Skill',
+          'EnterPlanMode', 'LSP',
+        ],
+        maxTurns: 1,
+        permissionMode: 'bypassPermissions',
       },
     });
 

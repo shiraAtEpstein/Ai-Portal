@@ -160,6 +160,11 @@ app.post('/api/chat', authenticate, async (req, res) => {
         allowedTools: [],            // PHASE 1: explicitly no tools
         maxTurns: 1,                 // single-turn response, matches old behavior
         permissionMode: 'bypassPermissions', // server context; no interactive prompts
+        // PHASE 1 DIAGNOSTIC: log subprocess stderr so we see why Claude Code exits
+        stderr: (chunk) => {
+          const text = typeof chunk === 'string' ? chunk : Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+          if (text && text.trim()) console.error('[CLAUDE-CODE-STDERR]', text.trimEnd());
+        },
       },
     });
 

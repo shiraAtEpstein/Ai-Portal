@@ -12,6 +12,74 @@ const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const path = require('path');
 const fs = require('fs');
+const { spawn } = require('child_process');
+const os = require('os');
+
+// --- PHASE 1 STARTUP PROBE: directly invoke the Claude Code CLI ---
+// Runs once at boot and dumps everything we can learn about why the
+// subprocess is failing in the Render environment. Output appears in
+// the Render Logs tab in the first few seconds after the new build.
+(async function startupProbe() {
+  console.log('[PROBE] Node version:', process.version);
+  console.log('[PROBE] Platform / arch:', process.platform, process.arch);
+  console.log('[PROBE] HOME env:', process.env.HOME || '(unset)');
+  console.log('[PROBE] cwd:', process.cwd());
+  console.log('[PROBE] ANTHROPIC_API_KEY set:', !!process.env.ANTHROPIC_API_KEY, 'length:', (process.env.ANTHROPIC_API_KEY || '').length);
+
+  let cliPath = null;
+  try {
+    const sdkPkgPath = require.resolve('@anthropic-ai/claude-agent-sdk/package.json');
+    const sdkDir = path.dirname(sdkPkgPath);
+    console.log('[PROBE] Agent SDK directory:', sdkDir);
+    const sdkPkg = JSON.parse(fs.readFileSync(sdkPkgPath, 'utf8'));
+    console.log('[PROBE] Agent SDK version installed:', sdkPkg.version);
+    console.log('[PROBE] Agent SDK package "bin" entry:', JSON.stringify(sdkPkg.bin || null));
+    const sdkFiles = fs.readdirSync(sdkDir).slice(0, 30);
+    console.log('[PROBE] Agent SDK top-level files:', sdkFiles.join(', '));
+    const candidates = [
+      path.join(sdkDir, 'cli.js'),
+      path.join(sdkDir, 'dist', 'cli.js'),
+      path.join(sdkDir, 'bin', 'cli.js'),
+      path.join(sdkDir, 'sdk.mjs'),
+      path.join(sdkDir, 'dist', 'index.js'),
+    ];
+    for (const c of candidates) {
+      if (fs.existsSync(c)) { cliPath = c; break; }
+    }
+    console.log('[PROBE] CLI path candidate found:', cliPath || '(none)');
+  } catch (e) {
+    console.error('[PROBE] Failed to resolve Agent SDK:', e.message);
+  }
+
+  if (cliPath) {
+    console.log('[PROBE] Spawning Claude CLI with --version ...');
+    await new Promise((resolve) => {
+      const child = spawn(process.execPath, [cliPath, '--version'], {
+        env: process.env,
+        cwd: os.tmpdir(),
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (d) => { stdout += d.toString(); });
+      child.stderr.on('data', (d) => { stderr += d.toString(); });
+      const killTimer = setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, 15000);
+      child.on('close', (code, signal) => {
+        clearTimeout(killTimer);
+        console.log('[PROBE] CLI exit code:', code, 'signal:', signal);
+        if (stdout.trim()) console.log('[PROBE] CLI stdout:\n' + stdout.trimEnd());
+        if (stderr.trim()) console.log('[PROBE] CLI stderr:\n' + stderr.trimEnd());
+        if (!stdout.trim() && !stderr.trim()) console.log('[PROBE] CLI produced no output at all');
+        resolve();
+      });
+      child.on('error', (err) => {
+        clearTimeout(killTimer);
+        console.error('[PROBE] spawn error:', err.code, err.message);
+        resolve();
+      });
+    });
+  }
+  console.log('[PROBE] === end of startup probe ===');
+})();
 
 // --- PHASE 1: lazy ESM import of the Claude Agent SDK ---
 // The SDK is ESM-only, so we load it via dynamic import and cache the promise.

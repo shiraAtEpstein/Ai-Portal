@@ -15,6 +15,8 @@ const fs = require('fs');
 const childProcess = require('child_process');
 const { spawn } = childProcess;
 const os = require('os');
+const db = require('./db');                              // Phase 2: Neon/Postgres
+const createGoogleAuthRouter = require('./google-auth'); // Phase 2: Google sign-in
 
 // --- DIAGNOSTIC: monkey-patch child_process.spawn so we capture stderr
 //     from EVERY subprocess (including ones the Agent SDK spawns internally).
@@ -161,6 +163,23 @@ setInterval(() => {
     if (sessions[token].expiresAt < now) delete sessions[token];
   }
 }, 60 * 60 * 1000);
+
+// --- Shared session + lookup helpers (used by both login paths) ---
+function createSession({ userId, name, role }) {
+  const token = crypto.randomBytes(32).toString('hex');
+  sessions[token] = { userId, name, role, expiresAt: Date.now() + 8 * 60 * 60 * 1000 };
+  return token;
+}
+function findUserByEmail(email) {
+  if (!email) return null;
+  const usersConfig = loadUsers();
+  return usersConfig.users.find(
+    u => u.email && u.email.toLowerCase() === String(email).trim().toLowerCase()
+  ) || null;
+}
+
+// --- Phase 2: mount "Sign in with Google" routes alongside email/password ---
+app.use(createGoogleAuthRouter({ createSession, findUserByEmail }));
 // POST /api/login
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body;
@@ -171,8 +190,7 @@ app.post('/api/login', async (req, res) => {
   const passwordMatch = await bcrypt.compare(password, passwordToCheck);
   if (!user || !passwordMatch) return res.status(401).json({ error: 'Invalid email or password.' });
   if (user.disabled) return res.status(403).json({ error: 'Your access has been disabled. Please contact your administrator.' });
-  const token = crypto.randomBytes(32).toString('hex');
-  sessions[token] = { userId: user.id, name: user.name, role: user.role, expiresAt: Date.now() + 8 * 60 * 60 * 1000 };
+  const token = createSession({ userId: user.id, name: user.name, role: user.role });
   console.log('[LOGIN] ' + user.name + ' (' + user.role + ') logged in at ' + new Date().toISOString());
   res.json({ token, name: user.name, role: user.role });
 });
@@ -335,6 +353,13 @@ function requireAdmin(req, res, next) {
   if (req.session.role !== 'admin') return res.status(403).json({ error: 'Admin access required.' });
   next();
 }
+// Health check — also reports whether the database is reachable.
+app.get('/healthz', async (req, res) => {
+  let database = false;
+  try { database = await db.ping(); } catch (e) { database = false; }
+  res.json({ ok: true, database });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   const usersConfig = loadUsers();

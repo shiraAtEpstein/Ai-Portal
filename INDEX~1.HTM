@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Firm AI Portal</title>
+  <style>
+    /* ── Reset & Base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy:       #1a2744;
+      --navy-dark:  #111c35;
+      --navy-mid:   #243258;
+      --gold:       #c9a227;
+      --gold-light: #e8bc38;
+      --white:      #ffffff;
+      --gray-50:    #f8f9fa;
+      --gray-100:   #f1f3f5;
+      --gray-200:   #e9ecef;
+      --gray-400:   #adb5bd;
+      --gray-600:   #6c757d;
+      --gray-800:   #343a40;
+      --red:        #dc3545;
+      --font:       -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    body {
+      font-family: var(--font);
+      background: var(--gray-100);
+      color: var(--gray-800);
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* ── LOGIN SCREEN ── */
+    #login-screen {
+      background: var(--white);
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+      width: 420px;
+      max-width: 95vw;
+      overflow: hidden;
+    }
+
+    .login-header {
+      background: var(--navy);
+      padding: 40px 36px 32px;
+      text-align: center;
+    }
+
+    .login-logo {
+      font-size: 32px;
+      margin-bottom: 12px;
+    }
+
+    .login-header h1 {
+      color: var(--white);
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+
+    .login-header p {
+      color: rgba(255,255,255,0.6);
+      font-size: 13px;
+      margin-top: 6px;
+    }
+
+    .login-body {
+      padding: 36px;
+    }
+
+    .login-body label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--gray-600);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .login-body input {
+      width: 100%;
+      padding: 13px 16px;
+      border: 2px solid var(--gray-200);
+      border-radius: 8px;
+      font-size: 15px;
+      letter-spacing: 0.5px;
+      transition: border-color 0.2s;
+      outline: none;
+    }
+
+    .login-body input:focus {
+      border-color: var(--navy);
+    }
+
+    .login-btn {
+      width: 100%;
+      margin-top: 20px;
+      padding: 14px;
+      background: var(--navy);
+      color: var(--white);
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .login-btn:hover { background: var(--navy-mid); }
+    .login-btn:disabled { background: var(--gray-400); cursor: not-allowed; }
+
+    .login-divider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 20px 0 16px;
+      color: var(--gray-400);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .login-divider::before,
+    .login-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--gray-200);
+    }
+
+    .google-btn {
+      width: 100%;
+      padding: 12px;
+      background: var(--white);
+      color: var(--gray-800);
+      border: 2px solid var(--gray-200);
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    .google-btn:hover { background: var(--gray-50); border-color: var(--gray-400); }
+    .google-btn svg { width: 18px; height: 18px; flex-shrink: 0; }
+
+    .login-error {
+      margin-top: 14px;
+      padding: 12px 14px;
+      background: #fde8ea;
+      border: 1px solid #f5c6cb;
+      border-radius: 8px;
+      color: var(--red);
+      font-size: 13px;
+      display: none;
+    }
+
+    .login-footer {
+      padding: 0 36px 28px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--gray-400);
+    }
+
+    /* ── PORTAL LAYOUT ── */
+    #portal {
+      display: none;
+      width: 100vw;
+      height: 100vh;
+      flex-direction: row;
+    }
+
+    /* ── SIDEBAR ── */
+    .sidebar {
+      width: 260px;
+      min-width: 260px;
+      background: var(--navy-dark);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    .sidebar-header {
+      padding: 24px 20px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .sidebar-title {
+      color: var(--white);
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+
+    .sidebar-subtitle {
+      color: var(--gold);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-top: 4px;
+    }
+
+    .sidebar-user {
+      padding: 16px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .user-avatar {
+      width: 34px;
+      height: 34px;
+      background: var(--navy-mid);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--gold);
+      font-weight: 700;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .user-info { flex: 1; min-width: 0; }
+
+    .user-name {
+      color: var(--white);
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .user-role {
+      color: var(--gray-400);
+      font-size: 11px;
+      margin-top: 2px;
+      text-transform: capitalize;
+    }
+
+    .agents-label {
+      padding: 16px 20px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--gray-400);
+    }
+
+    .agent-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 4px 12px;
+    }
+
+    .agent-btn {
+      width: 100%;
+      padding: 12px 14px;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      color: rgba(255,255,255,0.7);
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+
+    .agent-btn:hover {
+      background: rgba(255,255,255,0.07);
+      color: var(--white);
+    }
+
+    .agent-btn.active {
+      background: var(--navy-mid);
+      color: var(--white);
+      border-left: 3px solid var(--gold);
+    }
+
+    .agent-icon {
+      font-size: 18px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .agent-btn-info { flex: 1; min-width: 0; }
+
+    .agent-btn-name {
+      font-size: 13px;
+      font-weight: 600;
+      display: block;
+    }
+
+    .agent-btn-desc {
+      font-size: 11px;
+      opacity: 0.6;
+      margin-top: 3px;
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .sidebar-bottom {
+      padding: 16px 12px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .logout-btn {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px;
+      background: transparent;
+      color: rgba(255,255,255,0.5);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: center;
+    }
+
+    .logout-btn:hover {
+      background: rgba(255,255,255,0.06);
+      color: rgba(255,255,255,0.8);
+    }
+
+    /* ── MAIN CHAT AREA ── */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: var(--white);
+      overflow: hidden;
+    }
+
+    .chat-header {
+      padding: 18px 28px;
+      border-bottom: 1px solid var(--gray-200);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--white);
+    }
+
+    .chat-header-icon { font-size: 22px; }
+
+    .chat-header-info { flex: 1; }
+
+    .chat-header-name {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--navy);
+    }
+
+    .chat-header-desc {
+      font-size: 12px;
+      color: var(--gray-600);
+      margin-top: 2px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background: #28a745;
+      border-radius: 50%;
+    }
+
+    /* ── WELCOME SCREEN ── */
+    .welcome {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--gray-400);
+      gap: 16px;
+      padding: 40px;
+      text-align: center;
+    }
+
+    .welcome-icon { font-size: 48px; }
+
+    .welcome h2 {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--gray-600);
+    }
+
+    .welcome p {
+      font-size: 14px;
+      max-width: 320px;
+      line-height: 1.6;
+    }
+
+    /* ── MESSAGES ── */
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .message {
+      display: flex;
+      gap: 12px;
+      max-width: 780px;
+    }
+
+    .message.user {
+      flex-direction: row-reverse;
+      align-self: flex-end;
+    }
+
+    .message.assistant { align-self: flex-start; }
+
+    .msg-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .message.user .msg-avatar {
+      background: var(--navy);
+      color: var(--white);
+      font-weight: 700;
+      font-size: 12px;
+    }
+
+    .message.assistant .msg-avatar {
+      background: var(--gold);
+      color: var(--navy);
+    }
+
+    .msg-bubble {
+      padding: 14px 18px;
+      border-radius: 16px;
+      font-size: 14px;
+      line-height: 1.65;
+      max-width: 100%;
+    }
+
+    .message.user .msg-bubble {
+      background: var(--navy);
+      color: var(--white);
+      border-bottom-right-radius: 4px;
+    }
+
+    .message.assistant .msg-bubble {
+      background: var(--gray-50);
+      border: 1px solid var(--gray-200);
+      color: var(--gray-800);
+      border-bottom-left-radius: 4px;
+    }
+
+    /* Markdown-ish styling inside bubbles */
+    .msg-bubble strong { font-weight: 600; }
+    .msg-bubble em { font-style: italic; }
+    .msg-bubble code {
+      background: rgba(0,0,0,0.08);
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 13px;
+    }
+    .message.user .msg-bubble code { background: rgba(255,255,255,0.15); }
+    .msg-bubble p + p { margin-top: 10px; }
+    .msg-bubble ul, .msg-bubble ol {
+      padding-left: 18px;
+      margin-top: 6px;
+    }
+    .msg-bubble li { margin-bottom: 4px; }
+
+    /* Typing indicator */
+    .typing .msg-bubble {
+      display: flex;
+      gap: 5px;
+      align-items: center;
+      padding: 14px 18px;
+    }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      background: var(--gray-400);
+      border-radius: 50%;
+      animation: bounce 1.2s infinite;
+    }
+
+    .dot:nth-child(2) { animation-delay: 0.2s; }
+    .dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes bounce {
+      0%, 80%, 100% { transform: translateY(0); }
+      40%            { transform: translateY(-8px); }
+    }
+
+    /* ── INPUT AREA ── */
+    .input-area {
+      padding: 16px 28px 20px;
+      border-top: 1px solid var(--gray-200);
+      background: var(--white);
+    }
+
+    .input-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      background: var(--gray-50);
+      border: 2px solid var(--gray-200);
+      border-radius: 12px;
+      padding: 10px 14px;
+      transition: border-color 0.2s;
+    }
+
+    .input-row:focus-within { border-color: var(--navy); }
+
+    #message-input {
+      flex: 1;
+      border: none;
+      background: transparent;
+      outline: none;
+      font-size: 14px;
+      font-family: var(--font);
+      line-height: 1.5;
+      resize: none;
+      max-height: 140px;
+      color: var(--gray-800);
+    }
+
+    #message-input::placeholder { color: var(--gray-400); }
+
+    #send-btn {
+      width: 36px;
+      height: 36px;
+      background: var(--navy);
+      color: var(--white);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      transition: background 0.15s;
+      flex-shrink: 0;
+    }
+
+    #send-btn:hover { background: var(--navy-mid); }
+    #send-btn:disabled { background: var(--gray-200); cursor: not-allowed; }
+
+    .input-hint {
+      font-size: 11px;
+      color: var(--gray-400);
+      margin-top: 8px;
+      text-align: center;
+    }
+
+    /* ── EMPTY STATE (no agent selected) ── */
+    #no-agent { display: flex; }
+    #chat-view { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 640px) {
+      .sidebar { width: 220px; min-width: 220px; }
+      .messages { padding: 16px; }
+      .input-area { padding: 12px 16px 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════
+     LOGIN SCREEN
+══════════════════════════════════════════════════════════ -->
+<div id="login-screen">
+  <div class="login-header">
+    <div class="login-logo">⚖️</div>
+    <h1>Firm AI Portal</h1>
+    <p>Secure access · Authorised staff only</p>
+  </div>
+  <div class="login-body">
+    <label for="email-input">Email</label>
+    <input
+      type="email"
+      id="email-input"
+      placeholder="your.name@epsteinlaw.co.il"
+      autocomplete="email"
+      spellcheck="false"
+    />
+    <label for="password-input" style="margin-top:16px">Password</label>
+    <input
+      type="password"
+      id="password-input"
+      placeholder="Enter your password"
+      autocomplete="current-password"
+    />
+    <button class="login-btn" id="login-btn">Sign In →</button>
+    <div class="login-error" id="login-error"></div>
+
+    <div class="login-divider" id="google-divider"><span>or</span></div>
+    <button class="google-btn" id="google-login-btn">
+      <svg viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/>
+        <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/>
+        <path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"/>
+        <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.47.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/>
+      </svg>
+      Sign in with Google
+    </button>
+  </div>
+  <div class="login-footer">
+    Access issues? Contact your system administrator.
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     PORTAL (shown after login)
+══════════════════════════════════════════════════════════ -->
+<div id="portal">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-title">⚖️ Firm AI Portal</div>
+      <div class="sidebar-subtitle">Secure · Confidential</div>
+    </div>
+
+    <div class="sidebar-user">
+      <div class="user-avatar" id="user-avatar">?</div>
+      <div class="user-info">
+        <div class="user-name" id="user-name">Loading...</div>
+        <div class="user-role" id="user-role">—</div>
+      </div>
+    </div>
+
+    <div class="agents-label">Your Agents</div>
+    <div class="agent-list" id="agent-list">
+      <!-- Populated dynamically -->
+    </div>
+
+    <div class="sidebar-bottom">
+      <button class="logout-btn" id="logout-btn">Sign Out</button>
+    </div>
+  </div>
+
+  <!-- Main area -->
+  <div class="main">
+
+    <!-- No agent selected -->
+    <div id="no-agent" class="welcome" style="flex:1; flex-direction:column;">
+      <div class="welcome-icon">👈</div>
+      <h2>Select an agent to start</h2>
+      <p>Choose an AI agent from the left panel. Each agent is specialised for a different task.</p>
+    </div>
+
+    <!-- Chat view (shown when an agent is selected) -->
+    <div id="chat-view">
+      <div class="chat-header">
+        <div class="chat-header-icon" id="header-icon">🤖</div>
+        <div class="chat-header-info">
+          <div class="chat-header-name" id="header-name">Agent</div>
+          <div class="chat-header-desc" id="header-desc">—</div>
+        </div>
+        <div class="status-dot" title="Online"></div>
+      </div>
+
+      <div class="messages" id="messages"></div>
+
+      <div class="input-area">
+        <div class="input-row">
+          <textarea
+            id="message-input"
+            placeholder="Type your message…"
+            rows="1"
+          ></textarea>
+          <button id="send-btn" title="Send">➤</button>
+        </div>
+        <div class="input-hint">Press Enter to send · Shift+Enter for new line</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════════════════
+let sessionToken   = null;
+let currentAgent   = null;
+let conversationHistory = [];
+let isLoading      = false;
+
+const agentIcons = {
+  copywriter:      '✍️',
+  researcher:      '🔍',
+  paralegal:       '📋',
+  document_review: '📄',
+  legal_research:  '⚖️',
+  client_intake:   '🤝',
+  default:         '🤖',
+};
+
+// ══════════════════════════════════════════════════════════
+//  LOGIN
+// ══════════════════════════════════════════════════════════
+document.getElementById('login-btn').addEventListener('click', login);
+document.getElementById('email-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') login();
+});
+document.getElementById('password-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') login();
+});
+
+async function login() {
+  const code  = document.getElementById('email-input').value.trim();
+  const pass  = document.getElementById('password-input').value;
+  const btn   = document.getElementById('login-btn');
+  const error = document.getElementById('login-error');
+
+  if (!code || !pass) return;
+
+  btn.disabled    = true;
+  btn.textContent = 'Signing in…';
+  error.style.display = 'none';
+
+  try {
+    const res  = await fetch('/api/login', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ email: code, password: pass }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.error || 'Login failed');
+
+    sessionToken = data.token;
+    showPortal(data.name, data.role);
+    loadAgents();
+
+  } catch (err) {
+    error.textContent    = err.message;
+    error.style.display  = 'block';
+    btn.disabled         = false;
+    btn.textContent      = 'Sign In →';
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  SHOW PORTAL
+// ══════════════════════════════════════════════════════════
+function showPortal(name, role) {
+  document.getElementById('login-screen').style.display = 'none';
+  document.body.style.alignItems    = 'stretch';
+  document.body.style.justifyContent = 'stretch';
+  const portal = document.getElementById('portal');
+  portal.style.display = 'flex';
+
+  document.getElementById('user-name').textContent   = name;
+  document.getElementById('user-role').textContent   = role;
+  document.getElementById('user-avatar').textContent = name.charAt(0).toUpperCase();
+}
+
+// ══════════════════════════════════════════════════════════
+//  LOAD AGENTS
+// ══════════════════════════════════════════════════════════
+async function loadAgents() {
+  try {
+    const res  = await fetch('/api/agents', { headers: authHeader() });
+    const data = await res.json();
+
+    const list = document.getElementById('agent-list');
+    list.innerHTML = '';
+
+    data.agents.forEach(agent => {
+      const icon = agentIcons[agent.id] || agentIcons.default;
+      const btn  = document.createElement('button');
+      btn.className    = 'agent-btn';
+      btn.dataset.id   = agent.id;
+      btn.innerHTML    = `
+        <span class="agent-icon">${icon}</span>
+        <span class="agent-btn-info">
+          <span class="agent-btn-name">${agent.name}</span>
+          <span class="agent-btn-desc">${agent.description}</span>
+        </span>
+      `;
+      btn.addEventListener('click', () => selectAgent(agent, icon, btn));
+      list.appendChild(btn);
+    });
+
+  } catch (err) {
+    console.error('Failed to load agents:', err);
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  SELECT AGENT
+// ══════════════════════════════════════════════════════════
+function selectAgent(agent, icon, btn) {
+  // Update active button
+  document.querySelectorAll('.agent-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  currentAgent = agent.id;
+  conversationHistory = [];
+
+  // Update header
+  document.getElementById('header-icon').textContent = icon;
+  document.getElementById('header-name').textContent = agent.name;
+  document.getElementById('header-desc').textContent = agent.description;
+
+  // Show chat view
+  document.getElementById('no-agent').style.display  = 'none';
+  const cv = document.getElementById('chat-view');
+  cv.style.display = 'flex';
+
+  // Clear messages and show greeting
+  const msgs = document.getElementById('messages');
+  msgs.innerHTML = '';
+  appendMessage('assistant', `Hello! I'm the **${agent.name}**. ${agent.description}. How can I help you today?`);
+
+  document.getElementById('message-input').focus();
+}
+
+// ══════════════════════════════════════════════════════════
+//  SEND MESSAGE
+// ══════════════════════════════════════════════════════════
+document.getElementById('send-btn').addEventListener('click', sendMessage);
+document.getElementById('message-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+  // Auto-grow textarea
+  setTimeout(() => {
+    e.target.style.height = 'auto';
+    e.target.style.height = Math.min(e.target.scrollHeight, 140) + 'px';
+  }, 0);
+});
+
+async function sendMessage() {
+  const input = document.getElementById('message-input');
+  const msg   = input.value.trim();
+
+  if (!msg || isLoading || !currentAgent) return;
+
+  isLoading = true;
+  input.value = '';
+  input.style.height = 'auto';
+  document.getElementById('send-btn').disabled = true;
+
+  // Add user message to UI and history
+  appendMessage('user', msg);
+  conversationHistory.push({ role: 'user', content: msg });
+
+  // Show typing indicator
+  const typingEl = appendTyping();
+
+  try {
+    const res  = await fetch('/api/chat', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body:    JSON.stringify({
+        agentId: currentAgent,
+        message: msg,
+        history: conversationHistory.slice(0, -1), // don't double-send last message
+      }),
+    });
+
+    const data = await res.json();
+    typingEl.remove();
+
+    if (!res.ok) {
+      if (res.status === 401) return handleSessionExpired();
+      appendMessage('assistant', `⚠️ ${data.error || 'Something went wrong.'}`);
+    } else {
+      appendMessage('assistant', data.response);
+      conversationHistory.push({ role: 'assistant', content: data.response });
+    }
+
+  } catch (err) {
+    typingEl.remove();
+    appendMessage('assistant', '⚠️ Connection error. Please check your network and try again.');
+  }
+
+  isLoading = false;
+  document.getElementById('send-btn').disabled = false;
+  input.focus();
+}
+
+// ══════════════════════════════════════════════════════════
+//  RENDER MESSAGES
+// ══════════════════════════════════════════════════════════
+function appendMessage(role, text) {
+  const msgs      = document.getElementById('messages');
+  const userName  = document.getElementById('user-name').textContent;
+  const isUser    = role === 'user';
+
+  const wrapper = document.createElement('div');
+  wrapper.className = `message ${role}`;
+
+  const avatar = document.createElement('div');
+  avatar.className = 'msg-avatar';
+  avatar.textContent = isUser ? userName.charAt(0).toUpperCase() : '⚖️';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+  bubble.innerHTML = formatText(text);
+
+  wrapper.appendChild(avatar);
+  wrapper.appendChild(bubble);
+  msgs.appendChild(wrapper);
+  msgs.scrollTop = msgs.scrollHeight;
+  return wrapper;
+}
+
+function appendTyping() {
+  const msgs    = document.getElementById('messages');
+  const wrapper = document.createElement('div');
+  wrapper.className = 'message assistant typing';
+  wrapper.innerHTML = `
+    <div class="msg-avatar">⚖️</div>
+    <div class="msg-bubble">
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+    </div>`;
+  msgs.appendChild(wrapper);
+  msgs.scrollTop = msgs.scrollHeight;
+  return wrapper;
+}
+
+// Very basic markdown: bold, italic, code, line breaks, lists
+function formatText(text) {
+  return text
+    .replace(/&/g,  '&amp;')
+    .replace(/</g,  '&lt;')
+    .replace(/>/g,  '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g,     '<em>$1</em>')
+    .replace(/`(.+?)`/g,       '<code>$1</code>')
+    .replace(/^#{1,3} (.+)$/gm, '<strong>$1</strong>')
+    .replace(/^\s*[-•]\s+(.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>.*<\/li>\n?)+/g, s => `<ul>${s}</ul>`)
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g,   '<br>')
+    .replace(/^(.+)$/s, '<p>$1</p>');
+}
+
+// ══════════════════════════════════════════════════════════
+//  LOGOUT
+// ══════════════════════════════════════════════════════════
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  try {
+    await fetch('/api/logout', { method: 'POST', headers: authHeader() });
+  } catch {}
+  location.reload();
+});
+
+function handleSessionExpired() {
+  alert('Your session has expired. Please sign in again.');
+  location.reload();
+}
+
+// ══════════════════════════════════════════════════════════
+//  HELPERS
+// ══════════════════════════════════════════════════════════
+function authHeader() {
+  return { 'Authorization': `Bearer ${sessionToken}` };
+}
+
+// ══ GOOGLE SIGN-IN (Phase 2) ══
+document.getElementById('google-login-btn').addEventListener('click', () => {
+  window.location.href = '/auth/google/start';
+});
+
+// Hide the Google button if the server doesn't have it configured yet.
+fetch('/auth/google/status')
+  .then(r => r.json())
+  .then(d => {
+    if (!d.enabled) {
+      document.getElementById('google-login-btn').style.display = 'none';
+      document.getElementById('google-divider').style.display = 'none';
+    }
+  })
+  .catch(() => {});
+
+// Handle the redirect back from Google: token in the URL fragment = success.
+(function handleAuthRedirect() {
+  const params = new URLSearchParams(location.search);
+  const authErr = params.get('auth_error');
+  if (authErr) {
+    const error = document.getElementById('login-error');
+    error.textContent = authErr;
+    error.style.display = 'block';
+    history.replaceState(null, '', location.pathname);
+  }
+  if (location.hash && location.hash.indexOf('token=') !== -1) {
+    const h = new URLSearchParams(location.hash.slice(1));
+    const token = h.get('token');
+    if (token) {
+      sessionToken = token;
+      history.replaceState(null, '', location.pathname);
+      showPortal(h.get('name') || 'User', h.get('role') || '');
+      loadAgents();
+    }
+  }
+})();
+</script>
+</body>
+</html>

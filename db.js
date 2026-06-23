@@ -16,6 +16,21 @@ function sslFor(url) {
   return { rejectUnauthorized: false };
 }
 
+// Remove sslmode / channel_binding from the connection string. We set SSL
+// explicitly via the `ssl` option below, so these query params are redundant
+// — and leaving them in makes newer pg versions print a noisy deprecation
+// warning ("SSL modes ... are treated as aliases for 'verify-full'").
+function stripSslParams(url) {
+  try {
+    const u = new URL(url);
+    u.searchParams.delete('sslmode');
+    u.searchParams.delete('channel_binding');
+    return u.toString();
+  } catch (_) {
+    return url;
+  }
+}
+
 function getPool() {
   if (pool) return pool;
   const url = process.env.DATABASE_URL;
@@ -23,7 +38,7 @@ function getPool() {
     console.warn('[DB] DATABASE_URL not set — database features are disabled.');
     return null;
   }
-  pool = new Pool({ connectionString: url, ssl: sslFor(url) });
+  pool = new Pool({ connectionString: stripSslParams(url), ssl: sslFor(url) });
   pool.on('error', (e) => console.error('[DB] idle client error:', e.message));
   return pool;
 }

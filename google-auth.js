@@ -3,19 +3,37 @@
 // Phase 2. Adds /auth/google/start and /auth/google/callback.
 // Sits ALONGSIDE the existing email/password login — does not replace it.
 //
+// HARDENED token exchange (fixes the intermittent
+//   "Premature close" failures between Render and Google):
+//   - The code->token POST goes through Node's built-in `https`
+//     module forced to IPv4 (family: 4), with Connection: close.
+//   - Identity is read straight from the token response's id_token
+//     (decoded locally) — NO second network call to fetch Google's
+//     signing keys. (The id_token arrives directly from Google over
+//     our own TLS connection, so it is trusted without re-verifying
+//     the signature; we still check issuer / audience / expiry locally.)
+//   - The token exchange auto-retries up to 3 times on network drops.
+//
 // Flow:
 //   1) /auth/google/start  -> redirect to Google (domain-restricted)
 //   2) Google authenticates the user, redirects back with a code
-//   3) /auth/google/callback -> verify ID token, check domain,
-//      match to the firm staff list for the role, create a session,
-//      record the user + an audit row in Neon, hand the token to the SPA.
+//   3) /auth/google/callback -> exchange code, read id_token, check
+//      domain, match to the firm staff list for the role, create a
+//      session, record the user + an audit row in Neon, hand the
+//      token to the SPA.
 // ============================================================
 const express = require('express');
 const crypto = require('crypto');
+const https = require('https');
 const { OAuth2Client } = require('google-auth-library');
 const db = require('./db');
 
 const ALLOWED_DOMAIN = (process.env.GOOGLE_ALLOWED_DOMAIN || 'epsteinlaw.co.il').toLowerCase();
+
+// One reusable agent that forces IPv4. The intermittent "Premature close"
+// happens on the IPv6 path between Render and oauth2.googleapis.com, so we
+// pin every token request to IPv4 and never keep the socket alive.
+const ipv4Agent = new https.Agent({ family: 4, keepAlive: false });
 
 // --- Pure decision logic (exported for unit testing) -------------------
 // Given a verified Google token payload and a staff lookup, decide whether
@@ -35,6 +53,26 @@ function evaluateLogin(payload, findUserByEmail, allowedDomain = ALLOWED_DOMAIN)
   return { ok: true, email, staff };
 }
 
+// --- Local id_token decode (no network) --------------------------------
+// Decode the JWT payload that Google returned in the token response.
+function decodeIdToken(idToken) {
+  const parts = String(idToken || '').split('.');
+  if (parts.length !== 3) throw new Error('malformed id_token');
+  return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+}
+
+// Sanity-check the id_token claims locally (issuer, audience, expiry).
+function validateIdTokenPayload(payload, clientId) {
+  const iss = payload && payload.iss;
+  if (iss !== 'accounts.google.com' && iss !== 'https://accounts.google.com') {
+    throw new Error('unexpected token issuer');
+  }
+  if (payload.aud !== clientId) throw new Error('token audience mismatch');
+  if (payload.exp && Math.floor(Date.now() / 1000) > Number(payload.exp) + 60) {
+    throw new Error('token expired');
+  }
+}
+
 function createGoogleAuthRouter({ createSession, findUserByEmail }) {
   const router = express.Router();
 
@@ -45,7 +83,79 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
     'https://ai-portal-wf42.onrender.com/auth/google/callback';
 
   const enabled = !!(clientId && clientSecret);
+  // Used ONLY to build the redirect URL in /start (no network call).
   const client = enabled ? new OAuth2Client(clientId, clientSecret, callbackUrl) : null;
+
+  // --- Token exchange over IPv4 with retry ----------------------------
+  // Single POST to Google's token endpoint, forced to IPv4.
+  function postToken(body) {
+    return new Promise((resolve, reject) => {
+      const req = https.request(
+        'https://oauth2.googleapis.com/token',
+        {
+          method: 'POST',
+          agent: ipv4Agent,
+          family: 4,
+          timeout: 15000,
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Content-Length': Buffer.byteLength(body),
+            'Accept': 'application/json',
+            'Connection': 'close',
+          },
+        },
+        (res) => {
+          let data = '';
+          res.setEncoding('utf8');
+          res.on('data', (c) => (data += c));
+          res.on('end', () => resolve({ status: res.statusCode, body: data }));
+        }
+      );
+      req.on('timeout', () => req.destroy(new Error('token request timed out')));
+      req.on('error', reject);
+      req.write(body);
+      req.end();
+    });
+  }
+
+  // Exchange the auth code for tokens, retrying on NETWORK errors only.
+  // A 4xx from Google (e.g. an already-used code -> invalid_grant) is
+  // permanent and is NOT retried.
+  async function exchangeCodeForTokens(code) {
+    const body = new URLSearchParams({
+      code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: callbackUrl,
+      grant_type: 'authorization_code',
+    }).toString();
+
+    let lastErr;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const { status, body: respBody } = await postToken(body);
+        let json;
+        try {
+          json = JSON.parse(respBody);
+        } catch (_) {
+          throw new Error('non-JSON token response (HTTP ' + status + ')');
+        }
+        if (status >= 200 && status < 300 && json.id_token) return json;
+
+        // Google answered, but rejected the request -> do not retry.
+        const desc = json.error_description || json.error || ('HTTP ' + status);
+        const err = new Error('token exchange rejected: ' + desc);
+        err.permanent = status >= 400 && status < 500;
+        throw err;
+      } catch (e) {
+        lastErr = e;
+        if (e.permanent) break;
+        console.warn('[GOOGLE-AUTH] token exchange attempt ' + attempt + '/3 failed: ' + e.message);
+        if (attempt < 3) await new Promise((r) => setTimeout(r, 300 * attempt));
+      }
+    }
+    throw lastErr;
+  }
 
   // Short-lived state store for CSRF protection (state -> expiry).
   const stateStore = new Map();
@@ -83,9 +193,9 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
     stateStore.delete(state);
 
     try {
-      const { tokens } = await client.getToken(code);
-      const ticket = await client.verifyIdToken({ idToken: tokens.id_token, audience: clientId });
-      const payload = ticket.getPayload();
+      const tokens = await exchangeCodeForTokens(code);
+      const payload = decodeIdToken(tokens.id_token);
+      validateIdTokenPayload(payload, clientId);
 
       const decision = evaluateLogin(payload, findUserByEmail);
       if (!decision.ok) {

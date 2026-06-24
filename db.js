@@ -68,6 +68,22 @@ async function upsertUserOnLogin({ googleSub, email, name }) {
   return r.rows[0] ? r.rows[0].id : null;
 }
 
+// Day 4: return EVERY role name assigned to a user (looked up by email),
+// ordered by role id (so 'admin' comes first). Empty array if none / no DB.
+async function getUserRolesByEmail(email) {
+  const p = getPool();
+  if (!p) return [];
+  const sql = `
+    SELECT r.name
+    FROM users u
+    JOIN role_assignments ra ON ra.user_id = u.id
+    JOIN roles r             ON r.id = ra.role_id
+    WHERE u.email = $1
+    ORDER BY r.id;`;
+  const r = await p.query(sql, [email]);
+  return r.rows.map((row) => row.name);
+}
+
 // Append-only audit log writer. Never throws into the request path —
 // callers wrap it, but we also swallow here so logging can't block login.
 async function writeAudit({ actorId = null, action, targetType = null, targetId = null, metadata = {} }) {
@@ -84,4 +100,4 @@ async function writeAudit({ actorId = null, action, targetType = null, targetId 
   }
 }
 
-module.exports = { getPool, ping, upsertUserOnLogin, writeAudit };
+module.exports = { getPool, ping, upsertUserOnLogin, getUserRolesByEmail, writeAudit };

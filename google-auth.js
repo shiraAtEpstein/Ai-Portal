@@ -9,18 +9,14 @@
 //     module forced to IPv4 (family: 4), with Connection: close.
 //   - Identity is read straight from the token response's id_token
 //     (decoded locally) — NO second network call to fetch Google's
-//     signing keys. (The id_token arrives directly from Google over
-//     our own TLS connection, so it is trusted without re-verifying
-//     the signature; we still check issuer / audience / expiry locally.)
+//     signing keys.
 //   - The token exchange auto-retries up to 3 times on network drops.
 //
-// Flow:
-//   1) /auth/google/start  -> redirect to Google (domain-restricted)
-//   2) Google authenticates the user, redirects back with a code
-//   3) /auth/google/callback -> exchange code, read id_token, check
-//      domain, match to the firm staff list for the role, create a
-//      session, record the user + an audit row in Neon, hand the
-//      token to the SPA.
+// DAY 4 — roles are now database-driven:
+//   On login we read the person's role(s) from the database (all of
+//   them) and COMBINE their access. If the database has no role for
+//   them, we fall back to the users.json staff list. A person is
+//   allowed in if EITHER source knows them.
 // ============================================================
 const express = require('express');
 const crypto = require('crypto');
@@ -36,9 +32,11 @@ const ALLOWED_DOMAIN = (process.env.GOOGLE_ALLOWED_DOMAIN || 'epsteinlaw.co.il')
 const ipv4Agent = new https.Agent({ family: 4, keepAlive: false });
 
 // --- Pure decision logic (exported for unit testing) -------------------
-// Given a verified Google token payload and a staff lookup, decide whether
-// this person may sign in and with what role. No side effects.
-function evaluateLogin(payload, findUserByEmail, allowedDomain = ALLOWED_DOMAIN) {
+// Given a verified Google token payload and an ALREADY-RESOLVED staff
+// object, decide whether this person may sign in. No side effects, no
+// lookups — the caller resolves the staff (from DB and/or users.json)
+// and passes it in. `staff` is { id, name, roles[], disabled } or null.
+function evaluateLogin(payload, staff, allowedDomain = ALLOWED_DOMAIN) {
   const email = String(payload.email || '').toLowerCase();
   if (!payload.email_verified) return { ok: false, reason: 'Email not verified by Google.' };
   if (payload.hd && payload.hd.toLowerCase() !== allowedDomain) {
@@ -47,21 +45,18 @@ function evaluateLogin(payload, findUserByEmail, allowedDomain = ALLOWED_DOMAIN)
   if (!email.endsWith('@' + allowedDomain)) {
     return { ok: false, reason: 'Only ' + allowedDomain + ' accounts can sign in.' };
   }
-  const staff = findUserByEmail(email);
   if (!staff) return { ok: false, reason: 'Your account is not authorised for the portal. Contact your administrator.', email };
   if (staff.disabled) return { ok: false, reason: 'Your access has been disabled. Contact your administrator.', email };
   return { ok: true, email, staff };
 }
 
 // --- Local id_token decode (no network) --------------------------------
-// Decode the JWT payload that Google returned in the token response.
 function decodeIdToken(idToken) {
   const parts = String(idToken || '').split('.');
   if (parts.length !== 3) throw new Error('malformed id_token');
   return JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
 }
 
-// Sanity-check the id_token claims locally (issuer, audience, expiry).
 function validateIdTokenPayload(payload, clientId) {
   const iss = payload && payload.iss;
   if (iss !== 'accounts.google.com' && iss !== 'https://accounts.google.com') {
@@ -83,11 +78,8 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
     'https://ai-portal-wf42.onrender.com/auth/google/callback';
 
   const enabled = !!(clientId && clientSecret);
-  // Used ONLY to build the redirect URL in /start (no network call).
   const client = enabled ? new OAuth2Client(clientId, clientSecret, callbackUrl) : null;
 
-  // --- Token exchange over IPv4 with retry ----------------------------
-  // Single POST to Google's token endpoint, forced to IPv4.
   function postToken(body) {
     return new Promise((resolve, reject) => {
       const req = https.request(
@@ -118,9 +110,6 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
     });
   }
 
-  // Exchange the auth code for tokens, retrying on NETWORK errors only.
-  // A 4xx from Google (e.g. an already-used code -> invalid_grant) is
-  // permanent and is NOT retried.
   async function exchangeCodeForTokens(code) {
     const body = new URLSearchParams({
       code,
@@ -142,7 +131,6 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
         }
         if (status >= 200 && status < 300 && json.id_token) return json;
 
-        // Google answered, but rejected the request -> do not retry.
         const desc = json.error_description || json.error || ('HTTP ' + status);
         const err = new Error('token exchange rejected: ' + desc);
         err.permanent = status >= 400 && status < 500;
@@ -157,7 +145,6 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
     throw lastErr;
   }
 
-  // Short-lived state store for CSRF protection (state -> expiry).
   const stateStore = new Map();
   const sweep = setInterval(() => {
     const now = Date.now();
@@ -165,7 +152,6 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
   }, 5 * 60 * 1000);
   if (sweep.unref) sweep.unref();
 
-  // Lets the frontend know whether to show the Google button.
   router.get('/auth/google/status', (req, res) => res.json({ enabled }));
 
   router.get('/auth/google/start', (req, res) => {
@@ -176,7 +162,7 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
       access_type: 'online',
       scope: ['openid', 'email', 'profile'],
       state,
-      hd: ALLOWED_DOMAIN,        // hint Google to the firm domain
+      hd: ALLOWED_DOMAIN,
       prompt: 'select_account',
     });
     res.redirect(url);
@@ -197,18 +183,34 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
       const payload = decodeIdToken(tokens.id_token);
       validateIdTokenPayload(payload, clientId);
 
-      const decision = evaluateLogin(payload, findUserByEmail);
+      const email = String(payload.email || '').toLowerCase();
+
+      // --- Resolve roles: DATABASE first (all roles), else users.json ---
+      const fileStaff = findUserByEmail(email);
+      let dbRoles = [];
+      try {
+        dbRoles = await db.getUserRolesByEmail(email);
+      } catch (e) {
+        console.error('[GOOGLE-AUTH] role lookup failed:', e.message);
+      }
+      const roles = dbRoles.length ? dbRoles : (fileStaff ? [fileStaff.role] : []);
+      const staff = (dbRoles.length || fileStaff) ? {
+        id: fileStaff ? fileStaff.id : email,
+        name: fileStaff ? fileStaff.name : (payload.name || email.split('@')[0]),
+        roles,
+        disabled: fileStaff ? !!fileStaff.disabled : false,
+      } : null;
+
+      const decision = evaluateLogin(payload, staff);
       if (!decision.ok) {
         await db.writeAudit({
           action: 'auth.login.denied',
           targetType: 'user',
-          targetId: decision.email || (payload && payload.email) || 'unknown',
+          targetId: email || 'unknown',
           metadata: { via: 'google', reason: decision.reason },
         });
         return fail(decision.reason);
       }
-
-      const { staff, email } = decision;
 
       // Record identity in Neon (best-effort; never blocks login).
       let dbUserId = null;
@@ -226,19 +228,18 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
         action: 'auth.login',
         targetType: 'user',
         targetId: email,
-        metadata: { via: 'google', role: staff.role },
+        metadata: { via: 'google', roles: staff.roles },
       });
 
-      // Create the same kind of session the email/password path uses.
-      const token = createSession({ userId: staff.id, name: staff.name, role: staff.role });
-      console.log('[LOGIN] ' + staff.name + ' (' + staff.role + ') signed in via Google at ' + new Date().toISOString());
+      // Create the same kind of session the email/password path uses,
+      // now carrying ALL of the person's roles.
+      const token = createSession({ userId: staff.id, name: staff.name, roles: staff.roles });
+      console.log('[LOGIN] ' + staff.name + ' (' + staff.roles.join('/') + ') signed in via Google at ' + new Date().toISOString());
 
-      // Hand the token to the single-page app via the URL fragment, which
-      // (unlike a query string) is never sent to the server or logged.
       const frag =
         '#token=' + encodeURIComponent(token) +
         '&name=' + encodeURIComponent(staff.name) +
-        '&role=' + encodeURIComponent(staff.role);
+        '&role=' + encodeURIComponent(staff.roles[0] || '');
       res.redirect('/' + frag);
     } catch (err) {
       console.error('[GOOGLE-AUTH] callback error:', err.message);

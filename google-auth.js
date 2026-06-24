@@ -239,7 +239,8 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
       const frag =
         '#token=' + encodeURIComponent(token) +
         '&name=' + encodeURIComponent(staff.name) +
-        '&role=' + encodeURIComponent(staff.roles[0] || '');
+        '&role=' + encodeURIComponent(staff.roles[0] || '') +
+        '&roles=' + encodeURIComponent(staff.roles.join(','));
       res.redirect('/' + frag);
     } catch (err) {
       console.error('[GOOGLE-AUTH] callback error:', err.message);

@@ -778,7 +778,7 @@ function showPortal(name, role) {
   portal.style.display = 'flex';
 
   document.getElementById('user-name').textContent   = name;
-  document.getElementById('user-role').textContent   = role;
+  document.getElementById('user-role').textContent   = (role || '').split(',').filter(Boolean).join(', ');
   document.getElementById('user-avatar').textContent = name.charAt(0).toUpperCase();
 }
 
@@ -1022,7 +1022,7 @@ fetch('/auth/google/status')
     if (token) {
       sessionToken = token;
       history.replaceState(null, '', location.pathname);
-      showPortal(h.get('name') || 'User', h.get('role') || '');
+      showPortal(h.get('name') || 'User', h.get('roles') || h.get('role') || '');
       loadAgents();
     }
   }

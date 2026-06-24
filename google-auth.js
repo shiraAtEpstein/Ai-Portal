@@ -1,22 +1,13 @@
 // ============================================================
 // google-auth.js — "Sign in with Google" for the Firm AI Portal
-// Phase 2. Adds /auth/google/start and /auth/google/callback.
-// Sits ALONGSIDE the existing email/password login — does not replace it.
 //
-// HARDENED token exchange (fixes the intermittent
-//   "Premature close" failures between Render and Google):
-//   - The code->token POST goes through Node's built-in `https`
-//     module forced to IPv4 (family: 4), with Connection: close.
-//   - Identity is read straight from the token response's id_token
-//     (decoded locally) — NO second network call to fetch Google's
-//     signing keys.
-//   - The token exchange auto-retries up to 3 times on network drops.
+// HARDENED token exchange (fixes intermittent "Premature close"):
+//   IPv4-forced token POST, identity read from the id_token locally
+//   (no second network call), auto-retry up to 3 times.
 //
-// DAY 4 — roles are now database-driven:
-//   On login we read the person's role(s) from the database (all of
-//   them) and COMBINE their access. If the database has no role for
-//   them, we fall back to the users.json staff list. A person is
-//   allowed in if EITHER source knows them.
+// DAY 4 — roles are database-driven (read from DB, fall back to users.json).
+// DAY 5 — a successful Google login creates a DATABASE session (revocable,
+//   survives restarts). Disabled users (status='disabled') are refused.
 // ============================================================
 const express = require('express');
 const crypto = require('crypto');
@@ -26,16 +17,10 @@ const db = require('./db');
 
 const ALLOWED_DOMAIN = (process.env.GOOGLE_ALLOWED_DOMAIN || 'epsteinlaw.co.il').toLowerCase();
 
-// One reusable agent that forces IPv4. The intermittent "Premature close"
-// happens on the IPv6 path between Render and oauth2.googleapis.com, so we
-// pin every token request to IPv4 and never keep the socket alive.
 const ipv4Agent = new https.Agent({ family: 4, keepAlive: false });
 
-// --- Pure decision logic (exported for unit testing) -------------------
-// Given a verified Google token payload and an ALREADY-RESOLVED staff
-// object, decide whether this person may sign in. No side effects, no
-// lookups — the caller resolves the staff (from DB and/or users.json)
-// and passes it in. `staff` is { id, name, roles[], disabled } or null.
+// Decide whether a person may sign in, given a resolved staff object
+// ({ name, roles[], disabled } or null). Pure; exported for testing.
 function evaluateLogin(payload, staff, allowedDomain = ALLOWED_DOMAIN) {
   const email = String(payload.email || '').toLowerCase();
   if (!payload.email_verified) return { ok: false, reason: 'Email not verified by Google.' };
@@ -50,7 +35,6 @@ function evaluateLogin(payload, staff, allowedDomain = ALLOWED_DOMAIN) {
   return { ok: true, email, staff };
 }
 
-// --- Local id_token decode (no network) --------------------------------
 function decodeIdToken(idToken) {
   const parts = String(idToken || '').split('.');
   if (parts.length !== 3) throw new Error('malformed id_token');
@@ -59,15 +43,12 @@ function decodeIdToken(idToken) {
 
 function validateIdTokenPayload(payload, clientId) {
   const iss = payload && payload.iss;
-  if (iss !== 'accounts.google.com' && iss !== 'https://accounts.google.com') {
-    throw new Error('unexpected token issuer');
-  }
+  if (iss !== 'accounts.google.com' && iss !== 'https://accounts.google.com') throw new Error('unexpected token issuer');
   if (payload.aud !== clientId) throw new Error('token audience mismatch');
-  if (payload.exp && Math.floor(Date.now() / 1000) > Number(payload.exp) + 60) {
-    throw new Error('token expired');
-  }
+  if (payload.exp && Math.floor(Date.now() / 1000) > Number(payload.exp) + 60) throw new Error('token expired');
 }
 
+// createSession(userId, meta) -> token. Injected (database session creator).
 function createGoogleAuthRouter({ createSession, findUserByEmail }) {
   const router = express.Router();
 
@@ -124,13 +105,8 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
       try {
         const { status, body: respBody } = await postToken(body);
         let json;
-        try {
-          json = JSON.parse(respBody);
-        } catch (_) {
-          throw new Error('non-JSON token response (HTTP ' + status + ')');
-        }
+        try { json = JSON.parse(respBody); } catch (_) { throw new Error('non-JSON token response (HTTP ' + status + ')'); }
         if (status >= 200 && status < 300 && json.id_token) return json;
-
         const desc = json.error_description || json.error || ('HTTP ' + status);
         const err = new Error('token exchange rejected: ' + desc);
         err.permanent = status >= 400 && status < 500;
@@ -185,55 +161,42 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
 
       const email = String(payload.email || '').toLowerCase();
 
-      // --- Resolve roles: DATABASE first (all roles), else users.json ---
+      // --- Resolve identity & roles: DATABASE first, else users.json ---
       const fileStaff = findUserByEmail(email);
-      let dbRoles = [];
-      try {
-        dbRoles = await db.getUserRolesByEmail(email);
-      } catch (e) {
-        console.error('[GOOGLE-AUTH] role lookup failed:', e.message);
-      }
-      const roles = dbRoles.length ? dbRoles : (fileStaff ? [fileStaff.role] : []);
-      const staff = (dbRoles.length || fileStaff) ? {
-        id: fileStaff ? fileStaff.id : email,
-        name: fileStaff ? fileStaff.name : (payload.name || email.split('@')[0]),
+      let dbUser = null;
+      try { dbUser = await db.getUserAuthByEmail(email); } catch (e) { console.error('[GOOGLE-AUTH] auth lookup failed:', e.message); }
+
+      const disabled = (dbUser && dbUser.status === 'disabled') || (fileStaff ? !!fileStaff.disabled : false);
+      const roles = (dbUser && dbUser.roles.length) ? dbUser.roles : (fileStaff ? [fileStaff.role] : []);
+      const staff = (dbUser || fileStaff) ? {
+        name: (dbUser && dbUser.name) || (fileStaff && fileStaff.name) || payload.name || email.split('@')[0],
         roles,
-        disabled: fileStaff ? !!fileStaff.disabled : false,
+        disabled,
       } : null;
 
       const decision = evaluateLogin(payload, staff);
       if (!decision.ok) {
-        await db.writeAudit({
-          action: 'auth.login.denied',
-          targetType: 'user',
-          targetId: email || 'unknown',
-          metadata: { via: 'google', reason: decision.reason },
-        });
+        await db.writeAudit({ action: 'auth.login.denied', targetType: 'user', targetId: email || 'unknown', metadata: { via: 'google', reason: decision.reason } });
         return fail(decision.reason);
       }
 
-      // Record identity in Neon (best-effort; never blocks login).
-      let dbUserId = null;
+      // Upsert identity (gives us the canonical database user id).
+      let dbUserId = dbUser ? dbUser.id : null;
       try {
-        dbUserId = await db.upsertUserOnLogin({
-          googleSub: payload.sub,
-          email,
-          name: staff.name,
-        });
+        dbUserId = await db.upsertUserOnLogin({ googleSub: payload.sub, email, name: staff.name });
       } catch (e) {
         console.error('[GOOGLE-AUTH] user upsert failed:', e.message);
       }
-      await db.writeAudit({
-        actorId: dbUserId,
-        action: 'auth.login',
-        targetType: 'user',
-        targetId: email,
-        metadata: { via: 'google', roles: staff.roles },
-      });
+      await db.writeAudit({ actorId: dbUserId, action: 'auth.login', targetType: 'user', targetId: email, metadata: { via: 'google', roles: staff.roles } });
 
-      // Create the same kind of session the email/password path uses,
-      // now carrying ALL of the person's roles.
-      const token = createSession({ userId: staff.id, name: staff.name, roles: staff.roles });
+      // Create a DATABASE session (requires the db user id).
+      let token = null;
+      if (dbUserId) {
+        try { token = await createSession(dbUserId, { userAgent: req.headers['user-agent'] || null }); }
+        catch (e) { console.error('[GOOGLE-AUTH] session create failed:', e.message); }
+      }
+      if (!token) return fail('Sign-in could not complete (database unavailable). Please try again.');
+
       console.log('[LOGIN] ' + staff.name + ' (' + staff.roles.join('/') + ') signed in via Google at ' + new Date().toISOString());
 
       const frag =

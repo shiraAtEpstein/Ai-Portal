@@ -745,6 +745,87 @@
     .role-editor { margin-top: 10px; display: none; }
     .role-editor.open { display: block; }
 
+    /* ── MULTI-SELECT DROPDOWN ── */
+    .dropdown { position: relative; display: block; min-width: 240px; max-width: 360px; }
+    .dropdown-toggle {
+      width: 100%;
+      text-align: left;
+      padding: 11px 14px;
+      border: 2px solid var(--gray-200);
+      border-radius: 8px;
+      background: var(--white);
+      font-size: 14px;
+      color: var(--gray-800);
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .dropdown-toggle::after { content: '▾'; color: var(--gray-400); font-size: 12px; }
+    .dropdown.open .dropdown-toggle { border-color: var(--navy); }
+    .dropdown-toggle-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dropdown-toggle-text.placeholder { color: var(--gray-400); }
+    .dropdown-menu {
+      display: none;
+      position: absolute;
+      z-index: 10;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: var(--white);
+      border: 1px solid var(--gray-200);
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.14);
+      padding: 6px;
+      max-height: 240px;
+      overflow-y: auto;
+    }
+    .dropdown.open .dropdown-menu { display: block; }
+    .dropdown-opt {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .dropdown-opt:hover { background: var(--gray-50); }
+    .dropdown-opt input { accent-color: var(--navy); }
+
+    /* ── MODAL ── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(17,28,53,0.45);
+      z-index: 100;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 60px 20px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-box {
+      background: var(--white);
+      border-radius: 14px;
+      width: 460px;
+      max-width: 95vw;
+      padding: 26px;
+      box-shadow: 0 24px 70px rgba(0,0,0,0.3);
+    }
+    .modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+    .modal-head h2 { font-size: 16px; color: var(--navy); }
+    .modal-close {
+      border: none;
+      background: transparent;
+      font-size: 24px;
+      line-height: 1;
+      color: var(--gray-400);
+      cursor: pointer;
+    }
+    .modal-close:hover { color: var(--gray-800); }
+
     /* ── RESPONSIVE ── */
     @media (max-width: 640px) {
       .sidebar { width: 220px; min-width: 220px; }
@@ -880,26 +961,10 @@
         <h1>⚙ Manage Users</h1>
         <p>Invite staff, set their roles, and control access.</p>
       </div>
-      <button class="admin-back" id="admin-close-btn">← Back to portal</button>
-    </div>
-
-    <!-- Invite -->
-    <div class="admin-card">
-      <h2>Invite a new user</h2>
-      <div class="admin-field">
-        <label for="invite-email">Email (must be @epsteinlaw.co.il)</label>
-        <input type="email" id="invite-email" placeholder="name@epsteinlaw.co.il" spellcheck="false" />
+      <div style="display:flex; gap:10px; flex-shrink:0;">
+        <button class="admin-primary" id="open-invite-btn" style="margin-top:0;">+ Invite new user</button>
+        <button class="admin-back" id="admin-close-btn">← Back to portal</button>
       </div>
-      <div class="admin-field">
-        <label for="invite-name">Name (optional)</label>
-        <input type="text" id="invite-name" placeholder="Full name" />
-      </div>
-      <div class="admin-field">
-        <label>Roles</label>
-        <div class="role-pills" id="invite-roles"><!-- populated --></div>
-      </div>
-      <button class="admin-primary" id="invite-btn">Send invite</button>
-      <div class="admin-note" id="invite-note"></div>
     </div>
 
     <!-- Users list -->
@@ -922,6 +987,32 @@
       </table>
     </div>
 
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     INVITE MODAL (opens from the "Invite new user" button)
+══════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="invite-modal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h2>Invite a new user</h2>
+      <button class="modal-close" id="invite-modal-close" title="Close">×</button>
+    </div>
+    <div class="admin-field">
+      <label for="invite-email">Email (must be @epsteinlaw.co.il)</label>
+      <input type="email" id="invite-email" placeholder="name@epsteinlaw.co.il" spellcheck="false" />
+    </div>
+    <div class="admin-field">
+      <label for="invite-name">Name (optional)</label>
+      <input type="text" id="invite-name" placeholder="Full name" />
+    </div>
+    <div class="admin-field">
+      <label>Roles</label>
+      <div class="dropdown" id="invite-roles"><!-- populated --></div>
+    </div>
+    <button class="admin-primary" id="invite-btn">Send invite</button>
+    <div class="admin-note" id="invite-note"></div>
   </div>
 </div>
 
@@ -1221,7 +1312,7 @@ function authHeader() {
 // ══════════════════
 //  ADMIN — MANAGE USERS (Day 7)
 // ══════════════════
-let adminRoles = [];
+let adminRoles = [];   // role names this admin may assign (from the server)
 
 function esc(s) {
   return String(s == null ? '' : s)
@@ -1229,15 +1320,72 @@ function esc(s) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// ── Multi-select dropdown (a button that opens a list of checkboxes) ──
+function buildDropdown(container, selected) {
+  const sel = new Set(selected || []);
+  const opts = adminRoles.map(r =>
+    `<label class="dropdown-opt"><input type="checkbox" value="${esc(r)}" ${sel.has(r) ? 'checked' : ''}> ${esc(r)}</label>`
+  ).join('');
+  container.classList.add('dropdown');
+  container.innerHTML =
+    '<button type="button" class="dropdown-toggle"><span class="dropdown-toggle-text"></span></button>' +
+    '<div class="dropdown-menu">' + opts + '</div>';
+  container.querySelector('.dropdown-toggle').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const wasOpen = container.classList.contains('open');
+    closeAllDropdowns();
+    if (!wasOpen) container.classList.add('open');
+  });
+  container.querySelectorAll('.dropdown-menu input').forEach(cb => {
+    cb.addEventListener('click', (e) => e.stopPropagation());
+    cb.addEventListener('change', () => updateDropdownText(container));
+  });
+  updateDropdownText(container);
+}
+
+function updateDropdownText(container) {
+  const chosen = Array.from(container.querySelectorAll('input:checked')).map(cb => cb.value);
+  const txt = container.querySelector('.dropdown-toggle-text');
+  if (chosen.length) { txt.textContent = chosen.join(', '); txt.classList.remove('placeholder'); }
+  else { txt.textContent = 'Select roles…'; txt.classList.add('placeholder'); }
+}
+
+function dropdownValues(container) {
+  return Array.from(container.querySelectorAll('input:checked')).map(cb => cb.value);
+}
+
+function closeAllDropdowns() {
+  document.querySelectorAll('.dropdown.open').forEach(d => d.classList.remove('open'));
+}
+document.addEventListener('click', closeAllDropdowns);
+
+// ── Open / close the admin screen and the invite popup ──
 document.getElementById('admin-open-btn').addEventListener('click', openAdmin);
 document.getElementById('admin-close-btn').addEventListener('click', () => {
   document.getElementById('admin-screen').style.display = 'none';
+});
+document.getElementById('open-invite-btn').addEventListener('click', openInviteModal);
+document.getElementById('invite-modal-close').addEventListener('click', closeInviteModal);
+document.getElementById('invite-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'invite-modal') closeInviteModal();
 });
 document.getElementById('invite-btn').addEventListener('click', sendInvite);
 
 function openAdmin() {
   document.getElementById('admin-screen').style.display = 'block';
   loadAdminUsers();
+}
+
+function openInviteModal() {
+  document.getElementById('invite-email').value = '';
+  document.getElementById('invite-name').value = '';
+  document.getElementById('invite-note').className = 'admin-note';
+  renderInviteRoles();
+  document.getElementById('invite-modal').classList.add('open');
+}
+
+function closeInviteModal() {
+  document.getElementById('invite-modal').classList.remove('open');
 }
 
 async function loadAdminUsers() {
@@ -1251,7 +1399,6 @@ async function loadAdminUsers() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Could not load users.');
     adminRoles = data.roles || [];
-    renderInviteRoles();
     renderUsersTable(data.users || []);
   } catch (err) {
     tbody.innerHTML = '';
@@ -1260,14 +1407,9 @@ async function loadAdminUsers() {
   }
 }
 
+// Roles dropdown inside the invite popup.
 function renderInviteRoles() {
-  const box = document.getElementById('invite-roles');
-  box.innerHTML = adminRoles.map(r =>
-    `<label class="role-pill"><input type="checkbox" value="${esc(r)}"> ${esc(r)}</label>`
-  ).join('');
-  box.querySelectorAll('input').forEach(cb => {
-    cb.addEventListener('change', () => cb.closest('.role-pill').classList.toggle('checked', cb.checked));
-  });
+  buildDropdown(document.getElementById('invite-roles'), []);
 }
 
 function renderUsersTable(users) {
@@ -1278,10 +1420,6 @@ function renderUsersTable(users) {
   }
   tbody.innerHTML = users.map(u => {
     const rolesText = (u.roles && u.roles.length) ? u.roles.map(esc).join(', ') : '<span style="color:var(--gray-400)">none</span>';
-    const editor = adminRoles.map(r => {
-      const on = (u.roles || []).includes(r);
-      return `<label class="role-pill ${on ? 'checked' : ''}"><input type="checkbox" value="${esc(r)}" ${on ? 'checked' : ''}> ${esc(r)}</label>`;
-    }).join('');
     const toggle = (u.status === 'disabled')
       ? `<button class="row-btn go" data-act="enable" data-email="${esc(u.email)}">Enable</button>`
       : `<button class="row-btn danger" data-act="disable" data-email="${esc(u.email)}">Disable</button>`;
@@ -1293,7 +1431,7 @@ function renderUsersTable(users) {
         <td>
           <div>${rolesText}</div>
           <div class="role-editor" data-email="${esc(u.email)}">
-            <div class="role-pills" style="margin-top:8px;">${editor}</div>
+            <div class="dropdown" data-roledd="${esc(u.email)}" style="margin-top:8px;"></div>
             <button class="row-btn go" data-act="save-roles" data-email="${esc(u.email)}" style="margin-top:8px;">Save roles</button>
             <button class="row-btn" data-act="cancel-roles" data-email="${esc(u.email)}" style="margin-top:8px;">Cancel</button>
           </div>
@@ -1305,11 +1443,14 @@ function renderUsersTable(users) {
       </tr>`;
   }).join('');
 
-  tbody.querySelectorAll('button[data-act]').forEach(btn => {
-    btn.addEventListener('click', () => onRowAction(btn));
+  // Build a roles dropdown for each row, pre-selected to that user's roles.
+  users.forEach(u => {
+    const dd = tbody.querySelector('.dropdown[data-roledd="' + CSS.escape(u.email) + '"]');
+    if (dd) buildDropdown(dd, u.roles || []);
   });
-  tbody.querySelectorAll('.role-editor .role-pill input').forEach(cb => {
-    cb.addEventListener('change', () => cb.closest('.role-pill').classList.toggle('checked', cb.checked));
+
+  tbody.querySelectorAll('button[data-act]').forEach(btn => {
+    btn.addEventListener('click', (e) => { e.stopPropagation(); onRowAction(btn); });
   });
 }
 
@@ -1317,15 +1458,16 @@ function onRowAction(btn) {
   const act = btn.dataset.act;
   const email = btn.dataset.email;
   const editor = document.querySelector('.role-editor[data-email="' + CSS.escape(email) + '"]');
-  if (act === 'edit')          { editor.classList.add('open'); }
+  if (act === 'edit')              { editor.classList.add('open'); }
   else if (act === 'cancel-roles') { editor.classList.remove('open'); }
   else if (act === 'save-roles')   { saveRoles(email, editor); }
-  else if (act === 'disable')  { if (confirm('Disable ' + email + '? They will be signed out immediately.')) setStatus(email, 'disable'); }
-  else if (act === 'enable')   { setStatus(email, 'enable'); }
+  else if (act === 'disable')      { if (confirm('Disable ' + email + '? They will be signed out immediately.')) setStatus(email, 'disable'); }
+  else if (act === 'enable')       { setStatus(email, 'enable'); }
 }
 
 async function saveRoles(email, editor) {
-  const roles = Array.from(editor.querySelectorAll('input:checked')).map(cb => cb.value);
+  const dd = editor.querySelector('.dropdown[data-roledd]');
+  const roles = dropdownValues(dd);
   try {
     const res  = await fetch('/api/admin/set-roles', {
       method: 'POST',
@@ -1362,7 +1504,7 @@ async function setStatus(email, action) {
 async function sendInvite() {
   const email = document.getElementById('invite-email').value.trim();
   const name  = document.getElementById('invite-name').value.trim();
-  const roles = Array.from(document.querySelectorAll('#invite-roles input:checked')).map(cb => cb.value);
+  const roles = dropdownValues(document.getElementById('invite-roles'));
   const btn   = document.getElementById('invite-btn');
   if (!email) return flash('invite-note', 'Please enter an email address.', false);
 
@@ -1381,9 +1523,6 @@ async function sendInvite() {
       ? 'An invitation email was sent.'
       : 'Email is off, so share this link with them:<br><strong>' + esc(data.inviteLink) + '</strong>';
     flash('invite-note', msg, true, true);
-    document.getElementById('invite-email').value = '';
-    document.getElementById('invite-name').value = '';
-    renderInviteRoles();
     loadAdminUsers();
   } catch (err) {
     flash('invite-note', err.message, false);
@@ -1392,6 +1531,7 @@ async function sendInvite() {
   }
 }
 
+// Show a small success/error note. allowHtml only for trusted, pre-escaped text.
 function flash(id, text, ok, allowHtml) {
   const el = document.getElementById(id);
   if (allowHtml) el.innerHTML = text; else el.textContent = text;

@@ -1,6 +1,7 @@
 // ============================================================
 // db.js — PostgreSQL (Neon) connection + helpers
 // Phase 2 (auth) + Day 5 (DB sessions) + Day 6 (invites / onboarding).
+// Day 7: listAllUsers() for the admin management screen.
 // Safe to load even when DATABASE_URL is unset.
 // ============================================================
 const { Pool } = require('pg');
@@ -64,6 +65,34 @@ async function getUserAuthByEmail(email) {
   if (!r.rows[0]) return null;
   const row = r.rows[0];
   return { id: row.id, name: row.name, status: row.status, roles: row.roles || [] };
+}
+
+// --- Day 7: list every user for the admin screen ----------------------
+// Returns one row per user with status, roles, and useful timestamps.
+async function listAllUsers() {
+  const p = getPool();
+  if (!p) return [];
+  const r = await p.query(
+    `SELECT u.id, u.email, u.display_name AS name, u.status,
+        u.invited_at, u.invite_accepted_at, u.last_login_at,
+        COALESCE(array_agg(r.name ORDER BY r.id) FILTER (WHERE r.name IS NOT NULL), ARRAY[]::text[]) AS roles
+     FROM users u
+     LEFT JOIN role_assignments ra ON ra.user_id = u.id
+     LEFT JOIN roles r ON r.id = ra.role_id
+     GROUP BY u.id, u.email, u.display_name, u.status, u.invited_at, u.invite_accepted_at, u.last_login_at
+     ORDER BY
+       CASE u.status WHEN 'active' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
+       lower(u.email);`);
+  return r.rows.map((row) => ({
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    status: row.status,
+    roles: row.roles || [],
+    invitedAt: row.invited_at,
+    inviteAcceptedAt: row.invite_accepted_at,
+    lastLoginAt: row.last_login_at,
+  }));
 }
 
 // --- Day 6: invites ---------------------------------------------------
@@ -208,7 +237,7 @@ async function writeAudit({ actorId = null, action, targetType = null, targetId 
 
 module.exports = {
   getPool, ping,
-  getUserRolesByEmail, getUserAuthByEmail,
+  getUserRolesByEmail, getUserAuthByEmail, listAllUsers,
   createInvite, setUserRolesByName, getInviteByToken, markInviteAccepted, completeGoogleLogin,
   createSession, getSession, revokeSession, revokeUserSessions, setUserStatus,
   writeAudit,

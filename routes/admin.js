@@ -3,9 +3,10 @@
 // Day 5: disable / enable user (instant revocation).
 // Day 6: invite a user (create pending user + email the invite link).
 // Day 7: list all users (DB) + change a user's roles.
+// Email: sent via the Resend HTTP API (port 443) instead of SMTP,
+//        because the host blocks outbound SMTP ports. Fails fast.
 // ============================================================
 const express = require('express');
-const nodemailer = require('nodemailer');
 const db = require('../db');
 const { authenticate, requireAdmin } = require('../lib/sessions');
 const { agentsConfig } = require('../lib/access');
@@ -13,21 +14,12 @@ const { agentsConfig } = require('../lib/access');
 const ALLOWED_DOMAIN = (process.env.GOOGLE_ALLOWED_DOMAIN || 'epsteinlaw.co.il').toLowerCase();
 const BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://ai-portal-wf42.onrender.com').replace(/\/+$/, '');
 const INVITE_FROM = process.env.EMAIL_FROM || 'Epstein & Co. Portal <onboarding@resend.dev>';
+// The Resend API key. Prefer RESEND_API_KEY; fall back to EMAIL_PASS (already set).
+const RESEND_API_KEY = process.env.RESEND_API_KEY || process.env.EMAIL_PASS || '';
 
 // The role names an admin is allowed to assign (the keys of agents.json > roles).
 function assignableRoles() {
   return Object.keys(agentsConfig.roles || {});
-}
-
-// Build the email transport from env, or null if email isn't configured.
-function emailTransport() {
-  if (!process.env.EMAIL_HOST || !process.env.EMAIL_USER) return null;
-  return nodemailer.createTransport({
-    host: process.env.EMAIL_HOST,
-    port: parseInt(process.env.EMAIL_PORT || '587'),
-    secure: process.env.EMAIL_SECURE === 'true',
-    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-  });
 }
 
 function inviteEmailHtml({ inviterName, roleLabel, link, email }) {
@@ -44,20 +36,40 @@ function inviteEmailHtml({ inviterName, roleLabel, link, email }) {
   '</table></div>';
 }
 
+// Send the invite email through Resend's HTTPS API (port 443, not blocked).
+// Times out after 10s so the request can never hang the way SMTP did.
 async function sendInvite({ to, inviterName, roleLabel, link }) {
-  const t = emailTransport();
-  if (!t) return { sent: false, reason: 'email not configured' };
+  if (!RESEND_API_KEY) return { sent: false, reason: 'email not configured (no API key)' };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
   try {
-    await t.sendMail({
-      from: INVITE_FROM,
-      to,
-      subject: '[Action required] ' + inviterName + ' invited you to the Epstein & Co. AI Portal',
-      html: inviteEmailHtml({ inviterName, roleLabel, link, email: to }),
+    const resp = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + RESEND_API_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: INVITE_FROM,
+        to: [to],
+        subject: '[Action required] ' + inviterName + ' invited you to the Epstein & Co. AI Portal',
+        html: inviteEmailHtml({ inviterName, roleLabel, link, email: to }),
+      }),
+      signal: controller.signal,
     });
+    if (!resp.ok) {
+      let detail = 'HTTP ' + resp.status;
+      try { const j = await resp.json(); detail = j.message || j.error || JSON.stringify(j); } catch (_) { /* keep status */ }
+      console.error('[MAIL] invite send failed:', detail);
+      return { sent: false, reason: detail };
+    }
     return { sent: true };
   } catch (e) {
-    console.error('[MAIL] invite send failed:', e.message);
-    return { sent: false, reason: e.message };
+    const reason = (e && e.name === 'AbortError') ? 'timed out reaching Resend' : (e && e.message) || 'unknown error';
+    console.error('[MAIL] invite send failed:', reason);
+    return { sent: false, reason };
+  } finally {
+    clearTimeout(timer);
   }
 }
 

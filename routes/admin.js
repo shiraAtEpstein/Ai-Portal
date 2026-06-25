@@ -2,15 +2,22 @@
 // routes/admin.js — admin-only endpoints.
 // Day 5: disable / enable user (instant revocation).
 // Day 6: invite a user (create pending user + email the invite link).
+// Day 7: list all users (DB) + change a user's roles.
 // ============================================================
 const express = require('express');
 const nodemailer = require('nodemailer');
 const db = require('../db');
 const { authenticate, requireAdmin } = require('../lib/sessions');
+const { agentsConfig } = require('../lib/access');
 
 const ALLOWED_DOMAIN = (process.env.GOOGLE_ALLOWED_DOMAIN || 'epsteinlaw.co.il').toLowerCase();
 const BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://ai-portal-wf42.onrender.com').replace(/\/+$/, '');
 const INVITE_FROM = process.env.EMAIL_FROM || 'Epstein & Co. Portal <onboarding@resend.dev>';
+
+// The role names an admin is allowed to assign (the keys of agents.json > roles).
+function assignableRoles() {
+  return Object.keys(agentsConfig.roles || {});
+}
 
 // Build the email transport from env, or null if email isn't configured.
 function emailTransport() {
@@ -63,6 +70,18 @@ module.exports = function createAdminRouter({ loadUsers }) {
     res.json({ users: usersConfig.users.map(u => ({ id: u.id, name: u.name, role: u.role, email: u.email, disabled: u.disabled || false })) });
   });
 
+  // GET /api/admin/all-users — Day 7: every user from the DATABASE, with the
+  // list of role names an admin can assign. This is what the admin screen uses.
+  router.get('/api/admin/all-users', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const users = await db.listAllUsers();
+      res.json({ users, roles: assignableRoles() });
+    } catch (e) {
+      console.error('[ADMIN] list users failed:', e.message);
+      res.status(500).json({ error: 'Could not load the user list.' });
+    }
+  });
+
   // POST /api/admin/invite { email, name, roles[] } — invite a new user.
   router.post('/api/admin/invite', authenticate, requireAdmin, async (req, res) => {
     const email = String(req.body.email || '').trim().toLowerCase();
@@ -72,6 +91,10 @@ module.exports = function createAdminRouter({ loadUsers }) {
     roles = Array.isArray(roles) ? roles.filter(Boolean) : [];
     if (!email) return res.status(400).json({ error: 'email is required.' });
     if (!email.endsWith('@' + ALLOWED_DOMAIN)) return res.status(400).json({ error: 'Email must be a @' + ALLOWED_DOMAIN + ' address.' });
+
+    // Only accept role names we actually know about.
+    const known = new Set(assignableRoles());
+    roles = roles.filter(r => known.has(r));
 
     let invite;
     try {
@@ -90,6 +113,33 @@ module.exports = function createAdminRouter({ loadUsers }) {
 
     await db.writeAudit({ actorId: req.session.userId, action: 'user.invited', targetType: 'user', targetId: email, metadata: { roles, emailed: mail.sent } });
     res.json({ ok: true, email, status: 'pending', roles, inviteLink: link, emailed: mail.sent, emailError: mail.sent ? undefined : mail.reason });
+  });
+
+  // POST /api/admin/set-roles { email, roles[] } — Day 7: change a user's roles.
+  // Role changes take effect on the user's next request (sessions read roles live).
+  router.post('/api/admin/set-roles', authenticate, requireAdmin, async (req, res) => {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    let roles = req.body.roles;
+    if (typeof roles === 'string') roles = [roles];
+    roles = Array.isArray(roles) ? roles.filter(Boolean) : [];
+    if (!email) return res.status(400).json({ error: 'email is required.' });
+
+    // Only accept role names we actually know about.
+    const known = new Set(assignableRoles());
+    const unknown = roles.filter(r => !known.has(r));
+    if (unknown.length) return res.status(400).json({ error: 'Unknown role(s): ' + unknown.join(', ') });
+
+    const user = await db.getUserAuthByEmail(email);
+    if (!user) return res.status(404).json({ error: 'No such user in the database.' });
+
+    // Safety: don't let an admin remove their own admin access (avoids lockout).
+    if (user.id === req.session.userId && !roles.includes('admin')) {
+      return res.status(400).json({ error: "You can't remove your own admin access." });
+    }
+
+    await db.setUserRolesByName(user.id, roles);
+    await db.writeAudit({ actorId: req.session.userId, action: 'user.roles_changed', targetType: 'user', targetId: email, metadata: { roles } });
+    res.json({ ok: true, email, roles });
   });
 
   // POST /api/admin/disable { email }

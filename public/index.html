@@ -580,6 +580,171 @@
     #no-agent { display: flex; }
     #chat-view { display: none; flex-direction: column; flex: 1; overflow: hidden; }
 
+    /* ── ADMIN BUTTON (sidebar) ── */
+    .admin-btn {
+      width: 100%;
+      padding: 10px 14px;
+      margin-bottom: 8px;
+      border: 1px solid var(--gold);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--gold);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: center;
+      display: none; /* shown only for admins */
+    }
+    .admin-btn:hover { background: rgba(201,162,39,0.12); }
+
+    /* ── ADMIN SCREEN (overlay) ── */
+    #admin-screen {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: var(--gray-100);
+      z-index: 50;
+      overflow-y: auto;
+      padding: 28px;
+    }
+    .admin-wrap { max-width: 980px; margin: 0 auto; }
+    .admin-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 22px;
+    }
+    .admin-topbar h1 { font-size: 22px; color: var(--navy); font-weight: 700; }
+    .admin-topbar p { font-size: 13px; color: var(--gray-600); margin-top: 2px; }
+    .admin-back {
+      padding: 10px 18px;
+      border: 1px solid var(--gray-200);
+      border-radius: 8px;
+      background: var(--white);
+      color: var(--navy);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .admin-back:hover { background: var(--gray-50); }
+
+    .admin-card {
+      background: var(--white);
+      border: 1px solid var(--gray-200);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 22px;
+    }
+    .admin-card h2 { font-size: 15px; color: var(--navy); margin-bottom: 16px; }
+
+    .admin-field { margin-bottom: 14px; }
+    .admin-field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--gray-600);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .admin-field input {
+      width: 100%;
+      padding: 11px 14px;
+      border: 2px solid var(--gray-200);
+      border-radius: 8px;
+      font-size: 14px;
+      outline: none;
+    }
+    .admin-field input:focus { border-color: var(--navy); }
+
+    .role-pills { display: flex; flex-wrap: wrap; gap: 8px; }
+    .role-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 12px;
+      border: 2px solid var(--gray-200);
+      border-radius: 20px;
+      font-size: 13px;
+      color: var(--gray-800);
+      cursor: pointer;
+      user-select: none;
+    }
+    .role-pill input { accent-color: var(--navy); }
+    .role-pill.checked { border-color: var(--navy); background: var(--gray-50); }
+
+    .admin-primary {
+      margin-top: 6px;
+      padding: 12px 22px;
+      background: var(--navy);
+      color: var(--white);
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .admin-primary:hover { background: var(--navy-mid); }
+    .admin-primary:disabled { background: var(--gray-400); cursor: not-allowed; }
+
+    .admin-note {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.5;
+      display: none;
+      word-break: break-word;
+    }
+    .admin-note.ok  { background: #e7f6ec; border: 1px solid #b6e2c4; color: #1c7a42; display: block; }
+    .admin-note.err { background: #fde8ea; border: 1px solid #f5c6cb; color: var(--red); display: block; }
+
+    table.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.admin-table th {
+      text-align: left;
+      padding: 10px 10px;
+      color: var(--gray-600);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 2px solid var(--gray-200);
+    }
+    table.admin-table td {
+      padding: 12px 10px;
+      border-bottom: 1px solid var(--gray-200);
+      vertical-align: top;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: capitalize;
+    }
+    .status-active   { background: #e7f6ec; color: #1c7a42; }
+    .status-pending  { background: #fef3d7; color: #9a6b00; }
+    .status-disabled { background: #f1f3f5; color: var(--gray-600); }
+
+    .row-btn {
+      padding: 6px 12px;
+      border: 1px solid var(--gray-200);
+      border-radius: 7px;
+      background: var(--white);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-right: 6px;
+      margin-top: 4px;
+    }
+    .row-btn:hover { background: var(--gray-50); }
+    .row-btn.danger { color: var(--red); border-color: #f1c2c7; }
+    .row-btn.go     { color: #1c7a42; border-color: #b6e2c4; }
+
+    .role-editor { margin-top: 10px; display: none; }
+    .role-editor.open { display: block; }
+
     /* ── RESPONSIVE ── */
     @media (max-width: 640px) {
       .sidebar { width: 220px; min-width: 220px; }
@@ -660,6 +825,7 @@
     </div>
 
     <div class="sidebar-bottom">
+      <button class="admin-btn" id="admin-open-btn">⚙ Manage Users</button>
       <button class="logout-btn" id="logout-btn">Sign Out</button>
     </div>
   </div>
@@ -698,6 +864,62 @@
         </div>
         <div class="input-hint">Press Enter to send · Shift+Enter for new line</div>
       </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     ADMIN SCREEN (admins only)
+══════════════════════════════════════════════════════════ -->
+<div id="admin-screen">
+  <div class="admin-wrap">
+
+    <div class="admin-topbar">
+      <div>
+        <h1>⚙ Manage Users</h1>
+        <p>Invite staff, set their roles, and control access.</p>
+      </div>
+      <button class="admin-back" id="admin-close-btn">← Back to portal</button>
+    </div>
+
+    <!-- Invite -->
+    <div class="admin-card">
+      <h2>Invite a new user</h2>
+      <div class="admin-field">
+        <label for="invite-email">Email (must be @epsteinlaw.co.il)</label>
+        <input type="email" id="invite-email" placeholder="name@epsteinlaw.co.il" spellcheck="false" />
+      </div>
+      <div class="admin-field">
+        <label for="invite-name">Name (optional)</label>
+        <input type="text" id="invite-name" placeholder="Full name" />
+      </div>
+      <div class="admin-field">
+        <label>Roles</label>
+        <div class="role-pills" id="invite-roles"><!-- populated --></div>
+      </div>
+      <button class="admin-primary" id="invite-btn">Send invite</button>
+      <div class="admin-note" id="invite-note"></div>
+    </div>
+
+    <!-- Users list -->
+    <div class="admin-card">
+      <h2>All users</h2>
+      <div class="admin-note" id="users-note"></div>
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Status</th>
+            <th>Roles</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="users-tbody">
+          <tr><td colspan="5" style="color:var(--gray-400);">Loading…</td></tr>
+        </tbody>
+      </table>
     </div>
 
   </div>
@@ -780,6 +1002,12 @@ function showPortal(name, role) {
   document.getElementById('user-name').textContent   = name;
   document.getElementById('user-role').textContent   = (role || '').split(',').filter(Boolean).join(', ');
   document.getElementById('user-avatar').textContent = name.charAt(0).toUpperCase();
+
+
+  // Show the "Manage Users" button only if this person is an admin.
+  const roleList = (role || '').split(/[,\s]+/).map(r => r.trim().toLowerCase()).filter(Boolean);
+  const isAdmin = roleList.includes('admin');
+  document.getElementById('admin-open-btn').style.display = isAdmin ? 'block' : 'none';
 }
 
 // ══════════════════════════════════════════════════════════
@@ -988,6 +1216,186 @@ function handleSessionExpired() {
 // ══════════════════════════════════════════════════════════
 function authHeader() {
   return { 'Authorization': `Bearer ${sessionToken}` };
+}
+
+// ══════════════════
+//  ADMIN — MANAGE USERS (Day 7)
+// ══════════════════
+let adminRoles = [];
+
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+document.getElementById('admin-open-btn').addEventListener('click', openAdmin);
+document.getElementById('admin-close-btn').addEventListener('click', () => {
+  document.getElementById('admin-screen').style.display = 'none';
+});
+document.getElementById('invite-btn').addEventListener('click', sendInvite);
+
+function openAdmin() {
+  document.getElementById('admin-screen').style.display = 'block';
+  loadAdminUsers();
+}
+
+async function loadAdminUsers() {
+  const tbody = document.getElementById('users-tbody');
+  const note  = document.getElementById('users-note');
+  note.className = 'admin-note';
+  tbody.innerHTML = '<tr><td colspan="5" style="color:var(--gray-400);">Loading…</td></tr>';
+  try {
+    const res  = await fetch('/api/admin/all-users', { headers: authHeader() });
+    if (res.status === 401) return handleSessionExpired();
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not load users.');
+    adminRoles = data.roles || [];
+    renderInviteRoles();
+    renderUsersTable(data.users || []);
+  } catch (err) {
+    tbody.innerHTML = '';
+    note.textContent = err.message;
+    note.className = 'admin-note err';
+  }
+}
+
+function renderInviteRoles() {
+  const box = document.getElementById('invite-roles');
+  box.innerHTML = adminRoles.map(r =>
+    `<label class="role-pill"><input type="checkbox" value="${esc(r)}"> ${esc(r)}</label>`
+  ).join('');
+  box.querySelectorAll('input').forEach(cb => {
+    cb.addEventListener('change', () => cb.closest('.role-pill').classList.toggle('checked', cb.checked));
+  });
+}
+
+function renderUsersTable(users) {
+  const tbody = document.getElementById('users-tbody');
+  if (!users.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--gray-400);">No users yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = users.map(u => {
+    const rolesText = (u.roles && u.roles.length) ? u.roles.map(esc).join(', ') : '<span style="color:var(--gray-400)">none</span>';
+    const editor = adminRoles.map(r => {
+      const on = (u.roles || []).includes(r);
+      return `<label class="role-pill ${on ? 'checked' : ''}"><input type="checkbox" value="${esc(r)}" ${on ? 'checked' : ''}> ${esc(r)}</label>`;
+    }).join('');
+    const toggle = (u.status === 'disabled')
+      ? `<button class="row-btn go" data-act="enable" data-email="${esc(u.email)}">Enable</button>`
+      : `<button class="row-btn danger" data-act="disable" data-email="${esc(u.email)}">Disable</button>`;
+    return `
+      <tr>
+        <td>${esc(u.name) || '<span style="color:var(--gray-400)">—</span>'}</td>
+        <td>${esc(u.email)}</td>
+        <td><span class="status-badge status-${esc(u.status)}">${esc(u.status)}</span></td>
+        <td>
+          <div>${rolesText}</div>
+          <div class="role-editor" data-email="${esc(u.email)}">
+            <div class="role-pills" style="margin-top:8px;">${editor}</div>
+            <button class="row-btn go" data-act="save-roles" data-email="${esc(u.email)}" style="margin-top:8px;">Save roles</button>
+            <button class="row-btn" data-act="cancel-roles" data-email="${esc(u.email)}" style="margin-top:8px;">Cancel</button>
+          </div>
+        </td>
+        <td>
+          <button class="row-btn" data-act="edit" data-email="${esc(u.email)}">Edit roles</button>
+          ${toggle}
+        </td>
+      </tr>`;
+  }).join('');
+
+  tbody.querySelectorAll('button[data-act]').forEach(btn => {
+    btn.addEventListener('click', () => onRowAction(btn));
+  });
+  tbody.querySelectorAll('.role-editor .role-pill input').forEach(cb => {
+    cb.addEventListener('change', () => cb.closest('.role-pill').classList.toggle('checked', cb.checked));
+  });
+}
+
+function onRowAction(btn) {
+  const act = btn.dataset.act;
+  const email = btn.dataset.email;
+  const editor = document.querySelector('.role-editor[data-email="' + CSS.escape(email) + '"]');
+  if (act === 'edit')          { editor.classList.add('open'); }
+  else if (act === 'cancel-roles') { editor.classList.remove('open'); }
+  else if (act === 'save-roles')   { saveRoles(email, editor); }
+  else if (act === 'disable')  { if (confirm('Disable ' + email + '? They will be signed out immediately.')) setStatus(email, 'disable'); }
+  else if (act === 'enable')   { setStatus(email, 'enable'); }
+}
+
+async function saveRoles(email, editor) {
+  const roles = Array.from(editor.querySelectorAll('input:checked')).map(cb => cb.value);
+  try {
+    const res  = await fetch('/api/admin/set-roles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ email, roles }),
+    });
+    if (res.status === 401) return handleSessionExpired();
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not change roles.');
+    flash('users-note', 'Roles updated for ' + email + '.', true);
+    loadAdminUsers();
+  } catch (err) {
+    flash('users-note', err.message, false);
+  }
+}
+
+async function setStatus(email, action) {
+  try {
+    const res  = await fetch('/api/admin/' + action, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ email }),
+    });
+    if (res.status === 401) return handleSessionExpired();
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Action failed.');
+    flash('users-note', email + ' is now ' + (action === 'disable' ? 'disabled' : 'active') + '.', true);
+    loadAdminUsers();
+  } catch (err) {
+    flash('users-note', err.message, false);
+  }
+}
+
+async function sendInvite() {
+  const email = document.getElementById('invite-email').value.trim();
+  const name  = document.getElementById('invite-name').value.trim();
+  const roles = Array.from(document.querySelectorAll('#invite-roles input:checked')).map(cb => cb.value);
+  const btn   = document.getElementById('invite-btn');
+  if (!email) return flash('invite-note', 'Please enter an email address.', false);
+
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const res  = await fetch('/api/admin/invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ email, name, roles }),
+    });
+    if (res.status === 401) return handleSessionExpired();
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not send the invite.');
+    let msg = 'Invited ' + esc(email) + (roles.length ? ' as ' + esc(roles.join(', ')) : '') + '. ';
+    msg += data.emailed
+      ? 'An invitation email was sent.'
+      : 'Email is off, so share this link with them:<br><strong>' + esc(data.inviteLink) + '</strong>';
+    flash('invite-note', msg, true, true);
+    document.getElementById('invite-email').value = '';
+    document.getElementById('invite-name').value = '';
+    renderInviteRoles();
+    loadAdminUsers();
+  } catch (err) {
+    flash('invite-note', err.message, false);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Send invite';
+  }
+}
+
+function flash(id, text, ok, allowHtml) {
+  const el = document.getElementById(id);
+  if (allowHtml) el.innerHTML = text; else el.textContent = text;
+  el.className = 'admin-note ' + (ok ? 'ok' : 'err');
 }
 
 // ══ GOOGLE SIGN-IN (Phase 2) ══

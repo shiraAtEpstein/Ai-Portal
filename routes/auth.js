@@ -1,21 +1,25 @@
 // ============================================================
-// routes/auth.js — Day 8: logout only.
-// The email/password login and password-reset flows have been retired.
-// Sign-in is now Google-only (see google-auth.js), which is database-backed,
-// domain-restricted and invite-gated. The old endpoints return 410 Gone so
-// nothing silently half-works if something still calls them.
+// routes/auth.js — Day 8: session helpers (no password login).
+// Email/password login + reset are retired; sign-in is Google-only.
+//  - GET  /api/me      → who am I (used to restore the session after a refresh)
+//  - POST /api/logout  → revoke the session and clear the cookie
 // (Accepts and ignores any wiring args from server.js, so server.js is unchanged.)
 // ============================================================
 const express = require('express');
-const { authenticate, endSession } = require('../lib/sessions');
+const { authenticate, endSession, tokenFromReq, clearCookie } = require('../lib/sessions');
 
 module.exports = function createAuthRouter() {
   const router = express.Router();
 
-  // POST /api/logout — revoke the current database session.
+  // GET /api/me — current user, based on the session cookie or header.
+  router.get('/api/me', authenticate, (req, res) => {
+    res.json({ name: req.session.name, roles: req.session.roles || [] });
+  });
+
+  // POST /api/logout — revoke the database session and clear the cookie.
   router.post('/api/logout', authenticate, async (req, res) => {
-    const token = (req.headers.authorization || '').replace('Bearer ', '');
-    await endSession(token);
+    await endSession(tokenFromReq(req));
+    res.setHeader('Set-Cookie', clearCookie());
     res.json({ success: true });
   });
 

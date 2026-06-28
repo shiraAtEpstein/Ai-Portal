@@ -844,7 +844,7 @@
 <!-- ══════════════════════════════════════════════════════════
      LOGIN SCREEN
 ══════════════════════════════════════════════════════════ -->
-<div id="boot-loading" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#9aa0a8;font-family:Arial,Helvetica,sans-serif;font-size:14px;">Loading…</div>
+<div id="boot-loading" style="position:fixed;inset:0;z-index:9999;background:#ffffff;display:flex;align-items:center;justify-content:center;color:#9aa0a8;font-family:Arial,Helvetica,sans-serif;font-size:14px;">Loading…</div>
 <div id="login-screen" style="display:none">
   <div class="login-header">
     <div class="login-logo">⚖️</div>
@@ -1370,6 +1370,7 @@ document.addEventListener('click', closeAllDropdowns);
 document.getElementById('admin-open-btn').addEventListener('click', openAdmin);
 document.getElementById('admin-close-btn').addEventListener('click', () => {
   document.getElementById('admin-screen').style.display = 'none';
+  try { history.replaceState(null, '', currentAgent ? '#agent=' + encodeURIComponent(currentAgent) : location.pathname); } catch (e) {}
 });
 document.getElementById('open-invite-btn').addEventListener('click', openInviteModal);
 document.getElementById('invite-modal-close').addEventListener('click', closeInviteModal);
@@ -1380,6 +1381,7 @@ document.getElementById('invite-btn').addEventListener('click', sendInvite);
 
 function openAdmin() {
   document.getElementById('admin-screen').style.display = 'block';
+  try { history.replaceState(null, '', '#admin'); } catch (e) {}
   loadAdminUsers();
 }
 
@@ -1596,10 +1598,16 @@ function restoreAgentFromUrl() {
   const hideLoader = () => { if (loader) loader.style.display = 'none'; };
   const showLogin = () => { hideLoader(); document.getElementById('login-screen').style.display = ''; };
   const enterPortal = async (name, roles) => {
-    hideLoader();
     showPortal(name, roles);
     await loadAgents();
-    restoreAgentFromUrl();
+    if ((location.hash || '').indexOf('admin') !== -1) {
+      const adminBtn = document.getElementById('admin-open-btn');
+      if (adminBtn && adminBtn.style.display !== 'none') openAdmin();
+      else restoreAgentFromUrl();
+    } else {
+      restoreAgentFromUrl();
+    }
+    hideLoader();
   };
 
   const params = new URLSearchParams(location.search);

@@ -5,6 +5,7 @@
 // Day 7: list all users (DB) + change a user's roles.
 // Email: sent via the Gmail API using an OAuth refresh token (port 443).
 //        No SMTP (blocked on host) and no service-account key needed.
+// Branding: black & silver, firm logo from /logo.png.jpg.
 // ============================================================
 const express = require('express');
 const db = require('../db');
@@ -14,6 +15,7 @@ const { agentsConfig } = require('../lib/access');
 const ALLOWED_DOMAIN = (process.env.GOOGLE_ALLOWED_DOMAIN || 'epsteinlaw.co.il').toLowerCase();
 const BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://ai-portal-wf42.onrender.com').replace(/\/+$/, '');
 const INVITE_FROM = process.env.EMAIL_FROM || 'Epstein & Co. Portal <noreply@epsteinlaw.co.il>';
+const LOGO_URL = BASE_URL + '/logo.png.jpg';
 
 // Gmail (OAuth) credentials — set these in Render.
 const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID || '';
@@ -27,15 +29,15 @@ function assignableRoles() {
 
 function inviteEmailHtml({ inviterName, roleLabel, link, email }) {
   return '' +
-  '<div style="margin:0;padding:24px;background:#f1f3f6;font-family:Arial,Helvetica,sans-serif;">' +
-  '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #e6e8ec;">' +
-  '<tr><td style="padding:28px 32px 0 32px;text-align:center;"><div style="display:inline-block;border-bottom:3px solid #C9A227;padding-bottom:6px;"><span style="font-size:22px;font-weight:bold;letter-spacing:3px;color:#1A2744;">EPSTEIN &amp; CO.</span></div></td></tr>' +
-  '<tr><td style="padding:24px 40px 0 40px;text-align:center;"><h1 style="margin:0;font-size:22px;line-height:1.35;color:#1A2744;font-weight:bold;">' + inviterName + ' invited you to the<br>Epstein &amp; Co. AI Portal</h1></td></tr>' +
-  '<tr><td style="padding:14px 48px 0 48px;text-align:center;"><p style="margin:0;font-size:15px;line-height:1.6;color:#5b6472;">The firm’s secure workspace for AI assistants. You’ve been added as <strong style="color:#1A2744;">' + roleLabel + '</strong>. Click below to accept your invitation and sign in with your firm Google account.</p></td></tr>' +
-  '<tr><td style="padding:28px 32px 4px 32px;text-align:center;"><a href="' + link + '" style="display:inline-block;background:#1A8754;color:#ffffff;text-decoration:none;font-size:16px;font-weight:bold;padding:14px 38px;border-radius:8px;">Accept Invitation</a></td></tr>' +
-  '<tr><td style="padding:14px 32px 0 32px;text-align:center;"><p style="margin:0;font-size:13px;color:#8a929e;">This invitation expires in 7 days.</p></td></tr>' +
-  '<tr><td style="padding:26px 40px 0 40px;"><hr style="border:none;border-top:1px solid #e9ecef;margin:0 0 20px 0;"><p style="margin:0 0 6px 0;font-size:13px;color:#8a929e;text-transform:uppercase;letter-spacing:1px;">Your login email</p><p style="margin:0;font-size:15px;color:#1A2744;font-weight:bold;">' + email + '</p></td></tr>' +
-  '<tr><td style="padding:24px 40px 30px 40px;"><hr style="border:none;border-top:1px solid #e9ecef;margin:0 0 16px 0;"><p style="margin:0;font-size:12px;line-height:1.6;color:#aab0ba;">If you weren’t expecting this invitation, you can safely ignore this email. This link is unique to you &mdash; please don’t forward it.</p><p style="margin:12px 0 0 0;font-size:12px;color:#aab0ba;">&copy; Epstein &amp; Co. Law Firm</p></td></tr>' +
+  '<div style="margin:0;padding:24px;background:#ececef;font-family:Arial,Helvetica,sans-serif;">' +
+  '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:8px;overflow:hidden;border:1px solid #e2e3e7;">' +
+  '<tr><td style="background:#000000;padding:30px 32px 26px 32px;text-align:center;"><img src="' + LOGO_URL + '" alt="Epstein &amp; Co. Law Firm" width="260" style="display:block;width:260px;max-width:80%;height:auto;margin:0 auto;border:0;outline:none;text-decoration:none;"></td></tr>' +
+  '<tr><td style="padding:32px 44px 0 44px;text-align:center;"><h1 style="margin:0;font-size:21px;line-height:1.4;color:#15161a;font-weight:bold;">' + inviterName + ' invited you to the<br>Epstein &amp; Co. AI Portal</h1></td></tr>' +
+  '<tr><td style="padding:16px 46px 0 46px;text-align:center;"><p style="margin:0;font-size:15px;line-height:1.65;color:#565a62;">The firm’s secure workspace for AI assistants. You’ve been added as <strong style="color:#15161a;">' + roleLabel + '</strong>. Click below to accept your invitation and sign in with your firm Google account.</p></td></tr>' +
+  '<tr><td style="padding:30px 32px 6px 32px;text-align:center;"><a href="' + link + '" style="display:inline-block;background:#000000;color:#ececee;text-decoration:none;font-size:15px;font-weight:bold;letter-spacing:1px;padding:15px 44px;border:1px solid #b9bdc4;border-radius:4px;">Accept Invitation</a></td></tr>' +
+  '<tr><td style="padding:14px 32px 0 32px;text-align:center;"><p style="margin:0;font-size:13px;color:#9aa0a8;">This invitation expires in 7 days.</p></td></tr>' +
+  '<tr><td style="padding:28px 44px 0 44px;"><hr style="border:none;border-top:1px solid #ececee;margin:0 0 18px 0;"><p style="margin:0 0 6px 0;font-size:11px;color:#9aa0a8;text-transform:uppercase;letter-spacing:1.5px;">Your login email</p><p style="margin:0;font-size:15px;color:#15161a;font-weight:bold;">' + email + '</p></td></tr>' +
+  '<tr><td style="padding:24px 44px 30px 44px;"><hr style="border:none;border-top:1px solid #ececee;margin:0 0 16px 0;"><p style="margin:0;font-size:12px;line-height:1.6;color:#aab0b8;">If you weren’t expecting this invitation, you can safely ignore this email. This link is unique to you &mdash; please don’t forward it.</p><p style="margin:12px 0 0 0;font-size:12px;color:#aab0b8;">&copy; Epstein &amp; Co. Law Firm</p></td></tr>' +
   '</table></div>';
 }
 

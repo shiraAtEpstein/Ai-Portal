@@ -187,6 +187,8 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
       if (!token) return fail('Sign-in could not complete (database unavailable). Please try again.');
 
       console.log('[LOGIN] ' + staff.name + ' (' + staff.roles.join('/') + ') signed in via Google at ' + new Date().toISOString());
+      // Day 8: also set an httpOnly session cookie so a page refresh keeps you logged in.
+      res.setHeader('Set-Cookie', 'portal_session=' + encodeURIComponent(token) + '; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=28800');
       const frag = '#token=' + encodeURIComponent(token) + '&name=' + encodeURIComponent(staff.name) +
         '&role=' + encodeURIComponent(staff.roles[0] || '') + '&roles=' + encodeURIComponent(staff.roles.join(','));
       res.redirect('/' + frag);

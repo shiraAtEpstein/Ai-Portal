@@ -4,8 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Firm AI Portal</title>
-  <title>Firm AI Portal</title>
-<link rel="icon" type="image/png" href=""C:\Users\User\Downloads\logo.png.jpg"" />
   <style>
     /* ── Reset & Base ── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1521,9 +1519,8 @@ async function sendInvite() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Could not send the invite.');
     let msg = 'Invited ' + esc(email) + (roles.length ? ' as ' + esc(roles.join(', ')) : '') + '. ';
-    msg += data.emailed
-      ? 'An invitation email was sent.'
-      : 'Email is off, so share this link with them:<br><strong>' + esc(data.inviteLink) + '</strong>';
+    msg += data.emailed ? 'An invitation email was sent. ' : 'Email was not sent (' + esc(data.emailError || 'unknown') + '). ';
+    msg += 'Invite link (share this if needed):<br><strong>' + esc(data.inviteLink) + '</strong>';
     flash('invite-note', msg, true, true);
     loadAdminUsers();
   } catch (err) {

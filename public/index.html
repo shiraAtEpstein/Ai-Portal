@@ -1599,6 +1599,19 @@ fetch('/auth/google/status')
     }
   }
 })();
+
+// Day 8: if a session cookie is still valid (e.g. after a page refresh),
+// restore the portal without making the user sign in again.
+(async function restoreSession() {
+  if (sessionToken) return;
+  try {
+    const res = await fetch('/api/me');
+    if (!res.ok) return;
+    const d = await res.json();
+    showPortal(d.name || 'User', (d.roles || []).join(', '));
+    loadAgents();
+  } catch (e) {}
+})();
 </script>
 </body>
 </html>

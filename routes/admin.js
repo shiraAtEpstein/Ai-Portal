@@ -205,5 +205,23 @@ module.exports = function createAdminRouter({ loadUsers }) {
     res.json({ ok: true, email, status: 'active' });
   });
 
+  // POST /api/admin/delete-user { email } — permanently remove a user from the DB.
+  router.post('/api/admin/delete-user', authenticate, requireAdmin, async (req, res) => {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: 'email is required.' });
+    const user = await db.getUserAuthByEmail(email);
+    if (!user) return res.status(404).json({ error: 'No such user in the database.' });
+    if (user.id === req.session.userId) return res.status(400).json({ error: "You can't delete your own account." });
+    // Record the deletion first (the admin doing it stays in the system).
+    await db.writeAudit({ actorId: req.session.userId, action: 'user.deleted', targetType: 'user', targetId: email, metadata: { roles: user.roles, status: user.status } });
+    try {
+      const removed = await db.deleteUser(user.id);
+      res.json({ ok: true, email, deleted: removed });
+    } catch (e) {
+      console.error('[ADMIN] delete user failed:', e.message);
+      res.status(500).json({ error: 'Could not delete the user.' });
+    }
+  });
+
   return router;
 };

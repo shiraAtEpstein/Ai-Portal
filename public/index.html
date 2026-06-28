@@ -1439,6 +1439,7 @@ function renderUsersTable(users) {
         <td>
           <button class="row-btn" data-act="edit" data-email="${esc(u.email)}">Edit roles</button>
           ${toggle}
+          <button class="row-btn danger" data-act="delete" data-email="${esc(u.email)}">Delete</button>
         </td>
       </tr>`;
   }).join('');
@@ -1463,6 +1464,7 @@ function onRowAction(btn) {
   else if (act === 'save-roles')   { saveRoles(email, editor); }
   else if (act === 'disable')      { if (confirm('Disable ' + email + '? They will be signed out immediately.')) setStatus(email, 'disable'); }
   else if (act === 'enable')       { setStatus(email, 'enable'); }
+  else if (act === 'delete')       { deleteUser(email); }
 }
 
 async function saveRoles(email, editor) {
@@ -1495,6 +1497,24 @@ async function setStatus(email, action) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Action failed.');
     flash('users-note', email + ' is now ' + (action === 'disable' ? 'disabled' : 'active') + '.', true);
+    loadAdminUsers();
+  } catch (err) {
+    flash('users-note', err.message, false);
+  }
+}
+
+async function deleteUser(email) {
+  if (!confirm('Permanently DELETE ' + email + ' from the database? This removes the account entirely and cannot be undone.')) return;
+  try {
+    const res = await fetch('/api/admin/delete-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify({ email }),
+    });
+    if (res.status === 401) return handleSessionExpired();
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not delete the user.');
+    flash('users-note', email + ' was permanently deleted.', true);
     loadAdminUsers();
   } catch (err) {
     flash('users-note', err.message, false);

@@ -235,10 +235,33 @@ async function writeAudit({ actorId = null, action, targetType = null, targetId 
   } catch (e) { console.error('[DB] audit write failed:', e.message); }
 }
 
+// Day 7+: permanently delete a user and their related rows (in one transaction).
+// Audit history is kept but detached (actor_id set to NULL). Returns true if removed.
+async function deleteUser(userId) {
+  const p = getPool();
+  if (!p) return false;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('UPDATE audit_events SET actor_id = NULL WHERE actor_id = $1', [userId]);
+    await client.query('UPDATE users SET invited_by = NULL WHERE invited_by = $1', [userId]);
+    await client.query('DELETE FROM role_assignments WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM sessions WHERE user_id = $1', [userId]);
+    const r = await client.query('DELETE FROM users WHERE id = $1', [userId]);
+    await client.query('COMMIT');
+    return (r.rowCount || 0) > 0;
+  } catch (e) {
+    try { await client.query('ROLLBACK'); } catch (_) { /* ignore */ }
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   getPool, ping,
   getUserRolesByEmail, getUserAuthByEmail, listAllUsers,
   createInvite, setUserRolesByName, getInviteByToken, markInviteAccepted, completeGoogleLogin,
   createSession, getSession, revokeSession, revokeUserSessions, setUserStatus,
-  writeAudit,
+  writeAudit, deleteUser,
 };

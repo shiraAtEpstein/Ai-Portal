@@ -3,8 +3,8 @@
 // Day 5: disable / enable user (instant revocation).
 // Day 6: invite a user (create pending user + email the invite link).
 // Day 7: list all users (DB) + change a user's roles.
-// Email: sent via the Resend HTTP API (port 443) instead of SMTP,
-//        because the host blocks outbound SMTP ports. Fails fast.
+// Email: sent via the Gmail API using an OAuth refresh token (port 443).
+//        No SMTP (blocked on host) and no service-account key needed.
 // ============================================================
 const express = require('express');
 const db = require('../db');
@@ -13,9 +13,12 @@ const { agentsConfig } = require('../lib/access');
 
 const ALLOWED_DOMAIN = (process.env.GOOGLE_ALLOWED_DOMAIN || 'epsteinlaw.co.il').toLowerCase();
 const BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://ai-portal-wf42.onrender.com').replace(/\/+$/, '');
-const INVITE_FROM = process.env.EMAIL_FROM || 'Epstein & Co. Portal <onboarding@resend.dev>';
-// The Resend API key. Prefer RESEND_API_KEY; fall back to EMAIL_PASS (already set).
-const RESEND_API_KEY = process.env.RESEND_API_KEY || process.env.EMAIL_PASS || '';
+const INVITE_FROM = process.env.EMAIL_FROM || 'Epstein & Co. Portal <noreply@epsteinlaw.co.il>';
+
+// Gmail (OAuth) credentials — set these in Render.
+const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID || '';
+const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET || '';
+const GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN || '';
 
 // The role names an admin is allowed to assign (the keys of agents.json > roles).
 function assignableRoles() {
@@ -36,36 +39,59 @@ function inviteEmailHtml({ inviterName, roleLabel, link, email }) {
   '</table></div>';
 }
 
-// Send the invite email through Resend's HTTPS API (port 443, not blocked).
-// Times out after 10s so the request can never hang the way SMTP did.
+// Exchange the long-lived refresh token for a short-lived access token.
+async function gmailAccessToken(signal) {
+  const body = new URLSearchParams({
+    client_id: GMAIL_CLIENT_ID,
+    client_secret: GMAIL_CLIENT_SECRET,
+    refresh_token: GMAIL_REFRESH_TOKEN,
+    grant_type: 'refresh_token',
+  });
+  const resp = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+    signal,
+  });
+  const j = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error('auth: ' + (j.error_description || j.error || ('HTTP ' + resp.status)));
+  return j.access_token;
+}
+
+// Send the invite email through the Gmail API. Times out after 12s.
 async function sendInvite({ to, inviterName, roleLabel, link }) {
-  if (!RESEND_API_KEY) return { sent: false, reason: 'email not configured (no API key)' };
+  if (!GMAIL_CLIENT_ID || !GMAIL_REFRESH_TOKEN) return { sent: false, reason: 'email not configured' };
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
+  const timer = setTimeout(() => controller.abort(), 12000);
   try {
-    const resp = await fetch('https://api.resend.com/emails', {
+    const accessToken = await gmailAccessToken(controller.signal);
+    const subject = '[Action required] ' + inviterName + ' invited you to the Epstein & Co. AI Portal';
+    const html = inviteEmailHtml({ inviterName, roleLabel, link, email: to });
+    const bodyB64 = Buffer.from(html, 'utf8').toString('base64');
+    const mime =
+      'From: ' + INVITE_FROM + '\r\n' +
+      'To: ' + to + '\r\n' +
+      'Subject: ' + subject + '\r\n' +
+      'MIME-Version: 1.0\r\n' +
+      'Content-Type: text/html; charset="UTF-8"\r\n' +
+      'Content-Transfer-Encoding: base64\r\n\r\n' +
+      bodyB64;
+    const raw = Buffer.from(mime, 'utf8').toString('base64url');
+    const resp = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
       method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + RESEND_API_KEY,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: INVITE_FROM,
-        to: [to],
-        subject: '[Action required] ' + inviterName + ' invited you to the Epstein & Co. AI Portal',
-        html: inviteEmailHtml({ inviterName, roleLabel, link, email: to }),
-      }),
+      headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ raw }),
       signal: controller.signal,
     });
     if (!resp.ok) {
       let detail = 'HTTP ' + resp.status;
-      try { const j = await resp.json(); detail = j.message || j.error || JSON.stringify(j); } catch (_) { /* keep status */ }
+      try { const j = await resp.json(); detail = (j.error && j.error.message) || detail; } catch (_) { /* keep status */ }
       console.error('[MAIL] invite send failed:', detail);
       return { sent: false, reason: detail };
     }
     return { sent: true };
   } catch (e) {
-    const reason = (e && e.name === 'AbortError') ? 'timed out reaching Resend' : (e && e.message) || 'unknown error';
+    const reason = (e && e.name === 'AbortError') ? 'timed out reaching Google' : (e && e.message) || 'unknown error';
     console.error('[MAIL] invite send failed:', reason);
     return { sent: false, reason };
   } finally {

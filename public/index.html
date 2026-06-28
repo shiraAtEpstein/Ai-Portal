@@ -826,6 +826,11 @@
     }
     .modal-close:hover { color: var(--gray-800); }
 
+    /* Day 8: password login retired — Google sign-in only */
+    #email-input, label[for="email-input"],
+    #password-input, label[for="password-input"],
+    #login-btn, #google-divider { display: none !important; }
+
     /* ── RESPONSIVE ── */
     @media (max-width: 640px) {
       .sidebar { width: 220px; min-width: 220px; }

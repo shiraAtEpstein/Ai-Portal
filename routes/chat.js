@@ -5,6 +5,8 @@
 const express = require('express');
 const { authenticate } = require('../lib/sessions');
 const { agentsConfig, accessForRoles, topicRestrictionsFor } = require('../lib/access');
+const { rateLimit } = require('../lib/rate-limit');
+const chatLimiter = rateLimit({ windowMs: 60000, max: 20, name: 'chat requests' });
 
 // Lazy ESM import of the Claude Agent SDK (cached).
 let _agentSdkPromise = null;
@@ -28,7 +30,7 @@ module.exports = function createChatRouter() {
   });
 
   // POST /api/chat
-  router.post('/api/chat', authenticate, async (req, res) => {
+  router.post('/api/chat', authenticate, chatLimiter, async (req, res) => {
     const { agentId, message, history = [] } = req.body;
     const { roles, name } = req.session;
     if (!agentId || !message) return res.status(400).json({ error: 'agentId and message are required.' });

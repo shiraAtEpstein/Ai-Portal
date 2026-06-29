@@ -1190,6 +1190,7 @@ function newChat() {
   conversationId = null;
   conversationHistory = [];
   currentAgent = null;
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
   document.querySelectorAll('#conversation-list .agent-btn.active').forEach(function (b) { b.classList.remove('active'); });
   const sel = document.getElementById('agent-select');
   sel.disabled = false; sel.value = '';
@@ -1246,6 +1247,7 @@ async function openConversation(id, btn) {
     if (!res.ok) return;
     const conv = await res.json();
     conversationId = conv.id;
+    try { history.replaceState(null, '', '#c=' + encodeURIComponent(conv.id)); } catch (e) {}
     currentAgent = conv.agentId;
     conversationHistory = (conv.messages || []).map(function (m) { return { role: m.role, content: m.content }; });
     document.querySelectorAll('#conversation-list .agent-btn.active').forEach(function (b) { b.classList.remove('active'); });
@@ -1523,7 +1525,7 @@ document.addEventListener('click', closeAllDropdowns);
 document.getElementById('admin-open-btn').addEventListener('click', openAdmin);
 document.getElementById('admin-close-btn').addEventListener('click', () => {
   document.getElementById('admin-screen').style.display = 'none';
-  try { history.replaceState(null, '', currentAgent ? '#agent=' + encodeURIComponent(currentAgent) : location.pathname); } catch (e) {}
+  try { history.replaceState(null, '', conversationId ? '#c=' + encodeURIComponent(conversationId) : location.pathname); } catch (e) {}
 });
 document.getElementById('open-invite-btn').addEventListener('click', openInviteModal);
 document.getElementById('invite-modal-close').addEventListener('click', closeInviteModal);
@@ -1917,10 +1919,19 @@ function restoreAgentFromUrl() {
     showPortal(name, roles);
     await loadAgents();
     await loadConversations();
-    newChat();
-    if ((location.hash || '').indexOf('admin') !== -1) {
+    const hash = location.hash || '';
+    const convMatch = hash.match(/c=([^&]+)/);
+    if (hash.indexOf('admin') !== -1) {
+      newChat();
       const adminBtn = document.getElementById('admin-open-btn');
       if (adminBtn && adminBtn.style.display !== 'none') openAdmin();
+    } else if (convMatch) {
+      const id = decodeURIComponent(convMatch[1]);
+      const sel = (window.CSS && CSS.escape) ? CSS.escape(id) : id;
+      const item = document.querySelector('#conversation-list .agent-btn[data-id="' + sel + '"]');
+      if (item) { await openConversation(id, item); } else { newChat(); }
+    } else {
+      newChat();
     }
     hideLoader();
   };

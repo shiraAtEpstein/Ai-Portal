@@ -913,6 +913,7 @@
     </div>
 
     <div class="sidebar-bottom">
+      <button class="admin-btn" id="activity-open-btn">📋 Activity Log</button>
       <button class="admin-btn" id="admin-open-btn">⚙ Manage Users</button>
       <button class="logout-btn" id="logout-btn">Sign Out</button>
     </div>
@@ -969,7 +970,6 @@
         <p>Invite staff, set their roles, and control access.</p>
       </div>
       <div style="display:flex; gap:10px; flex-shrink:0;">
-        <button class="admin-back" id="open-audit-btn">History</button>
         <button class="admin-primary" id="open-invite-btn" style="margin-top:0;">+ Invite new user</button>
         <button class="admin-back" id="admin-close-btn">← Back to portal</button>
       </div>
@@ -1008,12 +1008,12 @@
   <div class="admin-wrap">
     <div class="admin-topbar">
       <div>
-        <h1>History</h1>
+        <h1>Activity Log</h1>
         <p>A record of who did what, and when.</p>
       </div>
       <div style="display:flex; gap:10px; flex-shrink:0;">
         <button class="admin-back" id="audit-refresh-btn">Refresh</button>
-        <button class="admin-back" id="audit-close-btn">← Back to users</button>
+        <button class="admin-back" id="audit-close-btn">← Back to portal</button>
       </div>
     </div>
     <div class="admin-card">
@@ -1145,6 +1145,7 @@ function showPortal(name, role) {
   const roleList = (role || '').split(/[,\s]+/).map(r => r.trim().toLowerCase()).filter(Boolean);
   const isAdmin = roleList.includes('admin');
   document.getElementById('admin-open-btn').style.display = isAdmin ? 'block' : 'none';
+  document.getElementById('activity-open-btn').style.display = isAdmin ? 'block' : 'none';
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1418,7 +1419,7 @@ document.getElementById('invite-modal').addEventListener('click', (e) => {
   if (e.target.id === 'invite-modal') closeInviteModal();
 });
 document.getElementById('invite-btn').addEventListener('click', sendInvite);
-document.getElementById('open-audit-btn').addEventListener('click', openAudit);
+document.getElementById('activity-open-btn').addEventListener('click', openAudit);
 document.getElementById('audit-close-btn').addEventListener('click', closeAudit);
 document.getElementById('audit-refresh-btn').addEventListener('click', loadAudit);
 document.getElementById('audit-q').addEventListener('input', renderAudit);
@@ -1442,6 +1443,7 @@ function openAdmin() {
 
 // ── History / audit log (Day 9) ──
 const AUDIT_LABELS = {
+  'agent.used': 'Used an agent',
   'auth.login': 'Signed in',
   'auth.login.denied': 'Sign-in denied',
   'auth.login.pending': 'Sign-in (pending invite)',

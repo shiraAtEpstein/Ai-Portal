@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Epstein &amp; Co. AI Portal</title>
-  <link rel="icon" type="image/jpeg" href="/smallLogo.png.jpg" />
+  <link rel="icon" type="image/jpeg" href="/logo.png.jpg" />
   <style>
     /* ── Reset & Base ── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -600,7 +600,7 @@
     .admin-btn:hover { background: rgba(201,162,39,0.12); }
 
     /* ── ADMIN SCREEN (overlay) ── */
-    #admin-screen {
+    #admin-screen, #audit-screen {
       display: none;
       position: fixed;
       inset: 0;
@@ -969,6 +969,7 @@
         <p>Invite staff, set their roles, and control access.</p>
       </div>
       <div style="display:flex; gap:10px; flex-shrink:0;">
+        <button class="admin-back" id="open-audit-btn">History</button>
         <button class="admin-primary" id="open-invite-btn" style="margin-top:0;">+ Invite new user</button>
         <button class="admin-back" id="admin-close-btn">← Back to portal</button>
       </div>
@@ -1000,6 +1001,44 @@
 <!-- ══════════════════════════════════════════════════════════
      INVITE MODAL (opens from the "Invite new user" button)
 ══════════════════════════════════════════════════════════ -->
+<!-- ══════════════════════════════════════════════════════════
+     HISTORY / AUDIT LOG (admins only)
+══════════════════════════════════════════════════════════ -->
+<div id="audit-screen">
+  <div class="admin-wrap">
+    <div class="admin-topbar">
+      <div>
+        <h1>History</h1>
+        <p>A record of who did what, and when.</p>
+      </div>
+      <div style="display:flex; gap:10px; flex-shrink:0;">
+        <button class="admin-back" id="audit-refresh-btn">Refresh</button>
+        <button class="admin-back" id="audit-close-btn">← Back to users</button>
+      </div>
+    </div>
+    <div class="admin-card">
+      <div class="admin-note" id="audit-note"></div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+        <input id="audit-q" placeholder="Search person or who it affected…" style="flex:1;min-width:180px;padding:9px 12px;border:2px solid var(--gray-200);border-radius:8px;font-size:13px;outline:none;">
+        <select id="audit-action" style="padding:9px 12px;border:2px solid var(--gray-200);border-radius:8px;font-size:13px;"><option value="">All actions</option></select>
+        <input id="audit-from" type="date" title="From date" style="padding:8px 10px;border:2px solid var(--gray-200);border-radius:8px;font-size:13px;">
+        <input id="audit-to" type="date" title="To date" style="padding:8px 10px;border:2px solid var(--gray-200);border-radius:8px;font-size:13px;">
+        <button class="row-btn" id="audit-clear">Clear</button>
+        <button class="row-btn go" id="audit-export">Export CSV</button>
+      </div>
+      <div id="audit-count" style="font-size:12px;color:var(--gray-600);margin-bottom:8px;"></div>
+      <table class="admin-table">
+        <thead>
+          <tr><th>When</th><th>Who</th><th>Action</th><th>On</th><th>Details</th></tr>
+        </thead>
+        <tbody id="audit-tbody">
+          <tr><td colspan="5" style="color:var(--gray-400);">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="invite-modal">
   <div class="modal-box">
     <div class="modal-head">
@@ -1379,11 +1418,152 @@ document.getElementById('invite-modal').addEventListener('click', (e) => {
   if (e.target.id === 'invite-modal') closeInviteModal();
 });
 document.getElementById('invite-btn').addEventListener('click', sendInvite);
+document.getElementById('open-audit-btn').addEventListener('click', openAudit);
+document.getElementById('audit-close-btn').addEventListener('click', closeAudit);
+document.getElementById('audit-refresh-btn').addEventListener('click', loadAudit);
+document.getElementById('audit-q').addEventListener('input', renderAudit);
+document.getElementById('audit-action').addEventListener('change', renderAudit);
+document.getElementById('audit-from').addEventListener('change', renderAudit);
+document.getElementById('audit-to').addEventListener('change', renderAudit);
+document.getElementById('audit-export').addEventListener('click', exportAudit);
+document.getElementById('audit-clear').addEventListener('click', function () {
+  document.getElementById('audit-q').value = '';
+  document.getElementById('audit-action').value = '';
+  document.getElementById('audit-from').value = '';
+  document.getElementById('audit-to').value = '';
+  renderAudit();
+});
 
 function openAdmin() {
   document.getElementById('admin-screen').style.display = 'block';
   try { history.replaceState(null, '', '#admin'); } catch (e) {}
   loadAdminUsers();
+}
+
+// ── History / audit log (Day 9) ──
+const AUDIT_LABELS = {
+  'auth.login': 'Signed in',
+  'auth.login.denied': 'Sign-in denied',
+  'auth.login.pending': 'Sign-in (pending invite)',
+  'user.invited': 'Invited a user',
+  'user.roles_changed': 'Changed roles',
+  'user.disabled': 'Disabled a user',
+  'user.enabled': 'Enabled a user',
+  'user.deleted': 'Deleted a user',
+};
+
+function openAudit() {
+  document.getElementById('audit-screen').style.display = 'block';
+  loadAudit();
+}
+function closeAudit() {
+  document.getElementById('audit-screen').style.display = 'none';
+}
+function fmtWhen(ts) {
+  try { return new Date(ts).toLocaleString(); } catch (e) { return esc(ts); }
+}
+function fmtDetails(meta) {
+  if (!meta || typeof meta !== 'object') return '';
+  const parts = [];
+  for (const k of Object.keys(meta)) {
+    let v = meta[k];
+    if (Array.isArray(v)) v = v.join(', ');
+    else if (v && typeof v === 'object') v = JSON.stringify(v);
+    parts.push(esc(k) + ': ' + esc(v));
+  }
+  return parts.join(' \u00b7 ');
+}
+
+let auditEvents = [];
+
+async function loadAudit() {
+  const tbody = document.getElementById('audit-tbody');
+  const note = document.getElementById('audit-note');
+  note.className = 'admin-note';
+  tbody.innerHTML = '<tr><td colspan="5" style="color:var(--gray-400);">Loading…</td></tr>';
+  try {
+    const res = await fetch('/api/admin/audit?limit=500', { headers: authHeader() });
+    if (res.status === 401) return handleSessionExpired();
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not load the history.');
+    auditEvents = data.events || [];
+    const sel = document.getElementById('audit-action');
+    const cur = sel.value;
+    const present = Array.from(new Set(auditEvents.map(function (e) { return e.action; })));
+    sel.innerHTML = '<option value="">All actions</option>' + present.map(function (a) {
+      return '<option value="' + esc(a) + '">' + esc(AUDIT_LABELS[a] || a) + '</option>';
+    }).join('');
+    sel.value = cur;
+    renderAudit();
+  } catch (err) {
+    tbody.innerHTML = '';
+    note.textContent = err.message;
+    note.className = 'admin-note err';
+  }
+}
+
+function filteredAudit() {
+  const q = (document.getElementById('audit-q').value || '').trim().toLowerCase();
+  const act = document.getElementById('audit-action').value || '';
+  const from = document.getElementById('audit-from').value || '';
+  const to = document.getElementById('audit-to').value || '';
+  const fromT = from ? new Date(from + 'T00:00:00').getTime() : null;
+  const toT = to ? new Date(to + 'T23:59:59').getTime() : null;
+  return auditEvents.filter(function (e) {
+    if (act && e.action !== act) return false;
+    const t = new Date(e.ts).getTime();
+    if (fromT && t < fromT) return false;
+    if (toT && t > toT) return false;
+    if (q) {
+      const hay = ((e.actorName || '') + ' ' + (e.actorEmail || '') + ' ' + (e.targetId || '')).toLowerCase();
+      if (hay.indexOf(q) === -1) return false;
+    }
+    return true;
+  });
+}
+
+function renderAudit() {
+  const tbody = document.getElementById('audit-tbody');
+  const rows = filteredAudit();
+  document.getElementById('audit-count').textContent = rows.length + ' event' + (rows.length === 1 ? '' : 's');
+  if (!rows.length) { tbody.innerHTML = '<tr><td colspan="5" style="color:var(--gray-400);">No matching events.</td></tr>'; return; }
+  tbody.innerHTML = rows.map(function (e) {
+    const who = e.actorName ? esc(e.actorName) : (e.actorEmail ? esc(e.actorEmail) : '<span style="color:var(--gray-400)">system</span>');
+    const action = esc(AUDIT_LABELS[e.action] || e.action);
+    return '<tr>' +
+      '<td style="white-space:nowrap;">' + fmtWhen(e.ts) + '</td>' +
+      '<td>' + who + '</td>' +
+      '<td>' + action + '</td>' +
+      '<td>' + (e.targetId ? esc(e.targetId) : '') + '</td>' +
+      '<td style="color:var(--gray-600);">' + fmtDetails(e.metadata) + '</td>' +
+      '</tr>';
+  }).join('');
+}
+
+function fmtDetailsPlain(meta) {
+  if (!meta || typeof meta !== 'object') return '';
+  return Object.keys(meta).map(function (k) {
+    let v = meta[k];
+    if (Array.isArray(v)) v = v.join(', ');
+    else if (v && typeof v === 'object') v = JSON.stringify(v);
+    return k + ': ' + v;
+  }).join(' | ');
+}
+
+function exportAudit() {
+  const rows = filteredAudit();
+  const head = ['When', 'Who', 'Email', 'Action', 'On', 'Details'];
+  const cell = function (s) { return '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"'; };
+  const lines = [head.map(cell).join(',')];
+  rows.forEach(function (e) {
+    lines.push([fmtWhen(e.ts), e.actorName || '', e.actorEmail || '', (AUDIT_LABELS[e.action] || e.action), e.targetId || '', fmtDetailsPlain(e.metadata)].map(cell).join(','));
+  });
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'epstein-portal-audit.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
 }
 
 function openInviteModal() {

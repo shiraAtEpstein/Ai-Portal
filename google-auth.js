@@ -163,7 +163,7 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
 
       const decision = evaluateLogin(payload, staff);
       if (!decision.ok) {
-        await db.writeAudit({ action: 'auth.login.denied', targetType: 'user', targetId: email || 'unknown', metadata: { via: 'google', reason: decision.reason } });
+        await db.writeAudit({ action: 'auth.login.denied', targetType: 'user', targetName: (staff && staff.name) || '(unknown)', metadata: { via: 'google', reason: decision.reason } });
         return fail(decision.reason);
       }
 
@@ -176,11 +176,11 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
       const finalStatus = result ? result.status : 'active';
 
       if (finalStatus !== 'active') {
-        await db.writeAudit({ actorId: dbUserId, action: 'auth.login.pending', targetType: 'user', targetId: email, metadata: { via: 'google' } });
+        await db.writeAudit({ actorId: dbUserId, actorName: staff.name, action: 'auth.login.pending', targetType: 'user', targetName: staff.name, metadata: { via: 'google' } });
         return fail('Please open the invitation link we emailed you to activate your account.');
       }
 
-      await db.writeAudit({ actorId: dbUserId, action: 'auth.login', targetType: 'user', targetId: email, metadata: { via: 'google', roles: staff.roles } });
+      await db.writeAudit({ actorId: dbUserId, actorName: staff.name, action: 'auth.login', targetType: 'user', targetName: staff.name, metadata: { via: 'google', roles: staff.roles } });
 
       let token = null;
       if (dbUserId) { try { token = await createSession(dbUserId, { userAgent: req.headers['user-agent'] || null }); } catch (e) { console.error('[GOOGLE-AUTH] session create failed:', e.message); } }

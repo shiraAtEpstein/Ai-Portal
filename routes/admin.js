@@ -132,12 +132,13 @@ module.exports = function createAdminRouter({ loadUsers }) {
   // POST /api/admin/invite { email, name, roles[] } — invite a new user.
   router.post('/api/admin/invite', authenticate, requireAdmin, async (req, res) => {
     const email = String(req.body.email || '').trim().toLowerCase();
-    const name = req.body.name ? String(req.body.name).trim() : null;
+    const name = req.body.name ? String(req.body.name).trim() : '';
     let roles = req.body.roles;
     if (typeof roles === 'string') roles = [roles];
     roles = Array.isArray(roles) ? roles.filter(Boolean) : [];
     if (!email) return res.status(400).json({ error: 'email is required.' });
     if (!email.endsWith('@' + ALLOWED_DOMAIN)) return res.status(400).json({ error: 'Email must be a @' + ALLOWED_DOMAIN + ' address.' });
+    if (!name) return res.status(400).json({ error: 'A name is required.' });
 
     // Only accept role names we actually know about.
     const known = new Set(assignableRoles());
@@ -148,6 +149,8 @@ module.exports = function createAdminRouter({ loadUsers }) {
       invite = await db.createInvite({ email, name, invitedBy: req.session.userId });
     } catch (e) {
       if (e.code === 'ALREADY_ACTIVE') return res.status(409).json({ error: 'That person is already an active member.' });
+      if (e.code === 'NAME_TAKEN') return res.status(409).json({ error: 'That name is already in use. Please use a different name.' });
+      if (e.code === 'NAME_REQUIRED') return res.status(400).json({ error: 'A name is required.' });
       console.error('[INVITE] createInvite failed:', e.message);
       return res.status(500).json({ error: 'Could not create the invite.' });
     }
@@ -158,7 +161,7 @@ module.exports = function createAdminRouter({ loadUsers }) {
     const roleLabel = roles.length ? roles.join(', ') : 'a member';
     const mail = await sendInvite({ to: email, inviterName, roleLabel, link });
 
-    await db.writeAudit({ actorId: req.session.userId, action: 'user.invited', targetType: 'user', targetId: email, metadata: { roles, emailed: mail.sent } });
+    await db.writeAudit({ actorId: req.session.userId, actorName: req.session.name, action: 'user.invited', targetType: 'user', targetName: name, metadata: { roles, emailed: mail.sent } });
     res.json({ ok: true, email, status: 'pending', roles, inviteLink: link, emailed: mail.sent, emailError: mail.sent ? undefined : mail.reason });
   });
 
@@ -185,7 +188,7 @@ module.exports = function createAdminRouter({ loadUsers }) {
     }
 
     await db.setUserRolesByName(user.id, roles);
-    await db.writeAudit({ actorId: req.session.userId, action: 'user.roles_changed', targetType: 'user', targetId: email, metadata: { roles } });
+    await db.writeAudit({ actorId: req.session.userId, actorName: req.session.name, action: 'user.roles_changed', targetType: 'user', targetName: user.name, metadata: { roles } });
     res.json({ ok: true, email, roles });
   });
 
@@ -197,7 +200,7 @@ module.exports = function createAdminRouter({ loadUsers }) {
     if (!user) return res.status(404).json({ error: 'No such user in the database.' });
     await db.setUserStatus(user.id, 'disabled');
     const revoked = await db.revokeUserSessions(user.id);
-    await db.writeAudit({ actorId: req.session.userId, action: 'user.disabled', targetType: 'user', targetId: email, metadata: { sessionsRevoked: revoked } });
+    await db.writeAudit({ actorId: req.session.userId, actorName: req.session.name, action: 'user.disabled', targetType: 'user', targetName: user.name, metadata: { sessionsRevoked: revoked } });
     res.json({ ok: true, email, status: 'disabled', sessionsRevoked: revoked });
   });
 
@@ -208,7 +211,7 @@ module.exports = function createAdminRouter({ loadUsers }) {
     const user = await db.getUserAuthByEmail(email);
     if (!user) return res.status(404).json({ error: 'No such user in the database.' });
     await db.setUserStatus(user.id, 'active');
-    await db.writeAudit({ actorId: req.session.userId, action: 'user.enabled', targetType: 'user', targetId: email, metadata: {} });
+    await db.writeAudit({ actorId: req.session.userId, actorName: req.session.name, action: 'user.enabled', targetType: 'user', targetName: user.name, metadata: {} });
     res.json({ ok: true, email, status: 'active' });
   });
 
@@ -220,7 +223,7 @@ module.exports = function createAdminRouter({ loadUsers }) {
     if (!user) return res.status(404).json({ error: 'No such user in the database.' });
     if (user.id === req.session.userId) return res.status(400).json({ error: "You can't delete your own account." });
     // Record the deletion first (the admin doing it stays in the system).
-    await db.writeAudit({ actorId: req.session.userId, action: 'user.deleted', targetType: 'user', targetId: email, metadata: { roles: user.roles, status: user.status } });
+    await db.writeAudit({ actorId: req.session.userId, actorName: req.session.name, action: 'user.deleted', targetType: 'user', targetName: user.name, metadata: { roles: user.roles, status: user.status } });
     try {
       const removed = await db.deleteUser(user.id);
       res.json({ ok: true, email, deleted: removed });

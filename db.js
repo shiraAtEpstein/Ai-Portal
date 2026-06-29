@@ -253,7 +253,9 @@ async function deleteUser(userId) {
   const client = await p.connect();
   try {
     await client.query('BEGIN');
-    await client.query('UPDATE audit_events SET actor_id = NULL WHERE actor_id = $1', [userId]);
+    // Note: we no longer touch audit_events here — it's append-only (tamper-proof),
+    // and the actor's NAME is already snapshotted into each entry, so a dangling
+    // actor_id is fine. (The FK to users is dropped by the tamper-proofing SQL.)
     await client.query('UPDATE users SET invited_by = NULL WHERE invited_by = $1', [userId]);
     await client.query('DELETE FROM role_assignments WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM sessions WHERE user_id = $1', [userId]);

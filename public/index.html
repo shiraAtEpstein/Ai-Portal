@@ -940,19 +940,19 @@
           <div class="chat-header-name" id="header-name">New chat</div>
           <div class="chat-header-desc" id="header-desc">Pick an agent to begin</div>
         </div>
-        <select id="agent-select" title="Choose an agent" style="padding:8px 10px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;background:#fff;color:var(--navy);max-width:230px;">
-          <option value="">Choose an agent…</option>
-        </select>
         <div class="status-dot" title="Online"></div>
       </div>
 
       <div class="messages" id="messages"></div>
 
       <div class="input-area">
-        <div class="input-row">
+        <div class="input-row" id="input-row">
+          <select id="agent-select" title="Choose an agent" style="align-self:center;padding:6px 8px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;background:#fff;color:var(--navy);max-width:160px;flex-shrink:0;">
+            <option value="">Choose agent…</option>
+          </select>
           <textarea
             id="message-input"
-            placeholder="Type your message…"
+            placeholder="Choose an agent to begin…"
             rows="1"
           ></textarea>
           <button id="send-btn" title="Send">➤</button>
@@ -1194,13 +1194,15 @@ function newChat() {
   document.querySelectorAll('#conversation-list .agent-btn.active').forEach(function (b) { b.classList.remove('active'); });
   const sel = document.getElementById('agent-select');
   sel.disabled = false; sel.value = '';
+  const nrow = document.getElementById('input-row'); if (nrow) nrow.style.borderColor = '';
+  document.getElementById('message-input').placeholder = 'Choose an agent to begin…';
   document.getElementById('header-icon').textContent = '🤖';
   document.getElementById('header-name').textContent = 'New chat';
   document.getElementById('header-desc').textContent = 'Pick an agent to begin';
   document.getElementById('no-agent').style.display = 'none';
   document.getElementById('chat-view').style.display = 'flex';
   document.getElementById('messages').innerHTML = '';
-  appendMessage('assistant', 'Pick an agent at the top, then type your message to start a new chat.');
+  appendMessage('assistant', 'Pick an agent in the message box below, then type to start a new chat.');
   const inp = document.getElementById('message-input'); if (inp) inp.focus();
 }
 
@@ -1213,16 +1215,29 @@ async function loadConversations() {
     list.innerHTML = '';
     (data.conversations || []).forEach(function (c) {
       const icon = agentIcons[c.agentId] || agentIcons.default;
-      const btn = document.createElement('button');
-      btn.className = 'agent-btn';
-      btn.dataset.id = c.id;
-      btn.innerHTML = '<span class="agent-icon">' + icon + '</span>' +
+      const item = document.createElement('div');
+      item.className = 'agent-btn';
+      item.dataset.id = c.id;
+      item.innerHTML = '<span class="agent-icon">' + icon + '</span>' +
         '<span class="agent-btn-info"><span class="agent-btn-name">' + esc(c.title || 'Chat') + '</span>' +
-        '<span class="agent-btn-desc">' + fmtConvTime(c.updatedAt) + '</span></span>';
-      btn.addEventListener('click', function () { openConversation(c.id, btn); });
-      list.appendChild(btn);
+        '<span class="agent-btn-desc">' + fmtConvTime(c.updatedAt) + '</span></span>' +
+        '<span class="conv-del" title="Delete chat" style="margin-left:auto;align-self:center;color:#dc3545;cursor:pointer;font-size:13px;padding:2px 4px;">🗑</span>';
+      item.addEventListener('click', function () { openConversation(c.id, item); });
+      item.querySelector('.conv-del').addEventListener('click', function (e) { e.stopPropagation(); deleteConversation(c.id); });
+      list.appendChild(item);
     });
   } catch (err) { console.error('Failed to load conversations:', err); }
+}
+
+async function deleteConversation(id) {
+  if (!confirm('Delete this chat permanently? This cannot be undone.')) return;
+  try {
+    const res = await fetch('/api/conversations/' + id, { method: 'DELETE', headers: authHeader() });
+    if (res.status === 401) return handleSessionExpired();
+    if (!res.ok) return;
+    if (conversationId === id) newChat();
+    loadConversations();
+  } catch (err) { console.error('delete conversation failed:', err); }
 }
 
 async function openConversation(id, btn) {
@@ -1239,6 +1254,8 @@ async function openConversation(id, btn) {
     const agent = agentsById[conv.agentId];
     const sel = document.getElementById('agent-select');
     sel.value = conv.agentId; sel.disabled = true;
+    const row = document.getElementById('input-row'); if (row) row.style.borderColor = agentColors[conv.agentId] || agentColors.default;
+    document.getElementById('message-input').placeholder = agent ? ('Message ' + agent.name + '…') : 'Type your message…';
     document.getElementById('header-icon').textContent = agentIcons[conv.agentId] || agentIcons.default;
     document.getElementById('header-name').textContent = agent ? agent.name : (conv.title || 'Chat');
     document.getElementById('header-desc').textContent = agent ? agent.description : '';
@@ -1251,14 +1268,22 @@ async function openConversation(id, btn) {
 }
 
 document.getElementById('new-chat-btn').addEventListener('click', newChat);
-document.getElementById('agent-select').addEventListener('change', function () {
-  const id = this.value;
+const agentColors = {
+  copywriter: '#C9A227', researcher: '#1A8754', paralegal: '#185FA5',
+  document_review: '#7F77DD', legal_research: '#1A2744', client_intake: '#D4537E', default: '#1A2744',
+};
+function applyAgentChoice(id) {
   currentAgent = id || null;
   const agent = agentsById[id];
+  const inp = document.getElementById('message-input');
+  const row = document.getElementById('input-row');
   document.getElementById('header-icon').textContent = agentIcons[id] || '🤖';
   document.getElementById('header-name').textContent = agent ? agent.name : 'New chat';
   document.getElementById('header-desc').textContent = agent ? agent.description : 'Pick an agent to begin';
-});
+  if (agent) { inp.placeholder = 'Message ' + agent.name + '…'; if (row) row.style.borderColor = agentColors[id] || agentColors.default; }
+  else { inp.placeholder = 'Choose an agent to begin…'; if (row) row.style.borderColor = ''; }
+}
+document.getElementById('agent-select').addEventListener('change', function () { applyAgentChoice(this.value); });
 
 // ══════════════════════════════════════════════════════════
 //  SELECT AGENT

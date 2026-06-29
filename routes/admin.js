@@ -230,5 +230,16 @@ module.exports = function createAdminRouter({ loadUsers }) {
     }
   });
 
+  // GET /api/admin/audit — Day 9: recent audit-log events (admin-only, read-only).
+  router.get('/api/admin/audit', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const events = await db.listAuditEvents(req.query.limit || 100);
+      res.json({ events });
+    } catch (e) {
+      console.error('[ADMIN] audit fetch failed:', e.message);
+      res.status(500).json({ error: 'Could not load the audit log.' });
+    }
+  });
+
   return router;
 };

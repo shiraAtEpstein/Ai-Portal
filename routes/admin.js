@@ -244,5 +244,28 @@ module.exports = function createAdminRouter({ loadUsers }) {
     }
   });
 
+  // POST /api/admin/resend-invite { email } — re-send a pending user's invite with a FRESH link.
+  router.post('/api/admin/resend-invite', authenticate, requireAdmin, async (req, res) => {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: 'email is required.' });
+    const user = await db.getUserAuthByEmail(email);
+    if (!user) return res.status(404).json({ error: 'No such user in the database.' });
+    if (user.status === 'active') return res.status(409).json({ error: 'That person is already active — no invite needed.' });
+    let invite;
+    try {
+      // Re-running createInvite rotates the token (old link stops working) and keeps their roles.
+      invite = await db.createInvite({ email, name: user.name, invitedBy: req.session.userId });
+    } catch (e) {
+      console.error('[INVITE] resend failed:', e.message);
+      return res.status(500).json({ error: 'Could not resend the invite.' });
+    }
+    const link = BASE_URL + '/accept?token=' + invite.token;
+    const inviterName = req.session.name || 'An administrator';
+    const roleLabel = (user.roles && user.roles.length) ? user.roles.join(', ') : 'a member';
+    const mail = await sendInvite({ to: email, inviterName, roleLabel, link });
+    await db.writeAudit({ actorId: req.session.userId, actorName: req.session.name, action: 'user.invite_resent', targetType: 'user', targetName: user.name, metadata: { emailed: mail.sent } });
+    res.json({ ok: true, email, inviteLink: link, emailed: mail.sent, emailError: mail.sent ? undefined : mail.reason });
+  });
+
   return router;
 };

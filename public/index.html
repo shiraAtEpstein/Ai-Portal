@@ -1050,8 +1050,8 @@
       <input type="email" id="invite-email" placeholder="name@epsteinlaw.co.il" spellcheck="false" />
     </div>
     <div class="admin-field">
-      <label for="invite-name">Name (optional)</label>
-      <input type="text" id="invite-name" placeholder="Full name" />
+      <label for="invite-name">Name</label>
+      <input type="text" id="invite-name" placeholder="Full name" required />
     </div>
     <div class="admin-field">
       <label>Roles</label>
@@ -1466,6 +1466,7 @@ function fmtDetails(meta) {
   if (!meta || typeof meta !== 'object') return '';
   const parts = [];
   for (const k of Object.keys(meta)) {
+    if (k === 'actor' || k === 'target') continue;
     let v = meta[k];
     if (Array.isArray(v)) v = v.join(', ');
     else if (v && typeof v === 'object') v = JSON.stringify(v);
@@ -1515,7 +1516,7 @@ function filteredAudit() {
     if (fromT && t < fromT) return false;
     if (toT && t > toT) return false;
     if (q) {
-      const hay = ((e.actorName || '') + ' ' + (e.actorEmail || '') + ' ' + (e.targetId || '')).toLowerCase();
+      const hay = ((e.actorName || '') + ' ' + (e.target || '')).toLowerCase();
       if (hay.indexOf(q) === -1) return false;
     }
     return true;
@@ -1528,13 +1529,13 @@ function renderAudit() {
   document.getElementById('audit-count').textContent = rows.length + ' event' + (rows.length === 1 ? '' : 's');
   if (!rows.length) { tbody.innerHTML = '<tr><td colspan="5" style="color:var(--gray-400);">No matching events.</td></tr>'; return; }
   tbody.innerHTML = rows.map(function (e) {
-    const who = e.actorName ? esc(e.actorName) : (e.actorEmail ? esc(e.actorEmail) : '<span style="color:var(--gray-400)">system</span>');
+    const who = e.actorName ? esc(e.actorName) : '<span style="color:var(--gray-400)">system</span>';
     const action = esc(AUDIT_LABELS[e.action] || e.action);
     return '<tr>' +
       '<td style="white-space:nowrap;">' + fmtWhen(e.ts) + '</td>' +
       '<td>' + who + '</td>' +
       '<td>' + action + '</td>' +
-      '<td>' + (e.targetId ? esc(e.targetId) : '') + '</td>' +
+      '<td>' + (e.target ? esc(e.target) : '') + '</td>' +
       '<td style="color:var(--gray-600);">' + fmtDetails(e.metadata) + '</td>' +
       '</tr>';
   }).join('');
@@ -1542,7 +1543,7 @@ function renderAudit() {
 
 function fmtDetailsPlain(meta) {
   if (!meta || typeof meta !== 'object') return '';
-  return Object.keys(meta).map(function (k) {
+  return Object.keys(meta).filter(function (k) { return k !== 'actor' && k !== 'target'; }).map(function (k) {
     let v = meta[k];
     if (Array.isArray(v)) v = v.join(', ');
     else if (v && typeof v === 'object') v = JSON.stringify(v);
@@ -1552,11 +1553,11 @@ function fmtDetailsPlain(meta) {
 
 function exportAudit() {
   const rows = filteredAudit();
-  const head = ['When', 'Who', 'Email', 'Action', 'On', 'Details'];
+  const head = ['When', 'Who', 'Action', 'On', 'Details'];
   const cell = function (s) { return '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"'; };
   const lines = [head.map(cell).join(',')];
   rows.forEach(function (e) {
-    lines.push([fmtWhen(e.ts), e.actorName || '', e.actorEmail || '', (AUDIT_LABELS[e.action] || e.action), e.targetId || '', fmtDetailsPlain(e.metadata)].map(cell).join(','));
+    lines.push([fmtWhen(e.ts), e.actorName || 'system', (AUDIT_LABELS[e.action] || e.action), e.target || '', fmtDetailsPlain(e.metadata)].map(cell).join(','));
   });
   const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -1717,6 +1718,7 @@ async function sendInvite() {
   const roles = dropdownValues(document.getElementById('invite-roles'));
   const btn   = document.getElementById('invite-btn');
   if (!email) return flash('invite-note', 'Please enter an email address.', false);
+  if (!name) return flash('invite-note', 'Please enter a name.', false);
 
   btn.disabled = true; btn.textContent = 'Sending…';
   try {

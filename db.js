@@ -103,6 +103,11 @@ async function createInvite({ email, name, invitedBy }) {
   const p = getPool();
   if (!p) throw new Error('database unavailable');
   const token = crypto.randomBytes(24).toString('hex');
+  // Day 9: name is required and must be unique across other users.
+  if (!name) { const e = new Error('name required'); e.code = 'NAME_REQUIRED'; throw e; }
+  const nameClash = await p.query(
+    'SELECT id FROM users WHERE lower(display_name) = lower($1) AND email <> $2', [name, email]);
+  if (nameClash.rows[0]) { const e = new Error('name taken'); e.code = 'NAME_TAKEN'; throw e; }
   const existing = await p.query('SELECT id, status FROM users WHERE email = $1', [email]);
   if (existing.rows[0]) {
     const u = existing.rows[0];
@@ -224,14 +229,18 @@ async function setUserStatus(userId, status) {
   return r.rows[0] || null;
 }
 
-async function writeAudit({ actorId = null, action, targetType = null, targetId = null, metadata = {} }) {
+// Day 9: store a NAME snapshot (actor in metadata, target in target_id) so the
+// log keeps showing names even after a user is deleted — and never stores email.
+async function writeAudit({ actorId = null, actorName = null, action, targetType = null, targetName = null, metadata = {} }) {
   const p = getPool();
   if (!p) return;
+  const meta = Object.assign({}, metadata || {});
+  if (actorName) meta.actor = actorName;
   try {
     await p.query(
       `INSERT INTO audit_events (actor_id, action, target_type, target_id, metadata)
        VALUES ($1, $2, $3, $4, $5::jsonb)`,
-      [actorId, action, targetType, targetId, JSON.stringify(metadata)]);
+      [actorId, action, targetType, targetName || null, JSON.stringify(meta)]);
   } catch (e) { console.error('[DB] audit write failed:', e.message); }
 }
 
@@ -265,17 +274,20 @@ async function listAuditEvents(limit = 100) {
   const lim = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500);
   const r = await p.query(
     `SELECT a.id, a.ts, a.action, a.target_type, a.target_id, a.metadata,
-        a.actor_id, u.display_name AS actor_name, u.email AS actor_email
+        u.display_name AS actor_name
      FROM audit_events a
      LEFT JOIN users u ON u.id = a.actor_id
      ORDER BY a.id DESC
      LIMIT $1`, [lim]);
-  return r.rows.map((row) => ({
-    id: row.id, ts: row.ts, action: row.action,
-    targetType: row.target_type, targetId: row.target_id,
-    metadata: row.metadata || {},
-    actorId: row.actor_id, actorName: row.actor_name, actorEmail: row.actor_email,
-  }));
+  return r.rows.map((row) => {
+    const md = row.metadata || {};
+    return {
+      id: row.id, ts: row.ts, action: row.action,
+      actorName: md.actor || row.actor_name || null,  // name snapshot survives deletion
+      target: row.target_id || md.target || null,     // name, never email
+      metadata: md,
+    };
+  });
 }
 
 module.exports = {

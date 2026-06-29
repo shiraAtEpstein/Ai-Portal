@@ -45,22 +45,22 @@ function validateIdTokenPayload(payload, clientId) {
 function shell(title, bodyHtml) {
   return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<title>' + title + '</title></head>' +
-    '<body style="margin:0;font-family:Arial,Helvetica,sans-serif;background:#f1f3f6;">' +
-    '<div style="max-width:480px;margin:60px auto;background:#fff;border:1px solid #e6e8ec;border-radius:14px;padding:40px 36px;text-align:center;">' +
-    '<div style="border-bottom:3px solid #C9A227;display:inline-block;padding-bottom:6px;margin-bottom:24px;">' +
-    '<span style="font-size:20px;font-weight:bold;letter-spacing:3px;color:#1A2744;">EPSTEIN &amp; CO.</span></div>' +
-    bodyHtml + '</div></body></html>';
+    '<body style="margin:0;font-family:Arial,Helvetica,sans-serif;background:#ececef;">' +
+    '<div style="max-width:480px;margin:60px auto;background:#ffffff;border:1px solid #e2e3e7;border-radius:14px;overflow:hidden;">' +
+    '<div style="background:#000000;padding:28px 32px;text-align:center;">' +
+    '<img src="/logo.png.jpg" alt="Epstein &amp; Co. Law Firm" style="display:block;width:230px;max-width:80%;height:auto;margin:0 auto;border:0;"></div>' +
+    '<div style="padding:32px 36px;text-align:center;">' + bodyHtml + '</div></div></body></html>';
 }
 function messagePage(title, message) {
-  return shell(title, '<h1 style="color:#1A2744;font-size:20px;">' + title + '</h1>' +
+  return shell(title, '<h1 style="color:#15161a;font-size:20px;">' + title + '</h1>' +
     '<p style="color:#5b6472;font-size:15px;line-height:1.6;">' + message + '</p>');
 }
 function acceptPage(email) {
   return shell('Accept your invitation',
-    '<h1 style="color:#1A2744;font-size:20px;">You’re invited to the Epstein &amp; Co. AI Portal</h1>' +
-    '<p style="color:#5b6472;font-size:15px;line-height:1.6;">Invitation accepted for <strong style="color:#1A2744;">' +
+    '<h1 style="color:#15161a;font-size:20px;">You’re invited to the Epstein &amp; Co. AI Portal</h1>' +
+    '<p style="color:#5b6472;font-size:15px;line-height:1.6;">Invitation accepted for <strong style="color:#15161a;">' +
     email + '</strong>. Click below to sign in with your firm Google account and finish setting up your access.</p>' +
-    '<a href="/auth/google/start" style="display:inline-block;margin-top:18px;background:#1A8754;color:#fff;text-decoration:none;font-size:16px;font-weight:bold;padding:14px 38px;border-radius:8px;">Continue to sign in</a>' +
+    '<a href="/auth/google/start" style="display:inline-block;margin-top:18px;background:#000000;color:#ffffff;text-decoration:none;font-size:16px;font-weight:bold;letter-spacing:1px;padding:14px 40px;border:1px solid #b9bdc4;border-radius:6px;">Continue to sign in</a>' +
     '<p style="color:#aab0ba;font-size:12px;margin-top:24px;">Be sure to sign in with <strong>' + email + '</strong>.</p>');
 }
 

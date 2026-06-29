@@ -137,8 +137,10 @@ module.exports = function createChatRouter() {
   // DELETE /api/conversations/:id — delete one of your chats.
   router.delete('/api/conversations/:id', authenticate, async (req, res) => {
     try {
+      const meta = await db.getConversationMeta(req.session.userId, req.params.id);
       const ok = await db.deleteConversation(req.session.userId, req.params.id);
       if (!ok) return res.status(404).json({ error: 'Conversation not found.' });
+      db.writeAudit({ actorId: req.session.userId, actorName: req.session.name, action: 'chat.deleted', targetType: 'conversation', targetName: (meta && meta.title) || 'a chat', metadata: {} }).catch(function () {});
       res.json({ ok: true });
     } catch (e) { console.error('[CHAT] delete conversation failed:', e.message); res.status(500).json({ error: 'Could not delete the chat.' }); }
   });

@@ -6,6 +6,7 @@ const express = require('express');
 const { authenticate } = require('../lib/sessions');
 const { agentsConfig, accessForRoles, topicRestrictionsFor } = require('../lib/access');
 const { rateLimit } = require('../lib/rate-limit');
+const db = require('../db');
 const chatLimiter = rateLimit({ windowMs: 60000, max: 20, name: 'chat requests' });
 
 // Lazy ESM import of the Claude Agent SDK (cached).
@@ -97,6 +98,7 @@ module.exports = function createChatRouter() {
       }
 
       console.log('[CHAT] ' + name + ' (' + (roles || []).join('/') + ') -> ' + agentId);
+      db.writeAudit({ actorId: req.session.userId, actorName: name, action: 'agent.used', targetType: 'agent', targetName: agent.name, metadata: {} }).catch(function () {});
       res.json({ response: responseText });
     } catch (error) {
       console.error('[ERROR] Agent SDK call failed:', error.message);

@@ -6,6 +6,7 @@
 // ============================================================
 const { Pool } = require('pg');
 const crypto = require('crypto');
+const enc = require('./lib/crypto');
 
 let pool = null;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -290,8 +291,65 @@ async function listAuditEvents(limit = 100) {
   });
 }
 
+// --- Chat history: conversations + messages (encrypted content) ---
+async function createConversation(userId, agentId, title) {
+  const p = getPool();
+  if (!p) return null;
+  const r = await p.query(
+    `INSERT INTO conversations (user_id, agent_id, title) VALUES ($1, $2, $3) RETURNING id`,
+    [userId, agentId, (String(title || '').trim().slice(0, 80)) || 'New chat']);
+  return r.rows[0] ? r.rows[0].id : null;
+}
+
+async function getConversationMeta(userId, convId) {
+  const p = getPool();
+  if (!p) return null;
+  const r = await p.query(
+    'SELECT id, agent_id, title FROM conversations WHERE id = $1 AND user_id = $2', [convId, userId]);
+  if (!r.rows[0]) return null;
+  return { id: r.rows[0].id, agentId: r.rows[0].agent_id, title: r.rows[0].title };
+}
+
+async function addMessage(convId, role, content) {
+  const p = getPool();
+  if (!p) return;
+  await p.query(
+    'INSERT INTO messages (conversation_id, role, content) VALUES ($1, $2, $3)',
+    [convId, role, enc.encrypt(content)]);
+  await p.query('UPDATE conversations SET updated_at = now() WHERE id = $1', [convId]);
+}
+
+async function listConversations(userId, limit = 100) {
+  const p = getPool();
+  if (!p) return [];
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 300);
+  const r = await p.query(
+    `SELECT id, agent_id, title, updated_at FROM conversations
+     WHERE user_id = $1 ORDER BY updated_at DESC LIMIT $2`, [userId, lim]);
+  return r.rows.map((row) => ({ id: row.id, agentId: row.agent_id, title: row.title, updatedAt: row.updated_at }));
+}
+
+async function getConversationMessages(userId, convId) {
+  const p = getPool();
+  if (!p) return null;
+  const meta = await getConversationMeta(userId, convId);
+  if (!meta) return null;
+  const r = await p.query(
+    'SELECT role, content, created_at FROM messages WHERE conversation_id = $1 ORDER BY id', [convId]);
+  const messages = r.rows.map((row) => ({ role: row.role, content: enc.decrypt(row.content), createdAt: row.created_at }));
+  return { id: meta.id, agentId: meta.agentId, title: meta.title, messages };
+}
+
+async function deleteConversation(userId, convId) {
+  const p = getPool();
+  if (!p) return false;
+  const r = await p.query('DELETE FROM conversations WHERE id = $1 AND user_id = $2', [convId, userId]);
+  return (r.rowCount || 0) > 0;
+}
+
 module.exports = {
   getPool, ping,
+  createConversation, getConversationMeta, addMessage, listConversations, getConversationMessages, deleteConversation,
   getUserRolesByEmail, getUserAuthByEmail, listAllUsers,
   createInvite, setUserRolesByName, getInviteByToken, markInviteAccepted, completeGoogleLogin,
   createSession, getSession, revokeSession, revokeUserSessions, setUserStatus,

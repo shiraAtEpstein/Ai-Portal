@@ -907,8 +907,11 @@
       </div>
     </div>
 
-    <div class="agents-label">Your Agents</div>
-    <div class="agent-list" id="agent-list">
+    <div style="padding:14px 12px 4px;">
+      <button id="new-chat-btn" style="width:100%;padding:10px 14px;border:1px solid var(--gold);border-radius:8px;background:transparent;color:var(--gold);font-size:13px;font-weight:600;cursor:pointer;">+ New chat</button>
+    </div>
+    <div class="agents-label">Recent chats</div>
+    <div class="agent-list" id="conversation-list">
       <!-- Populated dynamically -->
     </div>
 
@@ -923,10 +926,10 @@
   <div class="main">
 
     <!-- No agent selected -->
-    <div id="no-agent" class="welcome" style="flex:1; flex-direction:column;">
-      <div class="welcome-icon">👈</div>
-      <h2>Select an agent to start</h2>
-      <p>Choose an AI agent from the left panel. Each agent is specialised for a different task.</p>
+    <div id="no-agent" class="welcome" style="flex:1; flex-direction:column; display:none;">
+      <div class="welcome-icon">💬</div>
+      <h2>Start a new chat</h2>
+      <p>Click "New chat", pick an agent at the top, and type your message. Your past chats are on the left.</p>
     </div>
 
     <!-- Chat view (shown when an agent is selected) -->
@@ -934,9 +937,12 @@
       <div class="chat-header">
         <div class="chat-header-icon" id="header-icon">🤖</div>
         <div class="chat-header-info">
-          <div class="chat-header-name" id="header-name">Agent</div>
-          <div class="chat-header-desc" id="header-desc">—</div>
+          <div class="chat-header-name" id="header-name">New chat</div>
+          <div class="chat-header-desc" id="header-desc">Pick an agent to begin</div>
         </div>
+        <select id="agent-select" title="Choose an agent" style="padding:8px 10px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;background:#fff;color:var(--navy);max-width:230px;">
+          <option value="">Choose an agent…</option>
+        </select>
         <div class="status-dot" title="Online"></div>
       </div>
 
@@ -1069,6 +1075,8 @@
 let sessionToken   = null;
 let currentAgent   = null;
 let conversationHistory = [];
+let conversationId = null;
+let agentsById = {};
 let isLoading      = false;
 
 const agentIcons = {
@@ -1155,30 +1163,102 @@ async function loadAgents() {
   try {
     const res  = await fetch('/api/agents', { headers: authHeader() });
     const data = await res.json();
-
-    const list = document.getElementById('agent-list');
-    list.innerHTML = '';
-
-    data.agents.forEach(agent => {
-      const icon = agentIcons[agent.id] || agentIcons.default;
-      const btn  = document.createElement('button');
-      btn.className    = 'agent-btn';
-      btn.dataset.id   = agent.id;
-      btn.innerHTML    = `
-        <span class="agent-icon">${icon}</span>
-        <span class="agent-btn-info">
-          <span class="agent-btn-name">${agent.name}</span>
-          <span class="agent-btn-desc">${agent.description}</span>
-        </span>
-      `;
-      btn.addEventListener('click', () => selectAgent(agent, icon, btn));
-      list.appendChild(btn);
+    agentsById = {};
+    const sel = document.getElementById('agent-select');
+    sel.innerHTML = '<option value="">Choose an agent…</option>';
+    (data.agents || []).forEach(function (agent) {
+      agentsById[agent.id] = agent;
+      const o = document.createElement('option');
+      o.value = agent.id;
+      o.textContent = (agentIcons[agent.id] || agentIcons.default) + '  ' + agent.name;
+      sel.appendChild(o);
     });
-
   } catch (err) {
     console.error('Failed to load agents:', err);
   }
 }
+
+function fmtConvTime(ts) {
+  try {
+    const d = new Date(ts), now = new Date();
+    return d.toDateString() === now.toDateString()
+      ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : d.toLocaleDateString();
+  } catch (e) { return ''; }
+}
+
+function newChat() {
+  conversationId = null;
+  conversationHistory = [];
+  currentAgent = null;
+  document.querySelectorAll('#conversation-list .agent-btn.active').forEach(function (b) { b.classList.remove('active'); });
+  const sel = document.getElementById('agent-select');
+  sel.disabled = false; sel.value = '';
+  document.getElementById('header-icon').textContent = '🤖';
+  document.getElementById('header-name').textContent = 'New chat';
+  document.getElementById('header-desc').textContent = 'Pick an agent to begin';
+  document.getElementById('no-agent').style.display = 'none';
+  document.getElementById('chat-view').style.display = 'flex';
+  document.getElementById('messages').innerHTML = '';
+  appendMessage('assistant', 'Pick an agent at the top, then type your message to start a new chat.');
+  const inp = document.getElementById('message-input'); if (inp) inp.focus();
+}
+
+async function loadConversations() {
+  try {
+    const res = await fetch('/api/conversations', { headers: authHeader() });
+    if (!res.ok) return;
+    const data = await res.json();
+    const list = document.getElementById('conversation-list');
+    list.innerHTML = '';
+    (data.conversations || []).forEach(function (c) {
+      const icon = agentIcons[c.agentId] || agentIcons.default;
+      const btn = document.createElement('button');
+      btn.className = 'agent-btn';
+      btn.dataset.id = c.id;
+      btn.innerHTML = '<span class="agent-icon">' + icon + '</span>' +
+        '<span class="agent-btn-info"><span class="agent-btn-name">' + esc(c.title || 'Chat') + '</span>' +
+        '<span class="agent-btn-desc">' + fmtConvTime(c.updatedAt) + '</span></span>';
+      btn.addEventListener('click', function () { openConversation(c.id, btn); });
+      list.appendChild(btn);
+    });
+  } catch (err) { console.error('Failed to load conversations:', err); }
+}
+
+async function openConversation(id, btn) {
+  try {
+    const res = await fetch('/api/conversations/' + id, { headers: authHeader() });
+    if (res.status === 401) return handleSessionExpired();
+    if (!res.ok) return;
+    const conv = await res.json();
+    conversationId = conv.id;
+    currentAgent = conv.agentId;
+    conversationHistory = (conv.messages || []).map(function (m) { return { role: m.role, content: m.content }; });
+    document.querySelectorAll('#conversation-list .agent-btn.active').forEach(function (b) { b.classList.remove('active'); });
+    if (btn) btn.classList.add('active');
+    const agent = agentsById[conv.agentId];
+    const sel = document.getElementById('agent-select');
+    sel.value = conv.agentId; sel.disabled = true;
+    document.getElementById('header-icon').textContent = agentIcons[conv.agentId] || agentIcons.default;
+    document.getElementById('header-name').textContent = agent ? agent.name : (conv.title || 'Chat');
+    document.getElementById('header-desc').textContent = agent ? agent.description : '';
+    document.getElementById('no-agent').style.display = 'none';
+    document.getElementById('chat-view').style.display = 'flex';
+    document.getElementById('messages').innerHTML = '';
+    (conv.messages || []).forEach(function (m) { appendMessage(m.role, m.content); });
+    if (!conv.messages || !conv.messages.length) appendMessage('assistant', 'No messages in this chat yet.');
+  } catch (err) { console.error('open conversation failed:', err); }
+}
+
+document.getElementById('new-chat-btn').addEventListener('click', newChat);
+document.getElementById('agent-select').addEventListener('change', function () {
+  const id = this.value;
+  currentAgent = id || null;
+  const agent = agentsById[id];
+  document.getElementById('header-icon').textContent = agentIcons[id] || '🤖';
+  document.getElementById('header-name').textContent = agent ? agent.name : 'New chat';
+  document.getElementById('header-desc').textContent = agent ? agent.description : 'Pick an agent to begin';
+});
 
 // ══════════════════════════════════════════════════════════
 //  SELECT AGENT
@@ -1230,7 +1310,8 @@ async function sendMessage() {
   const input = document.getElementById('message-input');
   const msg   = input.value.trim();
 
-  if (!msg || isLoading || !currentAgent) return;
+  if (!msg || isLoading) return;
+  if (!currentAgent) { appendMessage('assistant', '⚠️ Please choose an agent at the top first.'); return; }
 
   isLoading = true;
   input.value = '';
@@ -1251,7 +1332,9 @@ async function sendMessage() {
       body:    JSON.stringify({
         agentId: currentAgent,
         message: msg,
-        history: conversationHistory.slice(0, -1), // don't double-send last message
+        history: conversationHistory.slice(0, -1),
+        conversationId: conversationId,
+        persist: true,
       }),
     });
 
@@ -1264,6 +1347,11 @@ async function sendMessage() {
     } else {
       appendMessage('assistant', data.response);
       conversationHistory.push({ role: 'assistant', content: data.response });
+      if (data.conversationId && !conversationId) {
+        conversationId = data.conversationId;
+        document.getElementById('agent-select').disabled = true;
+        loadConversations();
+      }
     }
 
   } catch (err) {
@@ -1785,12 +1873,11 @@ function restoreAgentFromUrl() {
   const enterPortal = async (name, roles) => {
     showPortal(name, roles);
     await loadAgents();
+    await loadConversations();
+    newChat();
     if ((location.hash || '').indexOf('admin') !== -1) {
       const adminBtn = document.getElementById('admin-open-btn');
       if (adminBtn && adminBtn.style.display !== 'none') openAdmin();
-      else restoreAgentFromUrl();
-    } else {
-      restoreAgentFromUrl();
     }
     hideLoader();
   };

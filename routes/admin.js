@@ -27,6 +27,13 @@ function assignableRoles() {
   return Object.keys(agentsConfig.roles || {});
 }
 
+// Escape values before they go into the HTML email (defence-in-depth).
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function inviteEmailHtml({ inviterName, roleLabel, link, email }) {
   return '' +
   '<div style="margin:0;padding:24px;background:#ececef;font-family:Arial,Helvetica,sans-serif;">' +
@@ -68,7 +75,7 @@ async function sendInvite({ to, inviterName, roleLabel, link }) {
   try {
     const accessToken = await gmailAccessToken(controller.signal);
     const subject = '[Action required] ' + inviterName + ' invited you to the Epstein & Co. AI Portal';
-    const html = inviteEmailHtml({ inviterName, roleLabel, link, email: to });
+    const html = inviteEmailHtml({ inviterName: esc(inviterName), roleLabel: esc(roleLabel), link: esc(link), email: esc(to) });
     const bodyB64 = Buffer.from(html, 'utf8').toString('base64');
     const mime =
       'From: ' + INVITE_FROM + '\r\n' +

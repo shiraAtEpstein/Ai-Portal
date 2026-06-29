@@ -258,10 +258,30 @@ async function deleteUser(userId) {
   }
 }
 
+// Day 9: read recent audit events (with the actor's name/email).
+async function listAuditEvents(limit = 100) {
+  const p = getPool();
+  if (!p) return [];
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500);
+  const r = await p.query(
+    `SELECT a.id, a.ts, a.action, a.target_type, a.target_id, a.metadata,
+        a.actor_id, u.display_name AS actor_name, u.email AS actor_email
+     FROM audit_events a
+     LEFT JOIN users u ON u.id = a.actor_id
+     ORDER BY a.id DESC
+     LIMIT $1`, [lim]);
+  return r.rows.map((row) => ({
+    id: row.id, ts: row.ts, action: row.action,
+    targetType: row.target_type, targetId: row.target_id,
+    metadata: row.metadata || {},
+    actorId: row.actor_id, actorName: row.actor_name, actorEmail: row.actor_email,
+  }));
+}
+
 module.exports = {
   getPool, ping,
   getUserRolesByEmail, getUserAuthByEmail, listAllUsers,
   createInvite, setUserRolesByName, getInviteByToken, markInviteAccepted, completeGoogleLogin,
   createSession, getSession, revokeSession, revokeUserSessions, setUserStatus,
-  writeAudit, deleteUser,
+  writeAudit, deleteUser, listAuditEvents,
 };

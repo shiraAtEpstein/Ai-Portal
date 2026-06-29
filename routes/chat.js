@@ -32,7 +32,7 @@ module.exports = function createChatRouter() {
 
   // POST /api/chat
   router.post('/api/chat', authenticate, chatLimiter, async (req, res) => {
-    const { agentId, message, history = [] } = req.body;
+    const { agentId, message, history = [], conversationId, persist } = req.body;
     const { roles, name } = req.session;
     if (!agentId || !message) return res.status(400).json({ error: 'agentId and message are required.' });
     if (typeof message !== 'string' || message.length > 4000) return res.status(400).json({ error: 'Message must be under 4000 characters.' });
@@ -40,6 +40,19 @@ module.exports = function createChatRouter() {
     if (!agentIds.has(agentId)) return res.status(403).json({ error: 'You do not have access to this agent.' });
     const agent = agentsConfig.agents[agentId];
     if (!agent) return res.status(404).json({ error: 'Agent not found.' });
+
+    // Day 9.5: conversation persistence (only when the client opts in with persist:true).
+    let convId = conversationId || null;
+    if (persist) {
+      if (convId) {
+        const meta = await db.getConversationMeta(req.session.userId, convId);
+        if (!meta) return res.status(404).json({ error: 'Conversation not found.' });
+      } else {
+        convId = await db.createConversation(req.session.userId, agentId, message);
+        db.writeAudit({ actorId: req.session.userId, actorName: name, action: 'agent.used', targetType: 'agent', targetName: agent.name, metadata: {} }).catch(function () {});
+      }
+      await db.addMessage(convId, 'user', message).catch(function (e) { console.error('[CHAT] save user msg failed:', e.message); });
+    }
     let systemPrompt = agent.systemPrompt;
     const restrictions = topicRestrictionsFor(roles, agentId);
     if (restrictions.length > 0) {
@@ -98,12 +111,36 @@ module.exports = function createChatRouter() {
       }
 
       console.log('[CHAT] ' + name + ' (' + (roles || []).join('/') + ') -> ' + agentId);
-      db.writeAudit({ actorId: req.session.userId, actorName: name, action: 'agent.used', targetType: 'agent', targetName: agent.name, metadata: {} }).catch(function () {});
-      res.json({ response: responseText });
+      if (persist && convId) await db.addMessage(convId, 'assistant', responseText).catch(function (e) { console.error('[CHAT] save reply failed:', e.message); });
+      res.json({ response: responseText, conversationId: convId });
     } catch (error) {
       console.error('[ERROR] Agent SDK call failed:', error.message);
       res.status(500).json({ error: 'The agent could not respond. Please try again.' });
     }
+  });
+
+  // GET /api/conversations — the current user's chats (newest first).
+  router.get('/api/conversations', authenticate, async (req, res) => {
+    try { res.json({ conversations: await db.listConversations(req.session.userId) }); }
+    catch (e) { console.error('[CHAT] list conversations failed:', e.message); res.status(500).json({ error: 'Could not load your chats.' }); }
+  });
+
+  // GET /api/conversations/:id — one chat's messages (owner only).
+  router.get('/api/conversations/:id', authenticate, async (req, res) => {
+    try {
+      const conv = await db.getConversationMessages(req.session.userId, req.params.id);
+      if (!conv) return res.status(404).json({ error: 'Conversation not found.' });
+      res.json(conv);
+    } catch (e) { console.error('[CHAT] open conversation failed:', e.message); res.status(500).json({ error: 'Could not open the chat.' }); }
+  });
+
+  // DELETE /api/conversations/:id — delete one of your chats.
+  router.delete('/api/conversations/:id', authenticate, async (req, res) => {
+    try {
+      const ok = await db.deleteConversation(req.session.userId, req.params.id);
+      if (!ok) return res.status(404).json({ error: 'Conversation not found.' });
+      res.json({ ok: true });
+    } catch (e) { console.error('[CHAT] delete conversation failed:', e.message); res.status(500).json({ error: 'Could not delete the chat.' }); }
   });
 
   return router;

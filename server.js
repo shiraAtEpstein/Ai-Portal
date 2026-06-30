@@ -15,6 +15,7 @@ const { agentsConfig } = require('./lib/access');
 const createGoogleAuthRouter = require('./google-auth');
 const createAuthRouter = require('./routes/auth');
 const createChatRouter = require('./routes/chat');
+const createGmailRouter = require('./routes/gmail');
 const createAdminRouter = require('./routes/admin');
 
 const app = express();
@@ -48,6 +49,7 @@ const transporter = nodemailer.createTransport({
 app.use(createGoogleAuthRouter({ createSession: createDbSession, findUserByEmail }));
 app.use(createAuthRouter({ loadUsers, saveUsers, transporter }));
 app.use(createChatRouter());
+app.use(createGmailRouter());
 app.use(createAdminRouter({ loadUsers }));
 
 // Health check — also reports whether the database is reachable.

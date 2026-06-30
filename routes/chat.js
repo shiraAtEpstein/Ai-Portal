@@ -7,6 +7,8 @@ const { authenticate } = require('../lib/sessions');
 const { agentsConfig, accessForRoles, topicRestrictionsFor } = require('../lib/access');
 const { rateLimit } = require('../lib/rate-limit');
 const db = require('../db');
+const gmail = require('../lib/gmail');
+const { z } = require('zod');
 const chatLimiter = rateLimit({ windowMs: 60000, max: 20, name: 'chat requests' });
 
 // Lazy ESM import of the Claude Agent SDK (cached).
@@ -73,22 +75,62 @@ module.exports = function createChatRouter() {
     }
 
     try {
-      const { query } = await getAgentSdk();
-      const result = query({
-        prompt: promptText,
-        options: {
-          model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
-          systemPrompt: systemPrompt,
-          disallowedTools: [
-            'Task', 'TaskOutput', 'Bash', 'Glob', 'Grep', 'ExitPlanMode',
-            'Read', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'TodoWrite',
-            'WebSearch', 'KillShell', 'AskUserQuestion', 'Skill',
-            'EnterPlanMode', 'LSP',
-          ],
-          maxTurns: 1,
-          permissionMode: 'bypassPermissions',
-        },
-      });
+      const sdk = await getAgentSdk();
+      const { query, tool, createSdkMcpServer } = sdk;
+
+      // --- Per-agent tool gating (the reusable framework) ---------------
+      // An agent may use ONLY the tools named in its `tools` allowlist in
+      // config/agents.json. An agent with no list runs with NOTHING on —
+      // exactly the original text-only guarantee. Tools live in this vetted
+      // toolbox; the agent just names which ones it is allowed to use, and
+      // the server turns on only those. Every tool reads/acts for the
+      // CURRENT signed-in user only.
+      const SUPPORTED_TOOLS = new Set(['gmail_search']);
+      const toolAllow = (Array.isArray(agent.tools) ? agent.tools : []).filter((t) => SUPPORTED_TOOLS.has(t));
+
+      let mcpServers;
+      let allowedTools;
+      let maxTurns = 1;
+      if (toolAllow.length) {
+        const defs = [];
+        if (toolAllow.includes('gmail_search')) {
+          defs.push(tool(
+            'gmail_search',
+            "Search and read the SIGNED-IN user's OWN Gmail, read-only. Returns recent matching emails as text (sender, date, subject, snippet, body). Cannot send, reply, draft, label, or change anything.",
+            {
+              query: z.string().describe('Gmail search query, e.g. "from:cohen newer_than:14d". Empty string = most recent mail.'),
+              maxResults: z.number().int().min(1).max(20).optional().describe('How many emails to fetch (default 8).'),
+            },
+            async (args) => {
+              const r = await gmail.searchMail(req.session.userId, {
+                query: args.query || '',
+                maxResults: args.maxResults || 8,
+                includeBody: true,
+              });
+              return { content: [{ type: 'text', text: r.text }] };
+            }
+          ));
+        }
+        mcpServers = { portal: createSdkMcpServer({ name: 'portal', version: '1.0.0', tools: defs }) };
+        allowedTools = toolAllow.map((t) => 'mcp__portal__' + t);
+        maxTurns = 6;
+      }
+
+      const options = {
+        model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
+        systemPrompt: systemPrompt,
+        disallowedTools: [
+          'Task', 'TaskOutput', 'Bash', 'Glob', 'Grep', 'ExitPlanMode',
+          'Read', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'TodoWrite',
+          'WebSearch', 'KillShell', 'AskUserQuestion', 'Skill',
+          'EnterPlanMode', 'LSP',
+        ],
+        maxTurns: maxTurns,
+        permissionMode: 'bypassPermissions',
+      };
+      if (mcpServers) { options.mcpServers = mcpServers; options.allowedTools = allowedTools; }
+
+      const result = query({ prompt: promptText, options: options });
 
       let responseText = '';
       let errored = null;

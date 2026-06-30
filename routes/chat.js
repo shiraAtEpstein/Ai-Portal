@@ -9,7 +9,9 @@ const { rateLimit } = require('../lib/rate-limit');
 const db = require('../db');
 const gmail = require('../lib/gmail');
 const { z } = require('zod');
+const { agents: agentRegistry } = require('../lib/agents');
 const chatLimiter = rateLimit({ windowMs: 60000, max: 20, name: 'chat requests' });
+const MODEL_ALIASES = { sonnet: 'claude-sonnet-4-6', haiku: 'claude-haiku-4-5-20251001', opus: 'claude-opus-4-8' };
 
 // Lazy ESM import of the Claude Agent SDK (cached).
 let _agentSdkPromise = null;
@@ -25,7 +27,7 @@ module.exports = function createChatRouter() {
   router.get('/api/agents', authenticate, (req, res) => {
     const { agentIds } = accessForRoles(req.session.roles);
     const availableAgents = Array.from(agentIds).map(agentId => {
-      const agent = agentsConfig.agents[agentId];
+      const agent = agentRegistry[agentId];
       if (!agent) return null;
       return { id: agentId, name: agent.name, description: agent.description };
     }).filter(Boolean);
@@ -40,7 +42,7 @@ module.exports = function createChatRouter() {
     if (typeof message !== 'string' || message.length > 4000) return res.status(400).json({ error: 'Message must be under 4000 characters.' });
     const { agentIds } = accessForRoles(roles);
     if (!agentIds.has(agentId)) return res.status(403).json({ error: 'You do not have access to this agent.' });
-    const agent = agentsConfig.agents[agentId];
+    const agent = agentRegistry[agentId];
     if (!agent) return res.status(404).json({ error: 'Agent not found.' });
 
     // Day 9.5: conversation persistence (only when the client opts in with persist:true).
@@ -117,7 +119,7 @@ module.exports = function createChatRouter() {
       }
 
       const options = {
-        model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
+        model: (agent.model && (MODEL_ALIASES[agent.model] || agent.model)) || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
         systemPrompt: systemPrompt,
         disallowedTools: [
           'Task', 'TaskOutput', 'Bash', 'Glob', 'Grep', 'ExitPlanMode',

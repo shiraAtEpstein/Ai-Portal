@@ -70,6 +70,23 @@ module.exports = function createGmailRouter() {
     }
   });
 
+  // Stage 3 verification: read YOUR OWN recent mail (read-only, self only).
+  // Lets you confirm the Gmail tool works before any agent uses it.
+  // Example: /api/gmail/preview?q=newer_than:7d
+  router.get('/api/gmail/preview', authenticate, async (req, res) => {
+    try {
+      const result = await gmail.searchMail(req.session.userId, {
+        query: String(req.query.q || ''),
+        maxResults: 8,
+        includeBody: false,
+      });
+      res.json(result);
+    } catch (e) {
+      console.error('[GMAIL] preview failed:', e.message);
+      res.status(500).json({ error: 'Could not read mail.' });
+    }
+  });
+
   // Forget this user's Gmail permission.
   router.post('/api/gmail/disconnect', authenticate, async (req, res) => {
     try {

@@ -42,10 +42,12 @@ module.exports = function createGmailRouter() {
   });
 
   // Begin the connect flow.
-  router.get('/api/gmail/connect', authenticate, (req, res) => {
+  router.get('/api/gmail/connect', authenticate, async (req, res) => {
     if (!gmail.configured()) return res.status(503).send('Gmail connection is not configured.');
+    let email = null;
+    try { email = await gmail.getUserEmail(req.session.userId); } catch (e) { /* ignore */ }
     const state = crypto.randomBytes(16).toString('hex');
-    stateStore.set(state, { userId: req.session.userId, name: req.session.name, exp: Date.now() + 10 * 60 * 1000 });
+    stateStore.set(state, { userId: req.session.userId, name: req.session.name, email: email, exp: Date.now() + 10 * 60 * 1000 });
     res.redirect(gmail.consentUrl(state));
   });
 
@@ -60,6 +62,13 @@ module.exports = function createGmailRouter() {
     try {
       const result = await gmail.exchangeCode(code);
       if (!result.refreshToken) return done('noRefresh');
+      // Safety: you may only connect YOUR OWN mailbox. The Google account
+      // approved must match your portal email, or we refuse to store it.
+      if (entry.email && result.email && result.email.toLowerCase() !== entry.email.toLowerCase()) {
+        db.writeAudit({ actorId: entry.userId, actorName: entry.name, action: 'gmail.connect.rejected', targetType: 'gmail', targetName: entry.name, metadata: { tried: result.email, expected: entry.email } }).catch(function () {});
+        console.warn('[GMAIL] rejected mismatched connect: portal=' + entry.email + ' google=' + result.email);
+        return done('wrongaccount');
+      }
       await gmail.saveConnection(entry.userId, result);
       db.writeAudit({ actorId: entry.userId, actorName: entry.name, action: 'gmail.connected', targetType: 'gmail', targetName: entry.name, metadata: { mailbox: result.email || null } }).catch(function () {});
       console.log('[GMAIL] connected for ' + (entry.name || entry.userId));

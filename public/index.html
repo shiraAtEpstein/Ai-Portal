@@ -895,7 +895,11 @@
   <div class="sidebar">
     <div class="sidebar-header">
       <img src="/logo.png.jpg" alt="Epstein &amp; Co." style="display:block;width:90%;max-width:180px;height:auto;" />
-      <div class="sidebar-subtitle" style="margin-top:8px;">Secure · Confidential</div>
+      <div class="sidebar-subtitle" style="margin-top:8px;" data-i18n="subtitle">Secure · Confidential</div>
+      <div class="lang-toggle" role="group" aria-label="Language">
+        <button type="button" class="lang-btn" data-lang="en">EN</button>
+        <button type="button" class="lang-btn" data-lang="he">עברית</button>
+      </div>
     </div>
 
     <div class="sidebar-user">
@@ -907,17 +911,17 @@
     </div>
 
     <div style="padding:14px 12px 4px;">
-      <button id="new-chat-btn" style="width:100%;padding:10px 14px;border:1px solid var(--gold);border-radius:8px;background:transparent;color:var(--gold);font-size:13px;font-weight:600;cursor:pointer;">+ New chat</button>
+      <button id="new-chat-btn" style="width:100%;padding:10px 14px;border:1px solid var(--gold);border-radius:8px;background:transparent;color:var(--gold);font-size:13px;font-weight:600;cursor:pointer;" data-i18n="newChatBtn">+ New chat</button>
     </div>
-    <div class="agents-label">Recent chats</div>
+    <div class="agents-label" data-i18n="recentChats">Recent chats</div>
     <div class="agent-list" id="conversation-list">
       <!-- Populated dynamically -->
     </div>
 
     <div class="sidebar-bottom">
-      <button class="admin-btn" id="activity-open-btn">📋 Activity Log</button>
-      <button class="admin-btn" id="admin-open-btn">⚙ Manage Users</button>
-      <button class="logout-btn" id="logout-btn">Sign Out</button>
+      <button class="admin-btn" id="activity-open-btn" data-i18n="activityLog">📋 Activity Log</button>
+      <button class="admin-btn" id="admin-open-btn" data-i18n="manageUsers">⚙ Manage Users</button>
+      <button class="logout-btn" id="logout-btn" data-i18n="signOut">Sign Out</button>
     </div>
   </div>
 
@@ -927,8 +931,8 @@
     <!-- No agent selected -->
     <div id="no-agent" class="welcome" style="flex:1; flex-direction:column; display:none;">
       <div class="welcome-icon">💬</div>
-      <h2>Start a new chat</h2>
-      <p>Click "New chat", pick an agent at the top, and type your message. Your past chats are on the left.</p>
+      <h2 data-i18n="welcomeTitle">Start a new chat</h2>
+      <p data-i18n="welcomeBody">Click "New chat", pick an agent at the top, and type your message. Your past chats are on the left.</p>
     </div>
 
     <!-- Chat view (shown when an agent is selected) -->
@@ -936,8 +940,8 @@
       <div class="chat-header">
         <div class="chat-header-icon" id="header-icon">🤖</div>
         <div class="chat-header-info">
-          <div class="chat-header-name" id="header-name">New chat</div>
-          <div class="chat-header-desc" id="header-desc">Pick an agent to begin</div>
+          <div class="chat-header-name" id="header-name" data-i18n="headerName">New chat</div>
+          <div class="chat-header-desc" id="header-desc" data-i18n="headerDesc">Pick an agent to begin</div>
         </div>
         <div class="status-dot" title="Online"></div>
       </div>
@@ -947,16 +951,17 @@
       <div class="input-area">
         <div class="input-row" id="input-row">
           <select id="agent-select" title="Choose an agent" style="align-self:center;padding:6px 8px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;background:#fff;color:var(--navy);max-width:160px;flex-shrink:0;">
-            <option value="">Choose agent…</option>
+            <option value="" data-i18n="chooseAgent">Choose agent…</option>
           </select>
           <textarea
             id="message-input"
             placeholder="Choose an agent to begin…"
+            data-i18n-ph="messagePlaceholder"
             rows="1"
           ></textarea>
           <button id="send-btn" title="Send">➤</button>
         </div>
-        <div class="input-hint">Press Enter to send · Shift+Enter for new line</div>
+        <div class="input-hint" data-i18n="inputHint">Press Enter to send · Shift+Enter for new line</div>
       </div>
     </div>
 
@@ -1963,5 +1968,38 @@ function restoreAgentFromUrl() {
     .catch(showLogin);
 })();
 </script>
+
+<script>
+(function () {
+  var HE = {
+    subtitle:'מאובטח · חסוי', newChatBtn:'+ צ׳אט חדש', recentChats:'צ׳אטים אחרונים',
+    activityLog:'📋 יומן פעילות', manageUsers:'⚙ ניהול משתמשים', signOut:'התנתקות',
+    welcomeTitle:'התחלת צ׳אט חדש', welcomeBody:'לחצו על "צ׳אט חדש"...',
+    headerName:'צ׳אט חדש', headerDesc:'בחרו סוכן כדי להתחיל', chooseAgent:'בחירת סוכן…',
+    messagePlaceholder:'בחרו סוכן כדי להתחיל…', inputHint:'Enter לשליחה · Shift+Enter לשורה חדשה'
+  };
+  var EN = {};
+  function captureEnglish(){
+    document.querySelectorAll('[data-i18n]').forEach(function(el){EN[el.getAttribute('data-i18n')]=el.textContent;});
+    document.querySelectorAll('[data-i18n-ph]').forEach(function(el){EN[el.getAttribute('data-i18n-ph')]=el.getAttribute('placeholder');});
+  }
+  function apply(lang){
+    var dict = lang==='he'?HE:EN;
+    document.querySelectorAll('[data-i18n]').forEach(function(el){var k=el.getAttribute('data-i18n');if(dict[k]!=null)el.textContent=dict[k];});
+    document.querySelectorAll('[data-i18n-ph]').forEach(function(el){var k=el.getAttribute('data-i18n-ph');if(dict[k]!=null)el.setAttribute('placeholder',dict[k]);});
+    var portal=document.getElementById('portal'); if(portal)portal.setAttribute('dir',lang==='he'?'rtl':'ltr');
+    document.querySelectorAll('.lang-btn').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-lang')===lang);});
+    try{localStorage.setItem('portalLang',lang);}catch(e){}
+  }
+  function init(){
+    captureEnglish();
+    var saved='en'; try{saved=localStorage.getItem('portalLang')||'en';}catch(e){}
+    apply(saved);
+    document.querySelectorAll('.lang-btn').forEach(function(b){b.addEventListener('click',function(){apply(b.getAttribute('data-lang'));});});
+  }
+  if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',init);}else{init();}
+})();
+</script>
+
 </body>
 </html>

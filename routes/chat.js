@@ -57,7 +57,21 @@ module.exports = function createChatRouter() {
       }
       await db.addMessage(convId, 'user', message).catch(function (e) { console.error('[CHAT] save user msg failed:', e.message); });
     }
-    let systemPrompt = agent.systemPrompt;
+    // Firm rules (the shared house rules) are prepended to EVERY agent, so
+    // they always apply no matter which agent is running. Loaded from the DB
+    // (admin-editable) with a file fallback — see db.getFirmRules().
+    let systemPrompt = '';
+    try {
+      const firmRules = await db.getFirmRules();
+      if (firmRules) {
+        systemPrompt += 'FIRM RULES (these apply to every answer, no exceptions):\n\n'
+          + firmRules
+          + '\n\n----------------------------------------\n\n';
+      }
+    } catch (e) {
+      console.error('[CHAT] could not load firm rules:', e.message);
+    }
+    systemPrompt += agent.systemPrompt;
     const restrictions = topicRestrictionsFor(roles, agentId);
     if (restrictions.length > 0) {
       systemPrompt += '\n\nIMPORTANT RESTRICTIONS: Only help with: ' + restrictions.join(', ') + '. Decline anything outside these topics.';

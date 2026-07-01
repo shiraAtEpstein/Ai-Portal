@@ -6,6 +6,8 @@
 // ============================================================
 const { Pool } = require('pg');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const enc = require('./lib/crypto');
 
 let pool = null;
@@ -349,6 +351,47 @@ async function deleteConversation(userId, convId) {
   return (r.rowCount || 0) > 0;
 }
 
+// --- Firm rules: the shared house rules prepended to EVERY agent ------
+// Source of truth is the DB (admin-editable, versioned — current row is the
+// highest version). If the table is empty we seed version 1 once from the
+// baked-in default file (config/firm-rules.md); if the DB is unreachable we
+// fall back to that same file, so an agent NEVER runs with no rules.
+//
+// NOTE: this text is guidance/voice, not the security fence. The hard
+// non-negotiables (read-only, cannot send, cannot reach another mailbox)
+// are enforced in CODE elsewhere and do not depend on this content.
+let _rulesFileCache = null;
+function firmRulesDefault() {
+  if (_rulesFileCache != null) return _rulesFileCache;
+  try {
+    _rulesFileCache = fs.readFileSync(path.join(__dirname, 'config', 'firm-rules.md'), 'utf8').trim();
+  } catch (e) {
+    console.error('[DB] could not read default config/firm-rules.md:', e.message);
+    _rulesFileCache = '';
+  }
+  return _rulesFileCache;
+}
+
+async function getFirmRules() {
+  const fallback = firmRulesDefault();
+  const p = getPool();
+  if (!p) return fallback;
+  try {
+    const r = await p.query('SELECT content FROM firm_rules ORDER BY version DESC LIMIT 1');
+    if (r.rows[0]) return r.rows[0].content;
+    // Table is empty — seed version 1 from the baked-in default (best effort).
+    if (fallback) {
+      await p.query(
+        `INSERT INTO firm_rules (version, content, updated_by)
+         VALUES (1, $1, 'system-seed') ON CONFLICT (version) DO NOTHING`, [fallback]);
+    }
+    return fallback;
+  } catch (e) {
+    console.error('[DB] getFirmRules failed, using default file:', e.message);
+    return fallback;
+  }
+}
+
 module.exports = {
   getPool, ping,
   createConversation, getConversationMeta, addMessage, listConversations, getConversationMessages, deleteConversation,
@@ -356,4 +399,5 @@ module.exports = {
   createInvite, setUserRolesByName, getInviteByToken, markInviteAccepted, completeGoogleLogin,
   createSession, getSession, revokeSession, revokeUserSessions, setUserStatus,
   writeAudit, deleteUser, listAuditEvents,
+  getFirmRules,
 };

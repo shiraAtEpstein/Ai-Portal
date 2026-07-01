@@ -839,6 +839,7 @@
       .input-area { padding: 12px 16px 16px; }
     }
     /* ── GMAIL CONNECT ── */
+    .gmail-btn { display: block; }   /* override .admin-btn display:none so everyone sees it */
     .gmail-btn.connected { color: #7CFC9B; border-color: rgba(124,252,155,0.45); }
     #gmail-toast {
       position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
@@ -2033,7 +2034,7 @@ function restoreAgentFromUrl() {
     if (!btn) return;
     if (!btn) return;
     if (status && status.configured === false) { btn.style.display = 'none'; return; }
-    btn.style.display = '';
+    btn.style.display = 'block';
     if (status && status.connected) {
       btn.textContent = '✅ Gmail: ' + (status.email || 'connected');
       btn.classList.add('connected');

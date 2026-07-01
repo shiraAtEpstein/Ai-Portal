@@ -849,6 +849,14 @@
     }
     #gmail-toast.ok  { background: #1f7a3d; }
     #gmail-toast.err { background: #a12424; }
+    /* ── LANGUAGE TOGGLE + RTL ── */
+    .lang-toggle { display:inline-flex; margin-top:12px; border:1px solid var(--gold); border-radius:999px; overflow:hidden; }
+    .lang-btn { padding:3px 12px; font-size:12px; font-weight:600; background:transparent; color:var(--gold); border:none; cursor:pointer; line-height:1.6; }
+    .lang-btn.active { background:var(--gold); color:var(--navy-dark); }
+    #portal[dir="rtl"] .input-hint, #portal[dir="rtl"] .agents-label { text-align:right; }
+    #portal[dir="rtl"] .welcome { text-align:center; }
+    #admin-screen[dir="rtl"], #audit-screen[dir="rtl"], #invite-modal[dir="rtl"] { text-align:right; }
+    #admin-screen[dir="rtl"] table.admin-table th, #audit-screen[dir="rtl"] table.admin-table th { text-align:right; }
   </style>
 </head>
 <body>
@@ -988,27 +996,27 @@
 
     <div class="admin-topbar">
       <div>
-        <h1>⚙ Manage Users</h1>
-        <p>Invite staff, set their roles, and control access.</p>
+        <h1 data-i18n="mu_title">⚙ Manage Users</h1>
+        <p data-i18n="mu_sub">Invite staff, set their roles, and control access.</p>
       </div>
       <div style="display:flex; gap:10px; flex-shrink:0;">
-        <button class="admin-primary" id="open-invite-btn" style="margin-top:0;">+ Invite new user</button>
-        <button class="admin-back" id="admin-close-btn">← Back to portal</button>
+        <button class="admin-primary" id="open-invite-btn" style="margin-top:0;" data-i18n="mu_invite">+ Invite new user</button>
+        <button class="admin-back" id="admin-close-btn" data-i18n="backPortal">← Back to portal</button>
       </div>
     </div>
 
     <!-- Users list -->
     <div class="admin-card">
-      <h2>All users</h2>
+      <h2 data-i18n="mu_allUsers">All users</h2>
       <div class="admin-note" id="users-note"></div>
       <table class="admin-table">
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Email</th>
-            <th>Status</th>
-            <th>Roles</th>
-            <th>Actions</th>
+            <th data-i18n="th_name">Name</th>
+            <th data-i18n="th_email">Email</th>
+            <th data-i18n="th_status">Status</th>
+            <th data-i18n="th_roles">Roles</th>
+            <th data-i18n="th_actions">Actions</th>
           </tr>
         </thead>
         <tbody id="users-tbody">
@@ -1030,28 +1038,28 @@
   <div class="admin-wrap">
     <div class="admin-topbar">
       <div>
-        <h1>Activity Log</h1>
-        <p>A record of who did what, and when.</p>
+        <h1 data-i18n="al_title">Activity Log</h1>
+        <p data-i18n="al_sub">A record of who did what, and when.</p>
       </div>
       <div style="display:flex; gap:10px; flex-shrink:0;">
-        <button class="admin-back" id="audit-refresh-btn">Refresh</button>
-        <button class="admin-back" id="audit-close-btn">← Back to portal</button>
+        <button class="admin-back" id="audit-refresh-btn" data-i18n="al_refresh">Refresh</button>
+        <button class="admin-back" id="audit-close-btn" data-i18n="backPortal">← Back to portal</button>
       </div>
     </div>
     <div class="admin-card">
       <div class="admin-note" id="audit-note"></div>
       <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
         <input id="audit-q" placeholder="Search person or who it affected…" style="flex:1;min-width:180px;padding:9px 12px;border:2px solid var(--gray-200);border-radius:8px;font-size:13px;outline:none;">
-        <select id="audit-action" style="padding:9px 12px;border:2px solid var(--gray-200);border-radius:8px;font-size:13px;"><option value="">All actions</option></select>
+        <select id="audit-action" style="padding:9px 12px;border:2px solid var(--gray-200);border-radius:8px;font-size:13px;"><option value="" data-i18n="al_allActions">All actions</option></select>
         <input id="audit-from" type="date" title="From date" style="padding:8px 10px;border:2px solid var(--gray-200);border-radius:8px;font-size:13px;">
         <input id="audit-to" type="date" title="To date" style="padding:8px 10px;border:2px solid var(--gray-200);border-radius:8px;font-size:13px;">
-        <button class="row-btn" id="audit-clear">Clear</button>
-        <button class="row-btn go" id="audit-export">Export CSV</button>
+        <button class="row-btn" id="audit-clear" data-i18n="al_clear">Clear</button>
+        <button class="row-btn go" id="audit-export" data-i18n="al_export">Export CSV</button>
       </div>
       <div id="audit-count" style="font-size:12px;color:var(--gray-600);margin-bottom:8px;"></div>
       <table class="admin-table">
         <thead>
-          <tr><th>When</th><th>Who</th><th>Action</th><th>On</th><th>Details</th></tr>
+          <tr><th data-i18n="aw_when">When</th><th data-i18n="aw_who">Who</th><th data-i18n="aw_action">Action</th><th data-i18n="aw_on">On</th><th data-i18n="aw_details">Details</th></tr>
         </thead>
         <tbody id="audit-tbody">
           <tr><td colspan="5" style="color:var(--gray-400);">Loading…</td></tr>
@@ -1064,22 +1072,22 @@
 <div class="modal-overlay" id="invite-modal">
   <div class="modal-box">
     <div class="modal-head">
-      <h2>Invite a new user</h2>
+      <h2 data-i18n="im_title">Invite a new user</h2>
       <button class="modal-close" id="invite-modal-close" title="Close">×</button>
     </div>
     <div class="admin-field">
-      <label for="invite-email">Email (must be @epsteinlaw.co.il)</label>
+      <label for="invite-email" data-i18n="im_email">Email (must be @epsteinlaw.co.il)</label>
       <input type="email" id="invite-email" placeholder="name@epsteinlaw.co.il" spellcheck="false" />
     </div>
     <div class="admin-field">
-      <label for="invite-name">Name</label>
+      <label for="invite-name" data-i18n="im_name">Name</label>
       <input type="text" id="invite-name" placeholder="Full name" required />
     </div>
     <div class="admin-field">
-      <label>Roles</label>
+      <label data-i18n="im_roles">Roles</label>
       <div class="dropdown" id="invite-roles"><!-- populated --></div>
     </div>
-    <button class="admin-primary" id="invite-btn">Send invite</button>
+    <button class="admin-primary" id="invite-btn" data-i18n="im_send">Send invite</button>
     <div class="admin-note" id="invite-note"></div>
   </div>
 </div>
@@ -1986,21 +1994,66 @@ function restoreAgentFromUrl() {
   var HE = {
     subtitle:'מאובטח · חסוי', newChatBtn:'+ צ׳אט חדש', recentChats:'צ׳אטים אחרונים',
     activityLog:'📋 יומן פעילות', manageUsers:'⚙ ניהול משתמשים', signOut:'התנתקות',
-    welcomeTitle:'התחלת צ׳אט חדש', welcomeBody:'לחצו על "צ׳אט חדש"...',
+    welcomeTitle:'התחלת צ׳אט חדש',
+    welcomeBody:'לחצו על "צ׳אט חדש", בחרו סוכן למעלה והקלידו את ההודעה. הצ׳אטים הקודמים שלכם נמצאים מימין.',
     headerName:'צ׳אט חדש', headerDesc:'בחרו סוכן כדי להתחיל', chooseAgent:'בחירת סוכן…',
-    messagePlaceholder:'בחרו סוכן כדי להתחיל…', inputHint:'Enter לשליחה · Shift+Enter לשורה חדשה'
+    messagePlaceholder:'בחרו סוכן כדי להתחיל…', inputHint:'Enter לשליחה · Shift+Enter לשורה חדשה',
+    mu_title:'⚙ ניהול משתמשים', mu_sub:'הזמינו צוות, הגדירו הרשאות ונהלו גישה.',
+    mu_invite:'+ הזמנת משתמש חדש', backPortal:'← חזרה לפורטל', mu_allUsers:'כל המשתמשים',
+    th_name:'שם', th_email:'אימייל', th_status:'סטטוס', th_roles:'הרשאות', th_actions:'פעולות',
+    al_title:'יומן פעילות', al_sub:'תיעוד של מי עשה מה, ומתי.', al_refresh:'רענון',
+    al_allActions:'כל הפעולות', al_clear:'ניקוי', al_export:'ייצוא CSV',
+    aw_when:'מתי', aw_who:'מי', aw_action:'פעולה', aw_on:'על', aw_details:'פרטים',
+    im_title:'הזמנת משתמש חדש', im_email:'אימייל (חייב להיות @epsteinlaw.co.il)',
+    im_name:'שם', im_roles:'הרשאות', im_send:'שליחת הזמנה'
+  };
+  var HE_AGENTS = {
+    copywriter:{name:'כותב תוכן', description:'יוצר ניוזלטרים, פוסטים ותוכן מקצועי'},
+    researcher:{name:'עוזר מחקר', description:'חוקר נושאים, מגמות ומידע רקע'},
+    paralegal:{name:'עוזר משפטי', description:'מסייע בהכנת תיקים, מועדים ומסמכים'},
+    document_review:{name:'בדיקת מסמכים', description:'בודק חוזים ומסמכים משפטיים לאיתור נקודות מפתח'},
+    legal_research:{name:'מחקר משפטי', description:'חוקר פסיקה, חקיקה ותקדימים משפטיים'},
+    client_intake:{name:'קליטת לקוחות', description:'אוסף מידע ראשוני מלקוחות ומתעד פרטי תיק'},
+    gmail:{name:'עוזר אימייל', description:'עוזר לקריאת אימייל בלבד שקורא את תיבת הדואר שלך ועונה על שאלות לגביה'}
   };
   var EN = {};
+  var currentLang = 'en';
   function captureEnglish(){
-    document.querySelectorAll('[data-i18n]').forEach(function(el){EN[el.getAttribute('data-i18n')]=el.textContent;});
-    document.querySelectorAll('[data-i18n-ph]').forEach(function(el){EN[el.getAttribute('data-i18n-ph')]=el.getAttribute('placeholder');});
+    document.querySelectorAll('[data-i18n]').forEach(function(el){var k=el.getAttribute('data-i18n'); if(EN[k]==null) EN[k]=el.textContent;});
+    document.querySelectorAll('[data-i18n-ph]').forEach(function(el){var k=el.getAttribute('data-i18n-ph'); if(EN[k]==null) EN[k]=el.getAttribute('placeholder');});
+  }
+  function translateAgents(lang){
+    try {
+      if (typeof agentsById === 'undefined' || !agentsById) return;
+      Object.keys(agentsById).forEach(function(id){
+        var a = agentsById[id]; if(!a) return;
+        if(!a._en) a._en = { name:a.name, description:a.description };
+        if(lang==='he' && HE_AGENTS[id]){ a.name=HE_AGENTS[id].name; a.description=HE_AGENTS[id].description; }
+        else { a.name=a._en.name; a.description=a._en.description; }
+      });
+      var sel=document.getElementById('agent-select');
+      if(sel){ Array.prototype.forEach.call(sel.options,function(o){
+        if(!o.value){ o.textContent = (lang==='he'?HE.chooseAgent:(EN.chooseAgent||'Choose an agent…')); return; }
+        var a=agentsById[o.value]; if(!a) return;
+        var icon=''; try{ icon=(agentIcons[o.value]||agentIcons.default)||''; }catch(e){}
+        o.textContent = icon + '  ' + a.name;
+      }); }
+      if(typeof applyAgentChoice==='function' && typeof currentAgent!=='undefined' && currentAgent){
+        applyAgentChoice(currentAgent);
+        if(lang==='he'){ var inp=document.getElementById('message-input'); var a2=agentsById[currentAgent];
+          if(inp&&a2) inp.placeholder='כתבו הודעה ל' + a2.name + '…'; }
+      }
+    } catch(e){}
   }
   function apply(lang){
+    currentLang = lang;
     var dict = lang==='he'?HE:EN;
     document.querySelectorAll('[data-i18n]').forEach(function(el){var k=el.getAttribute('data-i18n');if(dict[k]!=null)el.textContent=dict[k];});
     document.querySelectorAll('[data-i18n-ph]').forEach(function(el){var k=el.getAttribute('data-i18n-ph');if(dict[k]!=null)el.setAttribute('placeholder',dict[k]);});
-    var portal=document.getElementById('portal'); if(portal)portal.setAttribute('dir',lang==='he'?'rtl':'ltr');
+    var dir = lang==='he'?'rtl':'ltr';
+    ['portal','admin-screen','audit-screen','invite-modal'].forEach(function(idv){var el=document.getElementById(idv);if(el)el.setAttribute('dir',dir);});
     document.querySelectorAll('.lang-btn').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-lang')===lang);});
+    translateAgents(lang);
     try{localStorage.setItem('portalLang',lang);}catch(e){}
   }
   function init(){
@@ -2008,6 +2061,8 @@ function restoreAgentFromUrl() {
     var saved='en'; try{saved=localStorage.getItem('portalLang')||'en';}catch(e){}
     apply(saved);
     document.querySelectorAll('.lang-btn').forEach(function(b){b.addEventListener('click',function(){apply(b.getAttribute('data-lang'));});});
+    var sel=document.getElementById('agent-select');
+    if(sel && window.MutationObserver){ new MutationObserver(function(){ translateAgents(currentLang); }).observe(sel,{childList:true}); }
   }
   if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',init);}else{init();}
 })();

@@ -4,93 +4,95 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="noindex,nofollow" />
-<title>Epstein &amp; Co. — Marketing Console (Preview)</title>
+<title>Epstein &amp; Co. — Marketing Console</title>
 <style>
   :root{
-    --navy:#15161a; --navy-mid:#2b2c32; --panel:#1c1d22; --line:#33343c;
-    --gold:#c8a24a; --gold-soft:#e5cf8f; --silver:#aeb3bb;
-    --white:#ffffff; --ink:#e9ecef; --mut:#9aa0a8;
-    --ok:#3fb37f; --warn:#d9a441; --draft:#6c757d; --red:#dc3545;
+    --navy:#12233b; --navy-2:#1b3350; --gold:#c39a4d; --gold-soft:#e7d3a8;
+    --ink:#1d2733; --muted:#6b7787; --line:#e4e8ee; --bg:#f4f6f9; --white:#fff;
+    --green:#2f8f5b; --amber:#c98a1e; --slate:#5b6b7d; --red:#b3543f;
+    --shadow:0 1px 3px rgba(17,35,59,.08),0 8px 24px rgba(17,35,59,.06);
     --font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--navy);color:var(--ink);font-family:var(--font);line-height:1.5}
-  a{color:inherit}
-  .wrap{max-width:1040px;margin:0 auto;padding:22px 20px 60px}
-  .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
-    border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:8px}
-  .brand{display:flex;align-items:center;gap:12px}
-  .logo{width:38px;height:38px;border-radius:9px;background:linear-gradient(135deg,var(--gold),var(--navy-mid));
-    display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--navy)}
-  .brand h1{font-size:16px;margin:0;font-weight:650}
-  .brand p{margin:0;font-size:12px;color:var(--mut)}
-  .who{font-size:12px;color:var(--mut);text-align:right}
-  .banner{background:rgba(200,162,74,.1);border:1px solid rgba(200,162,74,.35);color:var(--gold-soft);
-    padding:9px 13px;border-radius:9px;font-size:12.5px;margin:14px 0 18px}
-  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:20px}
-  .tab{background:var(--panel);border:1px solid var(--line);color:var(--silver);padding:8px 13px;
-    border-radius:8px;font-size:13px;cursor:pointer;transition:.15s}
-  .tab:hover{border-color:var(--gold)}
-  .tab.active{background:var(--gold);border-color:var(--gold);color:var(--navy);font-weight:600}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px}
-  .card h2{margin:0 0 4px;font-size:15px}
-  .card .sub{color:var(--mut);font-size:12.5px;margin:0 0 14px}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);line-height:1.5}
+  .wrap{max-width:1080px;margin:0 auto;padding:20px 22px 60px}
+  .head{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+  .head .t{display:flex;align-items:center;gap:11px}
+  .logo{width:34px;height:34px;border-radius:8px;background:var(--navy);color:var(--gold-soft);
+    display:grid;place-items:center;font-weight:700}
+  .head h1{font-size:16px;margin:0;color:var(--navy)}
+  .head p{margin:0;font-size:12px;color:var(--muted)}
+  .who{font-size:12px;color:var(--muted);text-align:right}
+  .banner{background:#fbf7ec;border:1px solid var(--gold-soft);color:#6a5a34;
+    padding:9px 13px;border-radius:9px;font-size:12.5px;margin:14px 0 16px}
+  .tabs{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:20px}
+  .tab{background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);
+    padding:10px 14px;font-size:13.5px;cursor:pointer;font-weight:500}
+  .tab:hover{color:var(--navy)}
+  .tab.active{color:var(--navy);border-bottom-color:var(--gold);font-weight:650}
+  .card{background:var(--white);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:18px 20px;margin-bottom:16px}
+  .card h2{margin:0 0 4px;font-size:15px;color:var(--navy)}
+  .card .sub{color:var(--muted);font-size:12.5px;margin:0 0 14px}
+  .planhead{background:var(--navy);color:#fff;border-radius:12px;padding:16px 20px;margin-bottom:16px;
+    display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+  .planhead h2{margin:0;font-size:15px;color:#fff}
+  .planhead p{margin:3px 0 0;font-size:12px;color:var(--gold-soft)}
   .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
-  .stat{background:var(--navy-mid);border:1px solid var(--line);border-radius:10px;padding:14px}
-  .stat .n{font-size:22px;font-weight:700;color:var(--white)}
-  .stat .l{font-size:12px;color:var(--mut);margin-top:2px}
+  .stat{background:var(--white);border:1px solid var(--line);border-radius:11px;padding:14px;box-shadow:var(--shadow)}
+  .stat .n{font-size:22px;font-weight:700;color:var(--navy)}
+  .stat .l{font-size:12px;color:var(--muted);margin-top:2px}
   table{width:100%;border-collapse:collapse;font-size:13px}
   th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
-  th{color:var(--mut);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.03em}
-  .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600;border:1px solid}
-  .b-ok{color:var(--ok);border-color:rgba(63,179,127,.5);background:rgba(63,179,127,.1)}
-  .b-review{color:var(--warn);border-color:rgba(217,164,65,.5);background:rgba(217,164,65,.1)}
-  .b-draft{color:var(--silver);border-color:var(--line);background:var(--navy-mid)}
-  .b-sched{color:var(--gold-soft);border-color:rgba(229,207,143,.4);background:rgba(229,207,143,.08)}
+  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+  tr:last-child td{border-bottom:0}
+  .badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:600}
+  .b-ok{background:#e4f3ea;color:var(--green)}
+  .b-review{background:#fbf1dc;color:var(--amber)}
+  .b-draft{background:#eef1f5;color:var(--slate)}
+  .b-sched{background:#e6edf6;color:#3a5da8}
+  .btn-approve{background:var(--navy);color:#fff}
   .row{display:flex;gap:16px;flex-wrap:wrap}
-  .col{flex:1;min-width:260px}
-  .postbox{background:var(--navy-mid);border:1px solid var(--line);border-radius:10px;padding:14px;font-size:13.5px;white-space:pre-wrap}
-  .meta{font-size:12px;color:var(--mut);margin:8px 0}
-  .ai-note{font-size:12px;color:var(--gold-soft);background:rgba(200,162,74,.07);border-left:2px solid var(--gold);
-    padding:8px 11px;border-radius:0 8px 8px 0;margin-top:12px}
+  .col{flex:1;min-width:270px}
+  .postbox{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px;font-size:13.5px;white-space:pre-wrap}
+  .meta{font-size:12px;color:var(--muted);margin:6px 0}
+  .ai-note{font-size:12px;color:#33507d;background:#eef4fb;border-radius:8px;padding:9px 12px;margin-top:10px}
+  .imgbrief{font-size:12.5px;color:#6a5a34;background:#faf7f0;border:1px dashed var(--gold);border-radius:8px;padding:9px 12px;margin-top:10px}
   .btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
-  .btn{padding:7px 14px;border-radius:8px;font-size:12.5px;cursor:not-allowed;border:1px solid var(--line);
-    background:var(--navy-mid);color:var(--silver)}
-  .btn.approve{border-color:rgba(63,179,127,.5);color:var(--ok)}
-  .btn.primary{background:var(--gold);border-color:var(--gold);color:var(--navy);font-weight:600}
-  .gate{font-size:12px;color:var(--warn);margin-top:12px}
-  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;font-size:11.5px}
-  .cal .dow{color:var(--mut);text-align:center;padding:4px;font-weight:600}
-  .cal .cell{background:var(--navy-mid);border:1px solid var(--line);border-radius:7px;min-height:62px;padding:5px}
-  .cal .cell .d{color:var(--mut);font-size:10.5px}
-  .cal .cell .ev{font-size:10.5px;color:var(--gold-soft);margin-top:3px;line-height:1.25}
+  .btn{padding:7px 14px;border-radius:8px;font-size:12.5px;cursor:not-allowed;border:1px solid var(--line);background:#fff;color:var(--ink);font-weight:500}
+  .btn.approve{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .btn.primary{background:var(--gold);color:var(--navy);border-color:var(--gold);font-weight:600}
+  .gate{font-size:12px;color:var(--amber);margin-top:12px}
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;font-size:11.5px}
+  .cal .dow{color:var(--muted);text-align:center;padding:4px;font-weight:600}
+  .cal .cell{background:#fafbfd;border:1px solid var(--line);border-radius:8px;min-height:66px;padding:5px}
+  .cal .cell .d{color:var(--muted);font-size:10.5px}
+  .cal .pill{display:inline-block;color:#fff;font-size:10px;padding:2px 6px;border-radius:5px;margin-top:4px;line-height:1.3}
   .cal .cell.empty{background:transparent;border:0}
+  .fb{background:#3a5da8}.ig{background:#b8477e}.li{background:#1d6a8c}.wa{background:#25b34d}.gb{background:#2f8f5b}.nl{background:#6b52a8}.th{background:#222}
   .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
-  .tile{aspect-ratio:1;background:linear-gradient(135deg,var(--navy-mid),var(--panel));border:1px dashed var(--line);
-    border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:12px;text-align:center;padding:8px}
+  .tile{aspect-ratio:1;background:#fafbfd;border:1px dashed var(--line);border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;text-align:center;padding:8px}
   .heb{direction:rtl;text-align:right}
-  .foot{color:var(--mut);font-size:11.5px;margin-top:24px;border-top:1px solid var(--line);padding-top:14px}
-  .pill{font-size:11px;color:var(--mut);border:1px solid var(--line);border-radius:20px;padding:2px 10px}
-  .hide{display:none}
+  .foot{color:var(--muted);font-size:11.5px;margin-top:24px;border-top:1px solid var(--line);padding-top:14px}
+  .pill-tag{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:20px;padding:2px 10px}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="topbar">
-    <div class="brand">
+  <div class="head">
+    <div class="t">
       <div class="logo">E</div>
-      <div><h1>Epstein &amp; Co. — Marketing Console</h1><p>AI marketing department · human approval on every outbound item</p></div>
+      <div><h1>Marketing</h1><p>AI marketing department · human approval on every outbound item</p></div>
     </div>
-    <div class="who">Preview build<br/><span class="pill">sample data</span></div>
+    <div class="who">Admin view<br/><span class="pill-tag">sample data</span></div>
   </div>
 
-  <div class="banner">⚠ Preview — this is a static demo with sample content. Nothing here is published or sent. The next build folds this into the portal behind admin login and connects it to the live agents.</div>
+  <div class="banner">⚠ Preview — sample content. Nothing here is published or sent. The studios connect to the live agents and the approval flow in the next build.</div>
 
   <div class="tabs" id="tabs"></div>
   <div id="view"></div>
 
   <div class="foot">
-    Epstein &amp; Co., Attorneys at Law. This console is an internal tool. Content is educational and not legal advice.
+    Epstein &amp; Co., Attorneys at Law · internal tool. Content is educational, not legal advice.
     Every outbound item (email, WhatsApp, ad, publish) requires Yaakov's explicit approval before it goes out.
   </div>
 </div>
@@ -98,7 +100,7 @@
 <script>
 const DATA = {
   monthlyPlan:{
-    theme:"August 2026 — Theme: Buying a second-hand apartment · Drafted by the AI marketing team · Awaiting approval",
+    theme:"Theme: Buying a second-hand apartment · Drafted by the AI marketing team · Awaiting your approval",
     stats:[{n:"14",l:"Posts planned (▲3 vs July)"},{n:"2",l:"Campaigns — Purchase tax · Wills"},{n:"1",l:"Newsletter — due Aug 21"},{n:"6",l:"Channels — FB · IG · LinkedIn · GBP · WA · Threads"}],
     campaigns:[
       {c:"Second-hand buyer risks",o:"Consultations",a:"Young couples, first home",p:"8",s:["In review","b-review"]},
@@ -131,12 +133,12 @@ const DATA = {
   socialPosts:{
     source:"Approved source (Hebrew): חתמתם על חוזה לפני שעו״ד בדק אותו? זו אחת הטעויות היקרות ברכישת דירה יד שנייה — בדקו רישום בטאבו, עיקולים, זכויות בנייה. 📞 לתיאום ייעוץ.",
     versions:[
-      ["f Facebook","Aug 3 · 09:00",["Approved","b-ok"],"חתמתם על חוזה לפני שעו״ד בדק אותו? 🏠 זו אחת הטעויות היקרות ברכישת דירה יד שנייה. בודקים: טאבו, עיקולים, זכויות בנייה. 📞 קישור בתגובה הראשונה."],
-      ["◎ Instagram","Aug 5 · Reel",["In review","b-review"],"אל תחתמו על חוזה לפני שעו״ד בדק אותו ⚠️ 3 בדיקות שמצילות אתכם: ✔ טאבו ✔ עיקולים ✔ זכויות בנייה. שמרו לפני הרכישה 📌"],
-      ["in LinkedIn","Aug 6 · 08:00",["Draft","b-draft"],"Buying a second-hand apartment in Israel? The most expensive mistake is signing before a lawyer reviews the contract. Three checks protect buyers: Tabu status, liens, and building rights vs. actual condition."],
-      ["G Google Business","Aug 3",["Approved","b-ok"],"רוכשים דירה יד שנייה? כדאי שעו״ד יבדוק את החוזה לפני החתימה. במשרד אפשטיין ושות׳ נלווה אתכם לאורך העסקה. CTA: Call now · Book"],
-      ["✆ WhatsApp","Aug 12",["Approved","b-ok"],"טיפ לרוכשי דירה יד 2 👇 אל תחתמו על חוזה לפני בדיקת עו״ד. רוצים שנעבור על החוזה שלכם? השיבו כאן 📩"],
-      ["@ Threads","Aug 4",["Draft","b-draft"],"הטעות הכי יקרה ברכישת דירה יד 2: לחתום על חוזה לפני שעו״ד בדק אותו. טאבו, עיקולים, זכויות בנייה — כל אחד יכול לעלות ביוקר."]
+      ["Facebook","fb","Aug 3 · 09:00",["Approved","b-ok"],"חתמתם על חוזה לפני שעו״ד בדק אותו? 🏠 זו אחת הטעויות היקרות ברכישת דירה יד שנייה. בודקים: טאבו, עיקולים, זכויות בנייה. 📞 קישור בתגובה הראשונה."],
+      ["Instagram","ig","Aug 5 · Reel",["In review","b-review"],"אל תחתמו על חוזה לפני שעו״ד בדק אותו ⚠️ 3 בדיקות שמצילות אתכם: ✔ טאבו ✔ עיקולים ✔ זכויות בנייה. שמרו לפני הרכישה 📌"],
+      ["LinkedIn","li","Aug 6 · 08:00",["Draft","b-draft"],"Buying a second-hand apartment in Israel? The most expensive mistake is signing before a lawyer reviews the contract. Three checks protect buyers: Tabu status, liens, and building rights vs. actual condition."],
+      ["Google Business","gb","Aug 3",["Approved","b-ok"],"רוכשים דירה יד שנייה? כדאי שעו״ד יבדוק את החוזה לפני החתימה. במשרד אפשטיין ושות׳ נלווה אתכם לאורך העסקה. CTA: Call now · Book"],
+      ["WhatsApp","wa","Aug 12",["Approved","b-ok"],"טיפ לרוכשי דירה יד 2 👇 אל תחתמו על חוזה לפני בדיקת עו״ד. רוצים שנעבור על החוזה שלכם? השיבו כאן 📩"],
+      ["Threads","th","Aug 4",["Draft","b-draft"],"הטעות הכי יקרה ברכישת דירה יד 2: לחתום על חוזה לפני שעו״ד בדק אותו. טאבו, עיקולים, זכויות בנייה — כל אחד יכול לעלות ביוקר."]
     ]
   },
   mediaStudio:{
@@ -149,10 +151,10 @@ const DATA = {
     recent:[["Contractor drought — opportunity","May 2026","Sent"],["Foreign buyers & American investors","May 2026","Sent"]]
   },
   calendar:[
-    ["3","FB · Lawyer before signing"],["5","IG · Reel: 3 red flags"],["6","LinkedIn · Tax brackets"],
-    ["10","FB · Purchase tax 2026"],["12","WA · Client tip"],["13","IG · Carousel"],
-    ["17","FB · Contract red flags"],["19","LinkedIn · Case study"],["21","📧 Newsletter send"],
-    ["24","IG · FAQ"],["26","FB · Soft CTA"],["28","WA · Consultation offer"]
+    ["3","FB · Lawyer before signing","fb"],["5","IG · Reel: 3 red flags","ig"],["6","LinkedIn · Tax brackets","li"],
+    ["10","FB · Purchase tax 2026","fb"],["12","WA · Client tip","wa"],["13","IG · Carousel","ig"],
+    ["17","FB · Contract red flags","fb"],["19","LinkedIn · Case study","li"],["21","📧 Newsletter send","nl"],
+    ["24","IG · FAQ","ig"],["26","FB · Soft CTA","fb"],["28","WA · Consultation offer","wa"]
   ],
   analytics:{
     stats:[{n:"—",l:"Page visits"},{n:"—",l:"Form fills"},{n:"—",l:"Meetings booked"},{n:"—",l:"Cost per lead"}],
@@ -168,33 +170,34 @@ const heb=s=>/[֐-׿]/.test(s)?' class="heb"':'';
 function render(k){
   const d=DATA[k]; let h="";
   if(k==="monthlyPlan"){
-    h+=`<div class="card"><h2>${esc(d.theme.split("—")[0])}</h2><p class="sub">${esc(d.theme)}</p>
-      <div class="stats">${d.stats.map(s=>`<div class="stat"><div class="n">${esc(s.n)}</div><div class="l">${esc(s.l)}</div></div>`).join("")}</div></div>`;
-    h+=`<div class="card"><h2>Campaigns this month</h2><p class="sub">Set by the Marketing Director agent</p>
+    h+=`<div class="planhead"><div><h2>August 2026 — Marketing Plan</h2><p>${esc(d.theme)}</p></div>
+      <div class="btnrow" style="margin:0"><span class="btn">Ask AI to revise</span><span class="btn primary">Approve plan ✓</span></div></div>`;
+    h+=`<div class="stats">${d.stats.map(s=>`<div class="stat"><div class="n">${esc(s.n)}</div><div class="l">${esc(s.l)}</div></div>`).join("")}</div>`;
+    h+=`<div class="row"><div class="col" style="flex:2"><div class="card"><h2>Campaigns this month</h2><p class="sub">Set by the Marketing Director agent</p>
       <table><tr><th>Campaign</th><th>Objective</th><th>Audience</th><th>Pieces</th><th>Status</th></tr>
-      ${d.campaigns.map(c=>`<tr><td>${esc(c.c)}</td><td>${esc(c.o)}</td><td>${esc(c.a)}</td><td>${esc(c.p)}</td><td>${badge(c.s)}</td></tr>`).join("")}</table></div>`;
-    h+=`<div class="card"><h2>Weekly focus</h2><table>${d.weeks.map(w=>`<tr><td><b>${esc(w[0])}</b></td><td>${esc(w[1])}</td><td style="color:var(--mut)">${esc(w[2])}</td></tr>`).join("")}</table></div>`;
+      ${d.campaigns.map(c=>`<tr><td>${esc(c.c)}</td><td>${esc(c.o)}</td><td>${esc(c.a)}</td><td>${esc(c.p)}</td><td>${badge(c.s)}</td></tr>`).join("")}</table></div></div>
+      <div class="col"><div class="card"><h2>Weekly focus</h2><table>${d.weeks.map(w=>`<tr><td><b>${esc(w[0])}</b><div class="meta">${esc(w[2])}</div></td><td>${esc(w[1])}</td></tr>`).join("")}</table></div></div></div>`;
   }
   else if(k==="contentStudio"){
-    h+=`<div class="row"><div class="col"><div class="card"><h2>Content queue</h2><p class="sub">Click-through in the integrated build</p>
+    h+=`<div class="row"><div class="col"><div class="card"><h2>Content queue</h2><p class="sub">Click any item to open it (integrated build)</p>
       <table>${d.queue.map(q=>`<tr><td>${esc(q[0])}<div class="meta">${esc(q[1])}</div></td><td style="text-align:right">${badge(q[2])}</td></tr>`).join("")}</table></div></div>
       <div class="col"><div class="card"><h2>${esc(d.open.title)}</h2><p class="sub">${esc(d.open.meta)}</p>
       <div class="postbox"${heb(d.open.body)}>${esc(d.open.body)}</div>
       <div class="ai-note">🤖 ${esc(d.open.note)}</div>
-      <div class="ai-note" style="border-color:var(--silver);color:var(--silver)">🎯 ${esc(d.open.brief)}</div>
+      <div class="imgbrief">🎯 ${esc(d.open.brief)}</div>
       <div class="btnrow"><span class="btn approve">✓ Approve</span><span class="btn">Request changes</span><span class="btn">🤖 Ask AI to rewrite</span></div>
       <div class="gate">⚠ Human approval required before anything is scheduled or published.</div></div></div></div>`;
   }
   else if(k==="socialPosts"){
     h+=`<div class="card"><h2>Platform versions</h2><p class="sub">The Social Media Manager agent adapts the approved post natively per channel</p>
       <div class="postbox"${heb(d.source)}>${esc(d.source)}</div></div>`;
-    h+=`<div class="row">${d.versions.map(v=>`<div class="col"><div class="card"><h2>${esc(v[0])}</h2><p class="sub">${esc(v[1])} · ${badge(v[2])}</p>
-      <div class="postbox"${heb(v[3])}>${esc(v[3])}</div><div class="btnrow"><span class="btn approve">✓ Approve</span><span class="btn">Edit</span></div></div></div>`).join("")}</div>
+    h+=`<div class="row">${d.versions.map(v=>`<div class="col"><div class="card"><h2><span class="badge" style="color:#fff;background:var(--navy)">${esc(v[0])}</span></h2><p class="sub">${esc(v[2])} · ${badge(v[3])}</p>
+      <div class="postbox"${heb(v[4])}>${esc(v[4])}</div><div class="btnrow"><span class="btn approve">✓ Approve</span><span class="btn">Edit</span></div></div></div>`).join("")}</div>
       <div class="gate">⚠ Each version needs approval before it schedules.</div>`;
   }
   else if(k==="mediaStudio"){
     h+=`<div class="card"><h2>Media Studio</h2><p class="sub">Generate or source a visual for the approved post</p>
-      <div class="ai-note">🎯 ${esc(d.brief)}</div>
+      <div class="imgbrief">🎯 ${esc(d.brief)}</div>
       <div class="tiles" style="margin-top:14px">${[1,2,3,4].map(i=>`<div class="tile">AI variation ${i}<br/>1024×1024</div>`).join("")}</div>
       <div class="btnrow"><span class="btn primary">✨ Generate 4</span><span class="btn">🔎 Find licensed stock</span><span class="btn">⬆ Upload</span></div>
       <div class="gate">${esc(d.rule)}</div></div>`;
@@ -202,13 +205,13 @@ function render(k){
   else if(k==="newsletters"){
     h+=`<div class="card"><h2>${esc(d.next)}</h2><p class="sub">${esc(d.body)}</p>
       <div class="btnrow"><span class="btn approve">✓ Approve draft</span><span class="btn">🤖 Ask AI to assemble</span></div></div>`;
-    h+=`<div class="card"><h2>Recent issues</h2><table>${d.recent.map(r=>`<tr><td>${esc(r[0])}</td><td style="color:var(--mut)">${esc(r[1])}</td><td style="text-align:right">${badge([r[2],"b-ok"])}</td></tr>`).join("")}</table></div>`;
+    h+=`<div class="card"><h2>Recent issues</h2><table>${d.recent.map(r=>`<tr><td>${esc(r[0])}</td><td style="color:var(--muted)">${esc(r[1])}</td><td style="text-align:right">${badge([r[2],"b-ok"])}</td></tr>`).join("")}</table></div>`;
   }
   else if(k==="calendar"){
-    const map={}; d.forEach(e=>map[e[0]]=e[1]);
-    let cells=""; const first=6; // Aug 1 2026 is a Saturday
+    const map={}; d.forEach(e=>map[e[0]]=e);
+    let cells=""; const first=6;
     for(let i=0;i<first;i++)cells+=`<div class="cell empty"></div>`;
-    for(let day=1;day<=31;day++){cells+=`<div class="cell"><div class="d">${day}</div>${map[day]?`<div class="ev">${esc(map[day])}</div>`:""}</div>`;}
+    for(let day=1;day<=31;day++){const e=map[day];cells+=`<div class="cell"><div class="d">${day}</div>${e?`<div><span class="pill ${esc(e[2])}">${esc(e[1])}</span></div>`:""}</div>`;}
     h+=`<div class="card"><h2>Content calendar — August 2026</h2><p class="sub">Sample schedule</p>
       <div class="cal">${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(x=>`<div class="dow">${x}</div>`).join("")}${cells}</div></div>`;
   }

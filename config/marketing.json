@@ -1,0 +1,140 @@
+{
+  "firm": {
+    "name": "Epstein & Co.",
+    "nameHe": "יעקב אפשטיין חברת עו\"ד",
+    "booking": "https://calendly.com/y-epsteinlaw/",
+    "phone": "+972 54-642-2750",
+    "email": "y@epsteinlaw.co.il",
+    "website": "https://www.epsteinlaw.co.il/"
+  },
+  "themeDecision": {
+    "month": "August 2026",
+    "status": "awaiting_yaacov",
+    "chosen": null,
+    "options": [
+      {
+        "id": "t1",
+        "name": "Buying from a contractor: what to check before you sign",
+        "focus": "Risks and questions when buying a new-build or off-plan apartment from a developer.",
+        "audience": "Overseas buyers in early negotiation of an off-plan purchase.",
+        "why": "A prospect mid-process with a contractor is anxious and looking for reassurance; walking through real checkpoints prompts a call."
+      },
+      {
+        "id": "t2",
+        "name": "Getting ready before the holidays: wills families delay too long",
+        "focus": "Will writing for families with assets or heirs split between Israel and abroad, timed to Elul.",
+        "audience": "Overseas clients who own Israeli property; Israeli clients with family abroad.",
+        "why": "Elul is when people think about putting affairs in order; will writing leads naturally to a low-pressure consultation."
+      },
+      {
+        "id": "t3",
+        "name": "The second-hand market in Jerusalem: what the process looks like",
+        "focus": "Step-by-step of a resale purchase or sale, from first contact to title registration.",
+        "audience": "Overseas buyers and sellers who have a property in mind but no picture of the process.",
+        "why": "Clear, jargon-free explanation builds confidence and gives current clients something to share, feeding referrals."
+      }
+    ]
+  },
+  "plan": {
+    "month": "August 2026",
+    "status": "draft",
+    "campaigns": [
+      {
+        "name": "Before You Sign",
+        "weeks": "1-3",
+        "audience": "Overseas buyers, no lawyer yet",
+        "plain": "Educational posts for people who found an apartment but have not hired a lawyer, each ending with the booking link."
+      },
+      {
+        "name": "People Like You Trust Us",
+        "weeks": "2-4",
+        "audience": "Past + prospective clients",
+        "plain": "After checking with Yaacov, gently ask a couple of happy clients for a Google review and reshare kind feedback (with permission)."
+      }
+    ],
+    "weeks": [
+      { "label": "Week 1", "focus": "Why a lawyer before signing" },
+      { "label": "Week 2", "focus": "Buying remotely: how it works" },
+      { "label": "Week 3", "focus": "Questions to ask before you sign" },
+      { "label": "Week 4", "focus": "Client FAQ + soft invite to book" }
+    ]
+  },
+  "content": [
+    {
+      "id": "c1",
+      "title": "What a real-estate lawyer in Israel actually does for you",
+      "channel": "LinkedIn",
+      "lang": "EN",
+      "campaign": "Before You Sign",
+      "status": "review",
+      "date": "2026-08-03",
+      "body": "If someone gave you our name, you are probably asking a fair question: what exactly does a lawyer do here, and is it worth it? Here is a straight answer. We start with the title, checking the Tabu or Israel Land Authority for liens or third-party rights. We read and negotiate the contract. We coordinate with everyone involved, map the taxes and fees (mas rechisha, registration), and see final registration through to your name.",
+      "cta": "Booking link in first comment: https://calendly.com/y-epsteinlaw/",
+      "note": "Link goes in the first comment, not the post body."
+    },
+    {
+      "id": "c2",
+      "title": "Buying from abroad: how we make it work remotely",
+      "channel": "Facebook + Instagram",
+      "lang": "EN",
+      "campaign": "Before You Sign",
+      "status": "draft",
+      "date": "2026-08-10",
+      "body": "You found the apartment. You are three time zones away. Now what? A power of attorney (ייפוי כוח) means you do not have to fly in to sign every document. Documents move securely, communication is planned across time zones, and when closing day comes, we handle it on your behalf.",
+      "cta": "Book a free introductory call. We work across time zones. https://calendly.com/y-epsteinlaw/",
+      "note": "Confirm whether a named secure portal/courier is used before publishing."
+    },
+    {
+      "id": "c3",
+      "title": "5 questions to ask before you sign in Israel",
+      "channel": "Instagram carousel",
+      "lang": "EN",
+      "campaign": "Before You Sign",
+      "status": "draft",
+      "date": "2026-08-13",
+      "body": "1. Who has actually checked the title? 2. What exactly is in the contract, and what is missing? 3. Who is paying which taxes and fees, and have they been calculated? 4. What happens if the other side misses a deadline? 5. Is your lawyer representing you, or just the deal?",
+      "cta": "Ready to talk through your deal? Book a free introductory call. https://calendly.com/y-epsteinlaw/",
+      "note": "7 slides: cover + 5 questions + CTA."
+    },
+    {
+      "id": "c4",
+      "title": "Client review request (English + Hebrew)",
+      "channel": "WhatsApp / email",
+      "lang": "EN+HE",
+      "campaign": "People Like You Trust Us",
+      "status": "review",
+      "date": "2026-08-12",
+      "body": "Hi [CLIENT NAME], now that everything has closed and settled, it was a genuine pleasure working with you. If you have two minutes and feel your experience was positive, a short Google review would mean a great deal to the firm. No pressure at all, only if it feels right. [GOOGLE REVIEW LINK]",
+      "cta": "Ask Yaacov before any review outreach begins.",
+      "note": "Needs Yaacov's go-ahead first; needs the Google review link."
+    }
+  ],
+  "newsletters": [
+    {
+      "id": "n1",
+      "subject": "Buying in Israel from abroad: what to know first",
+      "status": "review",
+      "sendDate": "2026-08-21",
+      "sections": ["Intro", "Buying remotely", "5 questions", "FAQ", "Book a consultation"]
+    }
+  ],
+  "reminders": [
+    { "id": "r1", "when": "2026-08-02 16:00", "title": "Approve LinkedIn post before it schedules", "linked": "c1", "sync": "synced" },
+    { "id": "r2", "when": "2026-08-20 09:00", "title": "Final sign-off on August newsletter", "linked": "n1", "sync": "pending" },
+    { "id": "r3", "when": "2026-08-27 14:00", "title": "Choose September theme with Yaacov", "linked": null, "sync": "synced" }
+  ],
+  "analytics": {
+    "period": "August 2026",
+    "kpis": [
+      { "label": "Google rating", "value": "4.9", "sub": "68 reviews, 6 new", "star": true },
+      { "label": "Posting consistency", "value": "93%", "sub": "28 of 30 planned" },
+      { "label": "Follower growth", "value": "+312", "sub": "across channels" },
+      { "label": "Consultations booked", "value": "23", "sub": "outcome, mostly referrals" }
+    ],
+    "reviewsRecent": [
+      "They walked us through buying from abroad step by step.",
+      "Patient, precise, and honest about risks."
+    ],
+    "note": "Illustrative until data sources are connected: Google Business (reviews), channel insights, portal posting log, booking form."
+  }
+}

@@ -16,7 +16,9 @@ const createGoogleAuthRouter = require('./google-auth');
 const createAuthRouter = require('./routes/auth');
 const createChatRouter = require('./routes/chat');
 const createGmailRouter = require('./routes/gmail');
+const createDropboxRouter = require('./routes/dropbox');
 const createAdminRouter = require('./routes/admin');
+const createMarketingRouter = require('./routes/marketing');
 
 const app = express();
 app.use(express.json());
@@ -66,7 +68,9 @@ app.use(createGoogleAuthRouter({ createSession: createDbSession, findUserByEmail
 app.use(createAuthRouter({ loadUsers, saveUsers, transporter }));
 app.use(createChatRouter());
 app.use(createGmailRouter());
+  app.use(createDropboxRouter());
 app.use(createAdminRouter({ loadUsers }));
+app.use(createMarketingRouter());
 
 // Health check — also reports whether the database is reachable.
 app.get('/healthz', async (req, res) => {

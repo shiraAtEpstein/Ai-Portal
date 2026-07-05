@@ -11,6 +11,7 @@ const express = require('express');
 const db = require('../db');
 const { authenticate, requireAdmin } = require('../lib/sessions');
 const { agentsConfig } = require('../lib/access');
+const agentRegistry = require('../lib/agents'); // Dropbox agent refresh
 
 const ALLOWED_DOMAIN = (process.env.GOOGLE_ALLOWED_DOMAIN || 'epsteinlaw.co.il').toLowerCase();
 const BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://ai-portal-wf42.onrender.com').replace(/\/+$/, '');
@@ -265,6 +266,18 @@ module.exports = function createAdminRouter({ loadUsers }) {
     const mail = await sendInvite({ to: email, inviterName, roleLabel, link });
     await db.writeAudit({ actorId: req.session.userId, actorName: req.session.name, action: 'user.invite_resent', targetType: 'user', targetName: user.name, metadata: { emailed: mail.sent } });
     res.json({ ok: true, email, inviteLink: link, emailed: mail.sent, emailError: mail.sent ? undefined : mail.reason });
+  });
+
+  // POST /api/admin/refresh-agents — pull the latest agent files from Dropbox
+  // now (admin-only). Agents also auto-refresh on a timer.
+  router.post('/api/admin/refresh-agents', authenticate, requireAdmin, async (req, res) => {
+    const r = await agentRegistry.refreshFromDropbox();
+    if (r.ok) {
+      db.writeAudit({ actorId: req.session.userId, actorName: req.session.name, action: 'agents.refreshed', targetType: 'config', targetName: 'portal-agents', metadata: { count: r.count } }).catch(function () {});
+      return res.json({ ok: true, count: r.count });
+    }
+    console.error('[ADMIN] agents refresh failed:', r.reason);
+    return res.status(502).json({ ok: false, error: 'Could not refresh agents from Dropbox: ' + r.reason });
   });
 
   return router;

@@ -600,7 +600,7 @@
     .admin-btn:hover { background: rgba(201,162,39,0.12); }
 
     /* ── ADMIN SCREEN (overlay) ── */
-    #admin-screen, #audit-screen {
+    #admin-screen, #audit-screen, #marketing-screen {
       display: none;
       position: fixed;
       inset: 0;
@@ -940,6 +940,7 @@
     <div class="sidebar-bottom">
       <button class="admin-btn gmail-btn" id="gmail-connect-btn">🔗 Connect Gmail</button>
       <button class="admin-btn" id="activity-open-btn" data-i18n="activityLog">📋 Activity Log</button>
+      <button class="admin-btn" id="marketing-open-btn">📣 Marketing</button>
       <button class="admin-btn" id="admin-open-btn" data-i18n="manageUsers">⚙ Manage Users</button>
       <button class="logout-btn" id="logout-btn" data-i18n="signOut">Sign Out</button>
     </div>
@@ -1069,6 +1070,26 @@
   </div>
 </div>
 
+<!-- ==============================================================
+     MARKETING (admins only) - read-only dashboard
+=============================================================== -->
+<div id="marketing-screen">
+  <div class="admin-wrap">
+    <div class="admin-topbar">
+      <div>
+        <h1>📣 Marketing</h1>
+        <p>The firm's marketing plan, content, and results. Read-only for now.</p>
+      </div>
+      <div style="display:flex; gap:10px; flex-shrink:0;">
+        <button class="admin-back" id="marketing-refresh-btn">Refresh</button>
+        <button class="admin-back" id="marketing-close-btn">← Back to portal</button>
+      </div>
+    </div>
+    <div class="admin-note" id="marketing-note"></div>
+    <div id="marketing-body"><p style="color:var(--gray-400);">Loading…</p></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="invite-modal">
   <div class="modal-box">
     <div class="modal-head">
@@ -1178,6 +1199,7 @@ function showPortal(name, role) {
   const isAdmin = roleList.includes('admin');
   document.getElementById('admin-open-btn').style.display = isAdmin ? 'block' : 'none';
   document.getElementById('activity-open-btn').style.display = isAdmin ? 'block' : 'none';
+  document.getElementById('marketing-open-btn').style.display = isAdmin ? 'block' : 'none';
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1578,6 +1600,137 @@ function openAdmin() {
   document.getElementById('admin-screen').style.display = 'block';
   try { history.replaceState(null, '', '#admin'); } catch (e) {}
   loadAdminUsers();
+}
+
+// ==============================================================
+//  MARKETING (admins only) - read-only dashboard
+// ==============================================================
+document.getElementById('marketing-open-btn').addEventListener('click', openMarketing);
+document.getElementById('marketing-close-btn').addEventListener('click', closeMarketing);
+document.getElementById('marketing-refresh-btn').addEventListener('click', loadMarketing);
+
+function openMarketing() {
+  document.getElementById('marketing-screen').style.display = 'block';
+  try { history.replaceState(null, '', '#marketing'); } catch (e) {}
+  loadMarketing();
+}
+function closeMarketing() {
+  document.getElementById('marketing-screen').style.display = 'none';
+  try { history.replaceState(null, '', conversationId ? '#c=' + encodeURIComponent(conversationId) : location.pathname); } catch (e) {}
+}
+
+function mkBadge(status) {
+  var colors = {
+    draft:    ['#eef1f5', '#5b6b7d'],
+    review:   ['#fbf1dc', '#b07d18'],
+    approved: ['#e4f3ea', '#1c7a42'],
+    scheduled:['#e6edf6', '#3a5da8'],
+    published:['#eae7f4', '#6b52a8']
+  };
+  var c = colors[status] || colors.draft;
+  return '<span style="display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600;background:' + c[0] + ';color:' + c[1] + ';">' + esc(status) + '</span>';
+}
+
+async function loadMarketing() {
+  var note = document.getElementById('marketing-note');
+  var body = document.getElementById('marketing-body');
+  note.className = 'admin-note';
+  note.textContent = '';
+  body.innerHTML = '<p style="color:var(--gray-400);">Loading…</p>';
+  try {
+    var res = await fetch('/api/marketing', { headers: authHeader() });
+    if (res.status === 401) return handleSessionExpired();
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not load the marketing data.');
+    renderMarketing(data);
+  } catch (e) {
+    body.innerHTML = '';
+    note.className = 'admin-note error';
+    note.textContent = e.message || 'Could not load the marketing data.';
+  }
+}
+
+function renderMarketing(d) {
+  var body = document.getElementById('marketing-body');
+  var td = d.themeDecision || {};
+  var plan = d.plan || {};
+  var a = d.analytics || {};
+  var h = '';
+
+  h += '<div class="admin-card">';
+  h += '<h2>Monthly plan · ' + esc(plan.month || td.month || '') + '</h2>';
+  if (td.status === 'chosen' && td.chosen) {
+    var ch = (td.options || []).find(function (o) { return o.id === td.chosen; }) || {};
+    h += '<p style="margin-bottom:14px;">Theme: <strong>' + esc(ch.name || '') + '</strong></p>';
+  } else {
+    h += '<p style="margin-bottom:12px;color:var(--gray-600);">Theme: awaiting Yaacov’s choice. Options:</p>';
+    (td.options || []).forEach(function (o) {
+      h += '<div style="border:1px solid var(--gray-200);border-radius:9px;padding:12px 14px;margin-bottom:10px;">'
+        + '<div style="font-weight:600;color:var(--navy);">' + esc(o.name) + '</div>'
+        + '<div style="font-size:13px;color:var(--gray-600);margin-top:3px;">' + esc(o.focus) + '</div>'
+        + '<div style="font-size:12.5px;margin-top:5px;"><strong>Who:</strong> ' + esc(o.audience) + '</div>'
+        + '<div style="font-size:12.5px;"><strong>Why it fits:</strong> ' + esc(o.why) + '</div>'
+        + '</div>';
+    });
+  }
+  if ((plan.campaigns || []).length) {
+    h += '<h2 style="margin-top:18px;">Campaigns</h2><table class="admin-table"><thead><tr><th>Campaign</th><th>Weeks</th><th>Audience</th><th>In plain terms</th></tr></thead><tbody>';
+    plan.campaigns.forEach(function (c) {
+      h += '<tr><td><strong>' + esc(c.name) + '</strong></td><td>' + esc(c.weeks) + '</td><td>' + esc(c.audience) + '</td><td style="color:var(--gray-600);">' + esc(c.plain) + '</td></tr>';
+    });
+    h += '</tbody></table>';
+  }
+  if ((plan.weeks || []).length) {
+    h += '<h2 style="margin-top:18px;">Weekly focus</h2><div style="display:flex;flex-wrap:wrap;gap:12px;">';
+    plan.weeks.forEach(function (w) {
+      h += '<div style="flex:1;min-width:160px;border:1px solid var(--gray-200);border-radius:9px;padding:10px 12px;"><strong>' + esc(w.label) + '</strong><div style="font-size:12.5px;color:var(--gray-600);margin-top:3px;">' + esc(w.focus) + '</div></div>';
+    });
+    h += '</div>';
+  }
+  h += '</div>';
+
+  if ((d.content || []).length) {
+    h += '<div class="admin-card"><h2>Content</h2><table class="admin-table"><thead><tr><th>Title</th><th>Channel</th><th>Date</th><th>Status</th></tr></thead><tbody>';
+    d.content.forEach(function (c, i) {
+      h += '<tr class="mk-row" data-mk="' + i + '" style="cursor:pointer;"><td><strong>' + esc(c.title) + '</strong></td><td>' + esc(c.channel) + '</td><td>' + esc(c.date) + '</td><td>' + mkBadge(c.status) + '</td></tr>';
+      h += '<tr id="mk-detail-' + i + '" style="display:none;"><td colspan="4" style="background:var(--gray-50);">'
+        + '<div style="white-space:pre-wrap;font-size:13px;line-height:1.5;">' + esc(c.body) + '</div>'
+        + '<div style="font-size:12.5px;margin-top:8px;"><strong>CTA:</strong> ' + esc(c.cta) + '</div>'
+        + (c.note ? '<div style="font-size:12px;color:#b07d18;margin-top:6px;">⚠ ' + esc(c.note) + '</div>' : '')
+        + '</td></tr>';
+    });
+    h += '</tbody></table></div>';
+  }
+
+  if ((a.kpis || []).length) {
+    h += '<div class="admin-card"><h2>Analytics · ' + esc(a.period || '') + '</h2>';
+    h += '<p style="font-size:12px;color:var(--gray-600);margin-bottom:12px;">Reputation-first, since our leads come from referrals.</p>';
+    h += '<div style="display:flex;flex-wrap:wrap;gap:14px;">';
+    a.kpis.forEach(function (k) {
+      h += '<div style="flex:1;min-width:150px;border:1px solid var(--gray-200);border-radius:10px;padding:14px;">'
+        + '<div style="font-size:12px;color:var(--gray-600);">' + (k.star ? '★ ' : '') + esc(k.label) + '</div>'
+        + '<div style="font-size:24px;font-weight:700;color:' + (k.star ? '#b07d18' : 'var(--navy)') + ';margin-top:2px;">' + esc(k.value) + '</div>'
+        + '<div style="font-size:11px;color:var(--gray-600);margin-top:4px;">' + esc(k.sub || '') + '</div>'
+        + '</div>';
+    });
+    h += '</div>';
+    if ((a.reviewsRecent || []).length) {
+      h += '<div style="margin-top:16px;">';
+      a.reviewsRecent.forEach(function (r) { h += '<div style="font-size:13px;padding:7px 0;border-bottom:1px solid var(--gray-100);">⭐ “' + esc(r) + '”</div>'; });
+      h += '</div>';
+    }
+    if (a.note) h += '<p style="font-size:12px;color:var(--gray-400);margin-top:12px;">' + esc(a.note) + '</p>';
+    h += '</div>';
+  }
+
+  body.innerHTML = h;
+  body.querySelectorAll('.mk-row').forEach(function (row) {
+    row.addEventListener('click', function () {
+      var i = row.getAttribute('data-mk');
+      var det = document.getElementById('mk-detail-' + i);
+      if (det) det.style.display = (det.style.display === 'none') ? 'table-row' : 'none';
+    });
+  });
 }
 
 // ── History / audit log (Day 9) ──

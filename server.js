@@ -20,6 +20,22 @@ const createAdminRouter = require('./routes/admin');
 
 const app = express();
 app.use(express.json());
+
+// Serve the SPA shell with the Marketing Console loader injected. The loader
+// (public/marketing.js) is admin-gated client-side. Read once at startup; if
+// anything fails we fall through to normal static serving (original behavior).
+let INDEX_HTML = null;
+try {
+  INDEX_HTML = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8')
+    .replace('</body>', '  <script defer src="/marketing.js"></script>\n</body>');
+} catch (e) {
+  console.error('[BOOT] could not preload index.html for injection:', e.message);
+}
+app.get(['/', '/index.html'], (req, res, next) => {
+  if (!INDEX_HTML) return next();
+  res.type('html').send(INDEX_HTML);
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // --- users.json staff file helpers ---

@@ -3,7 +3,7 @@
     "copywriter": {
       "name": "Content Writer",
       "description": "Creates newsletters, posts and professional content",
-      "source": "/shared-claude/ניוזלטר/content-writer.md",
+      "source": "/shared-claude/ניוזלטר/content-writer.md"
       
     },
     "researcher": {

@@ -3,7 +3,8 @@
     "copywriter": {
       "name": "Content Writer",
       "description": "Creates newsletters, posts and professional content",
-      "systemPrompt": "You are a professional content writer for a law firm. You help draft newsletters, LinkedIn posts, client communications, and other professional content. You write in a clear, authoritative, and approachable tone appropriate for a legal audience. You do not give legal advice — you write content that communicates legal topics clearly to general audiences."
+      "source": "/shared-claude/ניוזלטר/content-writer.md",
+      
     },
     "researcher": {
       "name": "Research Assistant",

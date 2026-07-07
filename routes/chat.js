@@ -277,7 +277,8 @@ module.exports = function createChatRouter() {
           async (args) => {
             const s = byId.get(String(args.skill_id || '').trim());
             if (!s) return { content: [{ type: 'text', text: 'No such skill is available to you. Pick an id from your catalog, or answer directly.' }] };
-            active = s;                                        // activates its Dropbox folder for the file tools
+            active = s; 
+              console.log('[ROUTER] loaded skill:', s.id);// activates its Dropbox folder for the file tools
             let text = '===== SKILL: ' + s.name + ' =====\n' + (s.body || '(no detailed instructions)');
             if (s.restrictions && s.restrictions.length) {
               text += '\n\nTOPIC RESTRICTIONS for this skill: only help with ' + s.restrictions.join(', ') + '. Decline anything outside these.';

@@ -1503,7 +1503,8 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
   try {
     await fetch('/api/logout', { method: 'POST', headers: authHeader() });
   } catch {}
-  location.reload();
+  sessionToken = null;
+  window.location.replace('/');
 });
 
 function handleSessionExpired() {
@@ -2393,6 +2394,9 @@ function restoreAgentFromUrl() {
   document.getElementById('daily-close').addEventListener('click', function(){ panel.classList.remove('open'); });
   document.getElementById('daily-refresh').addEventListener('click', load);
 })();
+</script>
+<script>
+window.addEventListener('pageshow', function (e) { if (e.persisted) { location.reload(); } });
 </script>
 </body>
 </html>

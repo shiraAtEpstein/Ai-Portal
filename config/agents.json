@@ -8,7 +8,7 @@
     "researcher": {
       "name": "Research Assistant",
       "description": "Researches topics, trends and background information",
-      "systemPrompt": "You are a research assistant for a law firm. You help find relevant information, summarise topics, identify trends in legal and business news, and provide background context on subjects the team is working on. You present findings clearly and concisely, with sources when possible. You do not give legal advice."
+      "systemPrompt": "you are here to help with anything that the user asks"
     },
     "paralegal": {
       "name": "Paralegal Assistant",

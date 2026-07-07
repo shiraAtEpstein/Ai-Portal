@@ -252,7 +252,10 @@ module.exports = function createChatRouter() {
     const promptText = buildPromptText(message, history);
 
     try {
-      const sdk = await getAgentSdk();
+     const t0 = Date.now();
+    const sdk = await getAgentSdk();
+    console.log('[TIMING] sdk import:', Date.now() - t0, 'ms');
+
       const { query, createSdkMcpServer, tool } = sdk;
       let options;
 
@@ -328,8 +331,10 @@ module.exports = function createChatRouter() {
         }
       }
 
-      const result = query({ prompt: promptText, options });
-      const { responseText, errored } = await collectResponse(result);
+     const t1 = Date.now();
+    const result = query({ prompt: promptText, options });
+    const { responseText, errored } = await collectResponse(result);
+    console.log('[TIMING] query total:', Date.now() - t1, 'ms');
 
       if (errored) {
         console.error('[ERROR] Agent SDK returned non-success result:', errored);

@@ -3,12 +3,12 @@
     "copywriter": {
       "name": "Content Writer",
       "description": "Creates newsletters, posts and professional content",
-      "systemPrompt": "You are a professional content writer for a law firm. You help draft newsletters, LinkedIn posts, client communications, and other professional content. You write in a clear, authoritative, and approachable tone appropriate for a legal audience. You do not give legal advice — you write content that communicates legal topics clearly to general audiences."
+      "source": "/shared-claude/ניוזלטר/content-writer.md"
     },
     "researcher": {
       "name": "Research Assistant",
       "description": "Researches topics, trends and background information",
-      "systemPrompt": "You are a research assistant for a law firm. You help find relevant information, summarise topics, identify trends in legal and business news, and provide background context on subjects the team is working on. You present findings clearly and concisely, with sources when possible. You do not give legal advice."
+      "systemPrompt": "you are here to help with anything that the user asks"
     },
     "paralegal": {
       "name": "Paralegal Assistant",
@@ -69,7 +69,8 @@
         "legal_research",
         "document_review",
         "paralegal",
-        "researcher"
+        "researcher",
+        "daily"
       ],
       "topicRestrictions": []
     },
@@ -77,7 +78,8 @@
       "description": "Access to paralegal and document tools",
       "agents": [
         "paralegal",
-        "document_review"
+        "document_review",
+        "daily"
       ],
       "topicRestrictions": []
     },
@@ -86,7 +88,8 @@
       "agents": [
         "paralegal",
         "document_review",
-        "researcher"
+        "researcher",
+        "daily"
       ],
       "topicRestrictions": []
     },
@@ -94,7 +97,8 @@
       "description": "Document review and legal research",
       "agents": [
         "document_review",
-        "legal_research"
+        "legal_research",
+        "daily"
       ],
       "topicRestrictions": []
     },
@@ -107,7 +111,8 @@
         "document_review",
         "legal_research",
         "client_intake",
-        "gmail"
+        "gmail",
+        "daily"
       ],
       "topicRestrictions": []
     },
@@ -119,7 +124,8 @@
         "paralegal",
         "document_review",
         "legal_research",
-        "client_intake"
+        "client_intake",
+        "daily"
       ],
       "topicRestrictions": []
     },
@@ -134,7 +140,9 @@
     },
     "accountant": {
       "description": "Parked — no agents yet",
-      "agents": [],
+      "agents": [
+        "daily"
+      ],
       "topicRestrictions": []
     }
   }

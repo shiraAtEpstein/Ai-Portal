@@ -1,0 +1,34 @@
+[
+  {
+    "id": 1772652154, "name": "יד 2 (second-hand)",
+    "columns": {
+      "status": "status", "workType": "status_mkm41s55", "paralegal": "person", "taxPerson": "people_mkmfnaj0",
+      "kickstartSent": "status_mkm524j8", "kickstartDate": "date_mknh6rq2", "questionnaireFull": "color_mknqwjh8",
+      "feeAgreementSent": "status_mkmjrv4m", "feeAgreementSigned": "status_mkn24v1", "feeAgreementSignedDate": "date_mkmjebqz",
+      "signingSet": "status_mkmkskr5", "signingSetSentDate": "date_mkx4bzgx",
+      "paymentScheduleFilled": "color_mknr13ym", "paymentScheduleSendDate": "date_mkw71gr4",
+      "contractSignPlannedDate": "date_mkr36pp7", "contractSignActualDate": "date_mkmceehf"
+    }
+  },
+  {
+    "id": 1603266152, "name": "קבלן (contractor)",
+    "columns": {
+      "status": "deal_stage", "workType": "color__1", "paralegal": "deal_owner", "taxPerson": "people_mkmc9m3v",
+      "kickstartSent": "status38__1", "kickstartDate": "date22__1", "questionnaireFull": "color_mknjtmzk",
+      "feeAgreementSent": "status6__1", "feeAgreementSigned": "status_mkmpd1tz", "feeAgreementSignedDate": "date16__1",
+      "signingSet": "dup__of_kyc______2__1", "signingSetSentDate": "date_mkx424f8",
+      "paymentScheduleFilled": "color_mknhjk1t", "paymentScheduleSendDate": "date_mkv4nx8n",
+      "registrationDeadline": "date81__1", "registrationSigned": "color_mknhjbf7",
+      "contractSignPlannedDate": "date_mkr33k4v", "contractSignActualDate": "date58__1"
+    }
+  },
+  {
+    "id": 5096606714, "name": "צוואות (wills)",
+    "columns": {
+      "status": "status", "paralegal": "person", "openDate": "date_mm3fvmhb",
+      "feeNoticeSent": "color_mm3e9jfn", "questionnaireSent": "color_mm3efv0r", "questionnaireReminder": "color_mm3fvkwr",
+      "sendFAQ": "color_mm4akd61", "faqSendDate": "date_mm4app5e", "sendDraft": "color_mm3edrf0",
+      "signingScheduledDate": "date_mm4bgaf9", "signedDate": "date_mm3efdcg", "sendSignedWill": "color_mm3epny9"
+    }
+  }
+]

@@ -10,6 +10,8 @@ const db = require('../db');
 const gmail = require('../lib/gmail');
 const { z } = require('zod');
 const { agents: agentRegistry } = require('../lib/agents');
+const dropbox = require('../lib/dropbox');
+const monday = require('../lib/monday');
 const chatLimiter = rateLimit({ windowMs: 60000, max: 20, name: 'chat requests' });
 const MODEL_ALIASES = { sonnet: 'claude-sonnet-4-6', haiku: 'claude-haiku-4-5-20251001', opus: 'claude-opus-4-8' };
 
@@ -101,7 +103,7 @@ module.exports = function createChatRouter() {
       // toolbox; the agent just names which ones it is allowed to use, and
       // the server turns on only those. Every tool reads/acts for the
       // CURRENT signed-in user only.
-      const SUPPORTED_TOOLS = new Set(['gmail_search']);
+      const SUPPORTED_TOOLS = new Set(['gmail_search', 'dropbox_list', 'dropbox_read', 'dropbox_write', 'dropbox_append', 'monday_my_tasks']);
       const toolAllow = (Array.isArray(agent.tools) ? agent.tools : []).filter((t) => SUPPORTED_TOOLS.has(t));
 
       let mcpServers;
@@ -109,6 +111,17 @@ module.exports = function createChatRouter() {
       let maxTurns = 1;
       if (toolAllow.length) {
         const defs = [];
+        // Folder-scoped Dropbox access: an agent can only touch files inside its
+        // OWN folder (its source file's directory). No path traversal out.
+        const scope = (agent && agent.folder) ? String(agent.folder).replace(/\/+$/, '') : null;
+        const toScoped = (rel) => {
+          if (!scope) return null;
+          const r = String(rel || '').trim().replace(/^\/+/, '');
+          if (!r || /(^|\/)\.\.(\/|$)/.test(r)) return null;
+          const full = scope + '/' + r;
+          if (full.indexOf(scope + '/') !== 0) return null;
+          return full;
+        };
         if (toolAllow.includes('gmail_search')) {
           defs.push(tool(
             'gmail_search',
@@ -127,9 +140,84 @@ module.exports = function createChatRouter() {
             }
           ));
         }
+        if (scope && toolAllow.includes('dropbox_list')) {
+          defs.push(tool(
+            'dropbox_list',
+            "List files in THIS agent's own Dropbox folder (or a subfolder). Read-only. Use it to discover drafts, research, or style samples before reading them.",
+            { subpath: z.string().optional().describe('Optional subfolder within the agent folder, e.g. "drafts" or "yaakov-style-samples". Empty = the folder root.') },
+            async (args) => {
+              const target = args.subpath ? toScoped(args.subpath) : scope;
+              if (target === null) return { content: [{ type: 'text', text: 'Blocked: that path is outside your folder.' }] };
+              try {
+                const files = await dropbox.listFiles(target);
+                const lines = (files || []).map((f) => (f.type === 'folder' ? '[dir] ' : '      ') + f.name);
+                return { content: [{ type: 'text', text: lines.length ? lines.join('\n') : '(empty)' }] };
+              } catch (e) { return { content: [{ type: 'text', text: 'Error listing: ' + e.message }] }; }
+            }
+          ));
+        }
+        if (scope && toolAllow.includes('dropbox_read')) {
+          defs.push(tool(
+            'dropbox_read',
+            "Read a text file from THIS agent's own Dropbox folder. Read-only. Path is relative to the agent folder, e.g. \"yaakov-style-samples/Seven Points You Should Consider Before You Sell an Apartment.txt\".",
+            { path: z.string().describe('File path relative to the agent folder.') },
+            async (args) => {
+              const target = toScoped(args.path);
+              if (target === null) return { content: [{ type: 'text', text: 'Blocked: that path is outside your folder.' }] };
+              try { const txt = await dropbox.readFile(target); return { content: [{ type: 'text', text: String(txt).slice(0, 40000) }] }; }
+              catch (e) { return { content: [{ type: 'text', text: 'Error reading: ' + e.message }] }; }
+            }
+          ));
+        }
+        if (scope && toolAllow.includes('dropbox_write')) {
+          defs.push(tool(
+            'dropbox_write',
+            "Create or overwrite a text file in THIS agent's own Dropbox folder, e.g. save a draft to \"drafts/2026-08-topic.md\". Writes only inside the agent folder.",
+            { path: z.string().describe('File path relative to the agent folder.'), content: z.string().describe('Full file contents to write.') },
+            async (args) => {
+              const target = toScoped(args.path);
+              if (target === null) return { content: [{ type: 'text', text: 'Blocked: that path is outside your folder.' }] };
+              try { await dropbox.writeFile(target, args.content, 'overwrite'); return { content: [{ type: 'text', text: 'Saved: ' + target }] }; }
+              catch (e) { return { content: [{ type: 'text', text: 'Error writing: ' + e.message }] }; }
+            }
+          ));
+        }
+        if (scope && toolAllow.includes('dropbox_append')) {
+          defs.push(tool(
+            'dropbox_append',
+            "Append text to a file in THIS agent's own Dropbox folder (creates it if missing). Use for the editorial learning log / memory.",
+            { path: z.string().describe('File path relative to the agent folder.'), content: z.string().describe('Text to append at the end.') },
+            async (args) => {
+              const target = toScoped(args.path);
+              if (target === null) return { content: [{ type: 'text', text: 'Blocked: that path is outside your folder.' }] };
+              try {
+                let cur = '';
+                try { cur = await dropbox.readFile(target); } catch (_) { cur = ''; }
+                const next = (cur ? cur.replace(/\s*$/, '') + '\n' : '') + String(args.content);
+                await dropbox.writeFile(target, next, 'overwrite');
+                return { content: [{ type: 'text', text: 'Appended to: ' + target }] };
+              } catch (e) { return { content: [{ type: 'text', text: 'Error appending: ' + e.message }] }; }
+            }
+          ));
+        }
+        if (toolAllow.includes('monday_my_tasks')) {
+          defs.push(tool(
+            'monday_my_tasks',
+            "Get THIS signed-in user's monday deals \u2014 only deals where they are the paralegal or tax owner \u2014 with each deal's stage, task checkpoints, and dates. Read-only. Use it to build the person's daily task list.",
+            {},
+            async () => {
+              try {
+                const email = req.session && req.session.email;
+                if (!email) return { content: [{ type: 'text', text: 'No signed-in email on the session.' }] };
+                const res = await monday.myDeals(email);
+                return { content: [{ type: 'text', text: monday.renderDeals(res) }] };
+              } catch (e) { return { content: [{ type: 'text', text: 'monday error: ' + e.message }] }; }
+            }
+          ));
+        }
         mcpServers = { portal: createSdkMcpServer({ name: 'portal', version: '1.0.0', tools: defs }) };
         allowedTools = toolAllow.map((t) => 'mcp__portal__' + t);
-        maxTurns = 6;
+        maxTurns = 12;
       }
 
       const options = {

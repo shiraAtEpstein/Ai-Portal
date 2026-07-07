@@ -20,6 +20,12 @@ const createDropboxRouter = require('./routes/dropbox');
 const createAdminRouter = require('./routes/admin');
 const createMarketingRouter = require('./routes/marketing');
 
+// Dropbox-backed agents: load framework .md files from the connected Dropbox
+// folder at boot and on a timer (roles stay in config/agents.json). Falls back
+// to the bundled agents if Dropbox is down or not yet connected.
+const agentRegistry = require('./lib/agents');
+const dropbox = require('./lib/dropbox');
+
 const app = express();
 app.use(express.json());
 
@@ -87,3 +93,19 @@ app.listen(PORT, () => {
   console.log(' Loaded ' + userCount + ' users (file)');
   console.log(' Loaded ' + Object.keys(agentsConfig.agents).length + ' agents\n');
 });
+
+
+// --- Keep agents fresh from Dropbox -------------------------------------------
+async function refreshAgents(reason) {
+  const r = await agentRegistry.refreshFromDropbox();
+  if (r.ok) {
+    console.log('[AGENTS] loaded ' + r.count + ' agent file(s) from Dropbox (' + reason + ')');
+  } else {
+    console.warn('[AGENTS] using bundled agents \u2014 Dropbox skipped: ' + r.reason + ' (' + reason + ')');
+  }
+}
+refreshAgents('boot');
+if (dropbox.configured()) {
+  const REFRESH_MS = parseInt(process.env.AGENTS_REFRESH_MS || '300000', 10); // 5 min
+  setInterval(function () { refreshAgents('interval'); }, REFRESH_MS).unref();
+}

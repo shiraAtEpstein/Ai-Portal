@@ -199,18 +199,18 @@ async function getSession(token) {
   const p = getPool();
   if (!p || !token || !UUID_RE.test(token)) return null;
   const r = await p.query(
-    `SELECT u.id AS user_id, u.display_name AS name, u.status,
+    `SELECT u.id AS user_id, u.display_name AS name, u.email AS email, u.status,
         COALESCE(array_agg(r.name ORDER BY r.id) FILTER (WHERE r.name IS NOT NULL), ARRAY[]::text[]) AS roles
      FROM sessions s
      JOIN users u ON u.id = s.user_id
      LEFT JOIN role_assignments ra ON ra.user_id = u.id
      LEFT JOIN roles r ON r.id = ra.role_id
      WHERE s.id = $1 AND s.revoked_at IS NULL AND s.expires_at > now()
-     GROUP BY u.id, u.display_name, u.status;`, [token]);
+     GROUP BY u.id, u.display_name, u.email, u.status;`, [token]);
   const row = r.rows[0];
   if (!row || row.status !== 'active') return null;
   p.query('UPDATE sessions SET last_seen_at = now() WHERE id = $1', [token]).catch(() => {});
-  return { userId: row.user_id, name: row.name, roles: row.roles || [] };
+  return { userId: row.user_id, name: row.name, email: row.email, roles: row.roles || [] };
 }
 async function revokeSession(token) {
   const p = getPool();

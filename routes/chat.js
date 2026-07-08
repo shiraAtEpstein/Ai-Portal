@@ -29,7 +29,7 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const chatLimiter = rateLimit({ windowMs: 60000, max: 20, name: 'chat requests' });
 const MODEL_ALIASES = { sonnet: 'claude-sonnet-4-6', haiku: 'claude-haiku-4-5-20251001', opus: 'claude-opus-4-8' };
 const DEFAULT_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';
-const MAX_TOKENS = 4096;
+const MAX_TOKENS = 16000;  // must be big enough for a build_document call whose data field carries the whole report; 4096 truncated it mid-tool-call
 const MAX_STEPS = 8;
 const SUPPORTED_TOOLS = new Set(['gmail_search', 'dropbox_list', 'dropbox_read', 'dropbox_write', 'dropbox_append', 'monday_my_tasks', 'monday_list_columns', 'monday_read_board']);
 
@@ -312,6 +312,9 @@ async function runStreamingChat(res, { model, system, tools }, promptText, userM
       if (block && block.type === 'tool_use' && block.name === 'build_document') calledBuild = true;
     }
     console.log('[DIAG] step=' + step + ' stop=' + finalMsg.stop_reason + ' used=[' + usedTools.join(',') + '] calledBuild=' + calledBuild);
+    if (finalMsg.stop_reason === 'max_tokens') {
+      console.warn('[BUILD_DOC] WARN: model hit max_tokens (output truncated). used=[' + usedTools.join(',') + ']. A cut-off tool call cannot run — raise MAX_TOKENS or make the request more compact.');
+    }
 
     if (finalMsg.stop_reason !== 'tool_use') {
       // SAFETY NET: the model said it would produce a file but never called the

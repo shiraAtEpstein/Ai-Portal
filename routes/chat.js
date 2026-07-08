@@ -270,16 +270,23 @@ function buildPromptText(message, history) {
 // Detects when the model has *narrated* that it is producing a file instead of
 // actually calling build_document (e.g. "Building the Word doc now."). Used by
 // the safety net below so a promise can never end a turn without a real build.
-const FILE_PROMISE_RE = /\b(building|creating|preparing|generating|assembling|putting together|i'?ll (?:make|create|build|prepare|generate|put together)|working on)\b[^.!?\n]{0,60}\b(file|document|doc|word|excel|spreadsheet|workbook|pdf|powerpoint|deck|presentation|\.docx|\.xlsx|\.pdf|\.pptx)\b/i;
+const FILE_PROMISE_RE = /(?:\b(?:building|creating|preparing|generating|assembling|putting together|i'?ll (?:make|create|build|prepare|generate|put together)|working on)\b[^.!?\n]{0,60}\b(?:file|document|doc|word|excel|spreadsheet|workbook|pdf|powerpoint|deck|presentation|\.docx|\.xlsx|\.pdf|\.pptx)\b)|(?:(?:בונה|בונ[הת]|מכ[יי]ן[הת]?|יוצר[ת]?|מייצר[ת]?|מפיק[הת]?|מרכיב[הת]?|מעבד[ת]?|עובד[ת]? על|אכין|אבנה|אייצר|אפיק)[^.!?\n]{0,40}(?:קובץ|מסמך|אקסל|וורד|דו["״]?ח|טבלה|רשימה|excel|word|pdf|xlsx|docx))/i;
 
-async function runStreamingChat(res, { model, system, tools }, promptText) {
+// Detects when the USER asked for an actual file/report (any language). The
+// safety net keys off THIS, not the model's wording, so a file request can
+// never end in a text-only reply.
+const USER_FILE_INTENT_RE = /(?:\bexcel\b|\bspreadsheet\b|\bxlsx?\b|\bword\b|\bdocx?\b|\bdocument\b|\bpdf\b|\bpower\s?point\b|\bpptx?\b|\bpresentation\b|\bslides?\b|\bdeck\b|\breport\b|\bfile\b|\bdownload\b|\bspread ?sheet\b|אקסל|וורד|מסמך|קובץ|קבצים|דו["״]?ח|מצגת|טבלה|להוריד|תוציא|תפיק|תכין|להפיק|דוח)/i;
+
+async function runStreamingChat(res, { model, system, tools }, promptText, userMessage) {
   const toolsById = new Map(tools.map((t) => [t.name, t]));
   const toolSchemas = tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
   const messages = [{ role: 'user', content: promptText }];
   let answer = '';
   let sentGenerating = false;
   let calledBuild = false;   // did the model ever actually invoke build_document?
-  let nudged = false;        // have we already sent the corrective nudge once?
+  let nudged = false;        // have we already forced the build once?
+  let forceBuildNext = false; // force build_document on the next model call?
+  const userWantsFile = !!(userMessage && USER_FILE_INTENT_RE.test(String(userMessage)));
 
   for (let step = 0; step < MAX_STEPS; step++) {
     sse(res, 'stage', { key: 'thinking', label: stageLabel('thinking') });
@@ -287,7 +294,9 @@ async function runStreamingChat(res, { model, system, tools }, promptText) {
     const stream = client.messages.stream({
       model, system, max_tokens: MAX_TOKENS, messages,
       tools: toolSchemas.length ? toolSchemas : undefined,
+      ...(forceBuildNext ? { tool_choice: { type: 'tool', name: 'build_document' } } : {}),
     });
+    forceBuildNext = false;
     stream.on('text', (delta) => {
       if (!sentGenerating) { sse(res, 'stage', { key: 'generating', label: stageLabel('generating') }); sentGenerating = true; }
       answer += delta;
@@ -304,11 +313,12 @@ async function runStreamingChat(res, { model, system, tools }, promptText) {
     if (finalMsg.stop_reason !== 'tool_use') {
       // SAFETY NET: the model said it would produce a file but never called the
       // builder. Nudge it exactly once to actually invoke build_document.
-      if (!calledBuild && !nudged && toolsById.has('build_document') && FILE_PROMISE_RE.test(answer)) {
+      if (!calledBuild && !nudged && toolsById.has('build_document') && (userWantsFile || FILE_PROMISE_RE.test(answer))) {
         nudged = true;
-        console.warn('[BUILD_DOC] safety-net: model promised a file without calling build_document — nudging.');
+        forceBuildNext = true;   // next call is forced to invoke build_document
+        console.warn('[BUILD_DOC] safety-net: a file was requested but build_document was never called — forcing the build.');
         sse(res, 'stage', { key: 'build_document', label: stageLabel('build_document') });
-        messages.push({ role: 'user', content: 'SYSTEM: You told the user you would create a file but did not call the build_document tool. Do NOT reply with text only. Call build_document now, in this turn, with a clear instruction, the data to include, and the format. If you are missing data, gather it with your other tools first, then call build_document.' });
+        messages.push({ role: 'user', content: 'SYSTEM: The user asked for a downloadable file but no file was produced. Call the build_document tool now, using the content from your previous message as the data. Choose the right format (xlsx for tables/reports, docx for letters/text, pdf, or pptx). Do not reply with text only.' });
         continue;
       }
       break;
@@ -423,7 +433,7 @@ module.exports = function createChatRouter() {
     if (convId) sse(res, 'meta', { conversationId: convId });
 
     try {
-      const answer = await runStreamingChat(res, { model, system, tools }, promptText);
+      const answer = await runStreamingChat(res, { model, system, tools }, promptText, message);
       console.log('[CHAT] ' + name + ' (' + (roles || []).join('/') + ') -> ' + agentId + (active ? ' [' + active.id + ']' : ''));
       if (persist && convId) await db.addMessage(convId, 'assistant', answer).catch(function (e) { console.error('[CHAT] save reply failed:', e.message); });
       sse(res, 'done', { conversationId: convId, response: answer });

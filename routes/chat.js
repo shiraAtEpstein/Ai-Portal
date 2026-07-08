@@ -218,13 +218,20 @@ function makeBuildDocumentTool(res, session) {
       format: { type: 'string', enum: ['xlsx', 'docx', 'pdf', 'pptx'], description: 'The file format to produce.' },
     }, required: ['instruction', 'format'] },
     run: async (args) => {
-      try {
-        const { files } = await sandbox.buildDocument({ userId: session.userId, instruction: args.instruction, data: args.data, format: args.format });
-        if (!files.length) return 'The sandbox ran but produced no file. Try again with clearer data.';
-        for (const f of files) sse(res, 'file', { url: f.url, filename: f.filename });
-        return 'Created ' + files.length + ' file(s): ' + files.map((f) => f.filename).join(', ') + '. The download link is already shown to the user — briefly confirm the file is ready.';
-      } catch (e) { return 'File build failed: ' + e.message; }
-    },
+  try {
+    const { files } = await sandbox.buildDocument({ userId: session.userId, instruction: args.instruction, data: args.data, format: args.format });
+    if (!files.length) {
+      console.error('[BUILD_DOC] no file produced | format=' + args.format + ' | instrLen=' + String(args.instruction || '').length + ' | dataLen=' + String(args.data || '').length);
+      return 'The sandbox ran but produced no file. Try again with clearer data.';
+    }
+    for (const f of files) sse(res, 'file', { url: f.url, filename: f.filename });
+    console.log('[BUILD_DOC] ok | ' + files.map((f) => f.filename).join(', '));
+    return 'Created ' + files.length + ' file(s): ' + files.map((f) => f.filename).join(', ') + '. The download link is already shown to the user — briefly confirm the file is ready.';
+  } catch (e) {
+    console.error('[BUILD_DOC] FAILED | format=' + args.format + ' | ' + (e && e.status ? 'status=' + e.status + ' | ' : '') + (e && e.message) + '\n' + (e && e.stack));
+    return 'File build failed: ' + e.message;
+  }
+},
   };
 }
 

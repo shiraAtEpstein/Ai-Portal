@@ -31,7 +31,7 @@ const MODEL_ALIASES = { sonnet: 'claude-sonnet-4-6', haiku: 'claude-haiku-4-5-20
 const DEFAULT_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';
 const MAX_TOKENS = 4096;
 const MAX_STEPS = 8;
-const SUPPORTED_TOOLS = new Set(['gmail_search', 'dropbox_list', 'dropbox_read', 'dropbox_write', 'dropbox_append', 'monday_my_tasks', 'monday_read_board']);
+const SUPPORTED_TOOLS = new Set(['gmail_search', 'dropbox_list', 'dropbox_read', 'dropbox_write', 'dropbox_append', 'monday_my_tasks', 'monday_list_columns', 'monday_read_board']);
 
 const STAGE_LABELS = {
   received: 'Got your question',
@@ -40,6 +40,7 @@ const STAGE_LABELS = {
   load_skill: 'Choosing the right skill…',
   gmail_search: 'Reading your email…',
   monday_my_tasks: 'Checking your monday deals…',
+  monday_list_columns: 'Checking the board columns…',
   monday_read_board: 'Reading the monday board…',
   dropbox_list: 'Looking through files…',
   dropbox_read: 'Reading a file…',
@@ -123,13 +124,25 @@ function buildScopedTools({ session, toolAllow, getScope }) {
   }
   if (toolAllow.has('monday_read_board')) {
     tools.push({
-      name: 'monday_read_board',
-      description: "Read an ENTIRE monday board (every item, all clients) — for firm-wide reports, not just your own deals. Returns the board's real column titles plus every item's values, so you can see exactly which fields exist. Boards: 'contractor' (קבלן), 'second-hand' (יד 2), 'wills' (צוואות). If a field the user wants isn't among the returned columns, tell them it's not on the board.",
+      name: 'monday_list_columns',
+      description: "STEP 1 for any firm-wide board report. List a board's columns (id, title, type) WITHOUT reading item data — fast and safe even on huge boards. Call this FIRST to find the exact columns you need, then pass their ids to monday_read_board. Boards: 'contractor' (קבלן), 'second-hand' (יד 2), 'wills' (צוואות).",
       input_schema: { type: 'object', properties: {
-        board: { type: 'string', description: "Which board to read: 'contractor', 'second-hand', or 'wills'." },
+        board: { type: 'string', description: "Which board: 'contractor', 'second-hand', or 'wills'." },
       }, required: ['board'] },
       run: async (args) => {
-        try { return monday.renderBoard(await monday.boardItems(args.board)); }
+        try { return monday.renderColumnList(await monday.boardColumnList(args.board)); }
+        catch (e) { return 'monday columns error: ' + e.message; }
+      },
+    });
+    tools.push({
+      name: 'monday_read_board',
+      description: "STEP 2 for firm-wide reports: read items across a whole board, but ONLY the columns you ask for. ALWAYS call monday_list_columns FIRST, then pass the specific column ids you need in `columns`. Do NOT read the board without choosing columns: it has hundreds of columns (many are expensive mirror/formula fields) and reading them all overloads monday and fails. Boards: 'contractor' (קבלן), 'second-hand' (יד 2), 'wills' (צוואות). If a field the user wants isn't in the column list, tell them it's not on the board.",
+      input_schema: { type: 'object', properties: {
+        board: { type: 'string', description: "Which board: 'contractor', 'second-hand', or 'wills'." },
+        columns: { type: 'array', items: { type: 'string' }, description: "The column ids (or exact titles) to read, chosen from monday_list_columns. Keep it focused: a handful of columns, and avoid mirror/formula columns. If omitted, falls back to a limited default set of plain columns." },
+      }, required: ['board'] },
+      run: async (args) => {
+        try { return monday.renderBoard(await monday.boardItems(args.board, args.columns)); }
         catch (e) { return 'monday board error: ' + e.message; }
       },
     });

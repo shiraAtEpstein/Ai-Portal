@@ -31,7 +31,7 @@ const MODEL_ALIASES = { sonnet: 'claude-sonnet-4-6', haiku: 'claude-haiku-4-5-20
 const DEFAULT_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';
 const MAX_TOKENS = 4096;
 const MAX_STEPS = 8;
-const SUPPORTED_TOOLS = new Set(['gmail_search', 'dropbox_list', 'dropbox_read', 'dropbox_write', 'dropbox_append', 'monday_my_tasks', 'monday_read_board']);
+const SUPPORTED_TOOLS = new Set(['gmail_search', 'dropbox_list', 'dropbox_read', 'dropbox_write', 'dropbox_append', 'monday_my_tasks', 'monday_list_columns', 'monday_read_board']);
 
 const STAGE_LABELS = {
   received: 'Got your question',
@@ -40,6 +40,7 @@ const STAGE_LABELS = {
   load_skill: 'Choosing the right skill…',
   gmail_search: 'Reading your email…',
   monday_my_tasks: 'Checking your monday deals…',
+  monday_list_columns: 'Checking the board\u2019s columns…',
   monday_read_board: 'Reading the monday board…',
   dropbox_list: 'Looking through files…',
   dropbox_read: 'Reading a file…',
@@ -70,7 +71,7 @@ function toolAllowFromCaps(caps) {
   if (caps.dropbox.has('read')) { s.add('dropbox_list'); s.add('dropbox_read'); }
   if (caps.dropbox.has('write')) { s.add('dropbox_write'); s.add('dropbox_append'); }
   if (caps.monday.has('read_own')) s.add('monday_my_tasks');
-  if (caps.monday.has('read_board')) s.add('monday_read_board');
+  if (caps.monday.has('read_board')) { s.add('monday_list_columns'); s.add('monday_read_board'); }
   return s;
 }
 
@@ -121,15 +122,29 @@ function buildScopedTools({ session, toolAllow, getScope }) {
       },
     });
   }
+  if (toolAllow.has('monday_list_columns')) {
+    tools.push({
+      name: 'monday_list_columns',
+      description: "STEP 1 for any firm-wide board report: list the columns that exist on a board, so you know which fields are available. ALWAYS call this before monday_read_board. Boards: 'contractor' (קבלן), 'second-hand' (יד 2), 'wills' (צוואות).",
+      input_schema: { type: 'object', properties: {
+        board: { type: 'string', description: "Which board: 'contractor', 'second-hand', or 'wills'." },
+      }, required: ['board'] },
+      run: async (args) => {
+        try { return monday.renderColumnList(await monday.boardColumnList(args.board)); }
+        catch (e) { return 'monday columns error: ' + e.message; }
+      },
+    });
+  }
   if (toolAllow.has('monday_read_board')) {
     tools.push({
       name: 'monday_read_board',
-      description: "Read an ENTIRE monday board (every item, all clients) — for firm-wide reports, not just your own deals. Returns the board's real column titles plus every item's values, so you can see exactly which fields exist. Boards: 'contractor' (קבלן), 'second-hand' (יד 2), 'wills' (צוואות). If a field the user wants isn't among the returned columns, tell them it's not on the board.",
+      description: "STEP 2: read every item on a board but ONLY the columns you name. You MUST call monday_list_columns first and pass exact column titles here — reading all columns overflows the context window. If a field the user wants isn't in the column list, tell them it's not on the board.",
       input_schema: { type: 'object', properties: {
-        board: { type: 'string', description: "Which board to read: 'contractor', 'second-hand', or 'wills'." },
-      }, required: ['board'] },
+        board: { type: 'string', description: "Which board: 'contractor', 'second-hand', or 'wills'." },
+        columns: { type: 'array', items: { type: 'string' }, description: 'Exact column titles to return (from monday_list_columns). The item name is always included; do not list it here.' },
+      }, required: ['board', 'columns'] },
       run: async (args) => {
-        try { return monday.renderBoard(await monday.boardItems(args.board)); }
+        try { return monday.renderBoard(await monday.boardItems(args.board, args.columns || [])); }
         catch (e) { return 'monday board error: ' + e.message; }
       },
     });
@@ -218,20 +233,13 @@ function makeBuildDocumentTool(res, session) {
       format: { type: 'string', enum: ['xlsx', 'docx', 'pdf', 'pptx'], description: 'The file format to produce.' },
     }, required: ['instruction', 'format'] },
     run: async (args) => {
-  try {
-    const { files } = await sandbox.buildDocument({ userId: session.userId, instruction: args.instruction, data: args.data, format: args.format });
-    if (!files.length) {
-      console.error('[BUILD_DOC] no file produced | format=' + args.format + ' | instrLen=' + String(args.instruction || '').length + ' | dataLen=' + String(args.data || '').length);
-      return 'The sandbox ran but produced no file. Try again with clearer data.';
-    }
-    for (const f of files) sse(res, 'file', { url: f.url, filename: f.filename });
-    console.log('[BUILD_DOC] ok | ' + files.map((f) => f.filename).join(', '));
-    return 'Created ' + files.length + ' file(s): ' + files.map((f) => f.filename).join(', ') + '. The download link is already shown to the user — briefly confirm the file is ready.';
-  } catch (e) {
-    console.error('[BUILD_DOC] FAILED | format=' + args.format + ' | ' + (e && e.status ? 'status=' + e.status + ' | ' : '') + (e && e.message) + '\n' + (e && e.stack));
-    return 'File build failed: ' + e.message;
-  }
-},
+      try {
+        const { files } = await sandbox.buildDocument({ userId: session.userId, instruction: args.instruction, data: args.data, format: args.format });
+        if (!files.length) return 'The sandbox ran but produced no file. Try again with clearer data.';
+        for (const f of files) sse(res, 'file', { url: f.url, filename: f.filename });
+        return 'Created ' + files.length + ' file(s): ' + files.map((f) => f.filename).join(', ') + '. The download link is already shown to the user — briefly confirm the file is ready.';
+      } catch (e) { return 'File build failed: ' + e.message; }
+    },
   };
 }
 

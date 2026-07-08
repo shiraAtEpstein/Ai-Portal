@@ -287,6 +287,7 @@ async function runStreamingChat(res, { model, system, tools }, promptText, userM
   let nudged = false;        // have we already forced the build once?
   let forceBuildNext = false; // force build_document on the next model call?
   const userWantsFile = !!(userMessage && USER_FILE_INTENT_RE.test(String(userMessage)));
+  console.log('[DIAG] runChat userWantsFile=' + userWantsFile + ' hasBuildTool=' + toolsById.has('build_document') + ' msg=' + JSON.stringify(String(userMessage || '').slice(0, 80)));
 
   for (let step = 0; step < MAX_STEPS; step++) {
     sse(res, 'stage', { key: 'thinking', label: stageLabel('thinking') });
@@ -306,13 +307,16 @@ async function runStreamingChat(res, { model, system, tools }, promptText, userM
     const finalMsg = await stream.finalMessage();
     messages.push({ role: 'assistant', content: finalMsg.content });
 
+    const usedTools = finalMsg.content.filter((b) => b && b.type === 'tool_use').map((b) => b.name);
     for (const block of finalMsg.content) {
       if (block && block.type === 'tool_use' && block.name === 'build_document') calledBuild = true;
     }
+    console.log('[DIAG] step=' + step + ' stop=' + finalMsg.stop_reason + ' used=[' + usedTools.join(',') + '] calledBuild=' + calledBuild);
 
     if (finalMsg.stop_reason !== 'tool_use') {
       // SAFETY NET: the model said it would produce a file but never called the
       // builder. Nudge it exactly once to actually invoke build_document.
+      console.log('[DIAG] end-of-turn safety-net check: calledBuild=' + calledBuild + ' nudged=' + nudged + ' hasBuildTool=' + toolsById.has('build_document') + ' userWantsFile=' + userWantsFile + ' answerPromise=' + FILE_PROMISE_RE.test(answer));
       if (!calledBuild && !nudged && toolsById.has('build_document') && (userWantsFile || FILE_PROMISE_RE.test(answer))) {
         nudged = true;
         forceBuildNext = true;   // next call is forced to invoke build_document
@@ -424,6 +428,7 @@ module.exports = function createChatRouter() {
       tools.push(makeBuildDocumentTool(res, req.session));
       system += '\n\nFILE BUILDING (MANDATORY): When the user asks for a file, document, Word doc, Excel, spreadsheet, PDF, or presentation, you MUST call the build_document tool in THIS SAME turn. Never say you are building, creating, preparing, or generating a file — and never end your turn on a promise like "building it now" — without actually calling build_document in the same message. If you need data first, fetch it with your other tools, then call build_document before replying. Only after the tool returns and the download link is shown should you briefly confirm the file is ready.';
     }
+    console.log('[DIAG] req agent=' + agentId + ' roles=' + JSON.stringify(roles) + ' buildCap=' + caps.files.has('build') + ' tools=[' + tools.map((t) => t.name).join(',') + ']');
 
     const model = isGeneral ? DEFAULT_MODEL : ((agent.model && (MODEL_ALIASES[agent.model] || agent.model)) || DEFAULT_MODEL);
     const promptText = buildPromptText(message, history);

@@ -537,7 +537,7 @@
     .msg-bubble li { margin-bottom: 4px; }
 
     /* ── AI Thinking experience (premium waiting state, driven by live SSE stages) ── */
-    .message.assistant.thinking .msg-bubble { padding: 0; background: transparent; border: none; }
+    .message.assistant.thinking .msg-bubble:empty { padding: 0; background: transparent; border: none; }
     .think-card {
       min-width: 250px; max-width: 340px;
       padding: 13px 15px;
@@ -1525,7 +1525,7 @@ function startThinking(wrapper) {
   const actionsEl = card.querySelector('.think-actions');
   const msgs = document.getElementById('messages');
   const start = Date.now();
-  let scripted = -1, serverDriven = false, finished = false;
+  let scripted = -1, serverDriven = false, finished = false, answering = false;
   const scroll = () => { msgs.scrollTop = msgs.scrollHeight; };
 
   function setStatus(txt) { statusEl.textContent = txt; statusEl.style.animation = 'none'; void statusEl.offsetWidth; statusEl.style.animation = ''; }
@@ -1550,16 +1550,19 @@ function startThinking(wrapper) {
   const tick = setInterval(function () {
     if (finished || !document.body.contains(card)) { clearInterval(tick); return; }
     const t = (Date.now() - start) / 1000;
-    if (!serverDriven) {
+    if (!serverDriven && !answering) {
       let target;
       if (t < 2) target = -1; else if (t < 6) target = 0; else target = Math.min(script.length - 2, 1 + Math.floor((t - 6) / 5));
       if (t >= 50) target = script.length - 1;
       if (target > scripted) { for (let s = scripted + 1; s <= target; s++) { if (s > 0) addDoneStep(script[s - 1]); setStatus(script[s]); scripted = s; } scroll(); }
     }
-    if (t >= 50) showActions();
+    if (t >= 50 && !answering) showActions();
   }, 600);
 
   return {
+    // Answer started streaming: keep the card + live stages, stop the scripted
+    // fallback and suppress the "taking longer" nudge.
+    answering: function () { answering = true; },
     setStage: function (label) {
       if (finished || !label) return;
       const cur = statusEl.textContent;
@@ -1637,7 +1640,7 @@ async function sendMessage() {
         if (evt.type === 'stage') {
           think.setStage(evt.label);
         } else if (evt.type === 'token') {
-          think.done();
+          think.answering();
           answer += evt.text;
           bubble.innerHTML = formatText(answer);
           scroll();

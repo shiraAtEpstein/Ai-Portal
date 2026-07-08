@@ -5,6 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Epstein &amp; Co. AI Portal</title>
   <link rel="icon" type="image/jpeg" href="/smallLogo.png.jpg" />
+
+  <!-- Markdown rendering: marked (GFM) + DOMPurify (sanitise). Pinned versions.
+       TODO before merging to prod: self-host these under /public/vendor/ so the
+       portal keeps zero external origins (see redesign proposal, PR #1). -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+
   <style>
     /* ── Reset & Base ── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -473,6 +480,43 @@
       color: var(--gray-800);
       border-bottom-left-radius: 4px;
     }
+
+    /* ── Rich Markdown rendering (PR #1: renderer core) ── */
+    .msg-bubble h1, .msg-bubble h2, .msg-bubble h3, .msg-bubble h4 {
+      line-height: 1.3; font-weight: 650; margin: 1.1em 0 .45em;
+    }
+    .msg-bubble h1 { font-size: 1.35em; }
+    .msg-bubble h2 { font-size: 1.2em; padding-bottom: .25em; border-bottom: 1px solid var(--gray-200); }
+    .msg-bubble h3 { font-size: 1.08em; }
+    .msg-bubble h4 { font-size: 1em; color: var(--gray-600); }
+    .msg-bubble > *:first-child { margin-top: 0; }
+    .msg-bubble > *:last-child  { margin-bottom: 0; }
+    .msg-bubble p { margin: .55em 0; }
+    .msg-bubble a { color: #2f6f9f; text-decoration: underline; }
+    .message.user .msg-bubble a { color: var(--gold-light); }
+    .msg-bubble hr { border: 0; border-top: 1px solid var(--gray-200); margin: 1.1em 0; }
+    .msg-bubble blockquote {
+      margin: .7em 0; padding: .2em .9em; color: var(--gray-600);
+      border-inline-start: 3px solid var(--gold); background: rgba(0,0,0,.03); border-radius: 0 8px 8px 0;
+    }
+    [dir="rtl"] .msg-bubble blockquote { border-radius: 8px 0 0 8px; }
+    .msg-bubble pre {
+      margin: .8em 0; padding: 12px 14px; overflow-x: auto; direction: ltr;
+      background: #f6f7f9; border: 1px solid var(--gray-200); border-radius: 8px;
+    }
+    .msg-bubble pre code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; background: none; padding: 0; }
+    .msg-bubble :not(pre) > code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .86em;
+      background: rgba(0,0,0,.06); padding: .1em .4em; border-radius: 5px; direction: ltr; unicode-bidi: embed;
+    }
+    .message.user .msg-bubble :not(pre) > code,
+    .message.user .msg-bubble pre { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.18); }
+    .msg-bubble table { border-collapse: collapse; width: 100%; margin: .8em 0; font-size: .95em; }
+    .msg-bubble th, .msg-bubble td { border: 1px solid var(--gray-200); padding: 7px 10px; text-align: start; vertical-align: top; }
+    .msg-bubble thead th { background: rgba(0,0,0,.04); font-weight: 650; }
+    .msg-bubble tbody tr:nth-child(even) { background: rgba(0,0,0,.02); }
+    .msg-bubble li { margin: .25em 0; }
+    .msg-bubble li > input[type="checkbox"] { margin-inline-end: .5em; }
 
     /* Markdown-ish styling inside bubbles */
     .msg-bubble strong { font-weight: 600; }
@@ -1650,6 +1694,7 @@ function appendMessage(role, text) {
 
   const bubble = document.createElement('div');
   bubble.className = 'msg-bubble';
+  bubble.setAttribute('dir', 'auto');   // per-message bidi: align Hebrew/English independently per message
   bubble.innerHTML = formatText(text);
 
   wrapper.appendChild(avatar);
@@ -1662,7 +1707,9 @@ function appendMessage(role, text) {
 // appendTyping() removed — superseded by startThinking() + the SSE streaming flow in sendMessage().
 
 // Very basic markdown: bold, italic, code, line breaks, lists
-function formatText(text) {
+// Legacy escape-based formatter — kept as a safe fallback if the Markdown
+// libraries fail to load (offline / CDN blocked).
+function formatTextLegacy(text) {
   return text
     .replace(/&/g,  '&amp;')
     .replace(/</g,  '&lt;')
@@ -1676,6 +1723,18 @@ function formatText(text) {
     .replace(/\n\n/g, '</p><p>')
     .replace(/\n/g,   '<br>')
     .replace(/^(.+)$/s, '<p>$1</p>');
+}
+
+// Rich Markdown rendering: marked (GFM — tables, ordered/unordered lists,
+// task-lists, fenced code, links, blockquotes) then DOMPurify to stay XSS-safe.
+function formatText(text) {
+  try {
+    if (window.marked && window.DOMPurify) {
+      const html = window.marked.parse(String(text), { gfm: true, breaks: true });
+      return window.DOMPurify.sanitize(html, { ADD_ATTR: ['target'] });
+    }
+  } catch (e) { /* fall through to the legacy formatter */ }
+  return formatTextLegacy(text);
 }
 
 // ══════════════════════════════════════════════════════════

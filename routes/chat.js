@@ -31,7 +31,7 @@ const MODEL_ALIASES = { sonnet: 'claude-sonnet-4-6', haiku: 'claude-haiku-4-5-20
 const DEFAULT_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';
 const MAX_TOKENS = 4096;
 const MAX_STEPS = 8;
-const SUPPORTED_TOOLS = new Set(['gmail_search', 'dropbox_list', 'dropbox_read', 'dropbox_write', 'dropbox_append', 'monday_my_tasks', 'monday_list_columns', 'monday_read_board']);
+const SUPPORTED_TOOLS = new Set(['gmail_search', 'dropbox_list', 'dropbox_read', 'dropbox_write', 'dropbox_append', 'monday_my_tasks', 'monday_read_board']);
 
 const STAGE_LABELS = {
   received: 'Got your question',
@@ -40,7 +40,6 @@ const STAGE_LABELS = {
   load_skill: 'Choosing the right skill…',
   gmail_search: 'Reading your email…',
   monday_my_tasks: 'Checking your monday deals…',
-  monday_list_columns: 'Checking the board\u2019s columns…',
   monday_read_board: 'Reading the monday board…',
   dropbox_list: 'Looking through files…',
   dropbox_read: 'Reading a file…',
@@ -71,7 +70,7 @@ function toolAllowFromCaps(caps) {
   if (caps.dropbox.has('read')) { s.add('dropbox_list'); s.add('dropbox_read'); }
   if (caps.dropbox.has('write')) { s.add('dropbox_write'); s.add('dropbox_append'); }
   if (caps.monday.has('read_own')) s.add('monday_my_tasks');
-  if (caps.monday.has('read_board')) { s.add('monday_list_columns'); s.add('monday_read_board'); }
+  if (caps.monday.has('read_board')) s.add('monday_read_board');
   return s;
 }
 
@@ -122,29 +121,15 @@ function buildScopedTools({ session, toolAllow, getScope }) {
       },
     });
   }
-  if (toolAllow.has('monday_list_columns')) {
-    tools.push({
-      name: 'monday_list_columns',
-      description: "STEP 1 for any firm-wide board report: list the columns that exist on a board, so you know which fields are available. ALWAYS call this before monday_read_board. Boards: 'contractor' (קבלן), 'second-hand' (יד 2), 'wills' (צוואות).",
-      input_schema: { type: 'object', properties: {
-        board: { type: 'string', description: "Which board: 'contractor', 'second-hand', or 'wills'." },
-      }, required: ['board'] },
-      run: async (args) => {
-        try { return monday.renderColumnList(await monday.boardColumnList(args.board)); }
-        catch (e) { return 'monday columns error: ' + e.message; }
-      },
-    });
-  }
   if (toolAllow.has('monday_read_board')) {
     tools.push({
       name: 'monday_read_board',
-      description: "STEP 2: read every item on a board but ONLY the columns you name. You MUST call monday_list_columns first and pass exact column titles here — reading all columns overflows the context window. If a field the user wants isn't in the column list, tell them it's not on the board.",
+      description: "Read an ENTIRE monday board (every item, all clients) — for firm-wide reports, not just your own deals. Returns the board's real column titles plus every item's values, so you can see exactly which fields exist. Boards: 'contractor' (קבלן), 'second-hand' (יד 2), 'wills' (צוואות). If a field the user wants isn't among the returned columns, tell them it's not on the board.",
       input_schema: { type: 'object', properties: {
-        board: { type: 'string', description: "Which board: 'contractor', 'second-hand', or 'wills'." },
-        columns: { type: 'array', items: { type: 'string' }, description: 'Exact column titles to return (from monday_list_columns). The item name is always included; do not list it here.' },
-      }, required: ['board', 'columns'] },
+        board: { type: 'string', description: "Which board to read: 'contractor', 'second-hand', or 'wills'." },
+      }, required: ['board'] },
       run: async (args) => {
-        try { return monday.renderBoard(await monday.boardItems(args.board, args.columns || [])); }
+        try { return monday.renderBoard(await monday.boardItems(args.board)); }
         catch (e) { return 'monday board error: ' + e.message; }
       },
     });
@@ -226,7 +211,7 @@ function buildScopedTools({ session, toolAllow, getScope }) {
 function makeBuildDocumentTool(res, session) {
   return {
     name: 'build_document',
-    description: 'Create a downloadable FILE (Excel .xlsx, Word .docx, PDF .pdf, or PowerPoint .pptx) from data you provide. Runs in a secure sandbox. Use whenever the user wants an actual file rather than a pasted table. IMPORTANT: the builder cannot see this conversation, so put everything it needs — the rows, values, layout notes — into the `data` field.',
+    description: 'Create a downloadable FILE (Excel .xlsx, Word .docx, PDF .pdf, or PowerPoint .pptx) from data you provide. Runs in a secure sandbox. Call this IMMEDIATELY, in the SAME turn, whenever the user wants an actual file rather than a pasted table — do NOT announce that you will build it or say "building it now"; invoke this tool instead. IMPORTANT: the builder cannot see this conversation, so put everything it needs — the rows, values, layout notes — into the `data` field.',
     input_schema: { type: 'object', properties: {
       instruction: { type: 'string', description: 'What to build, e.g. "A spreadsheet of these clients with columns: name, email, tax status, notes."' },
       data: { type: 'string', description: 'The actual content/rows to include, as text or JSON. Required for data-driven files.' },
@@ -235,10 +220,17 @@ function makeBuildDocumentTool(res, session) {
     run: async (args) => {
       try {
         const { files } = await sandbox.buildDocument({ userId: session.userId, instruction: args.instruction, data: args.data, format: args.format });
-        if (!files.length) return 'The sandbox ran but produced no file. Try again with clearer data.';
+        if (!files.length) {
+          console.error('[BUILD_DOC] no file produced | format=' + args.format + ' | instrLen=' + String(args.instruction || '').length + ' | dataLen=' + String(args.data || '').length);
+          return 'The sandbox ran but produced no file. Try again with clearer data.';
+        }
         for (const f of files) sse(res, 'file', { url: f.url, filename: f.filename });
+        console.log('[BUILD_DOC] ok | ' + files.map((f) => f.filename).join(', '));
         return 'Created ' + files.length + ' file(s): ' + files.map((f) => f.filename).join(', ') + '. The download link is already shown to the user — briefly confirm the file is ready.';
-      } catch (e) { return 'File build failed: ' + e.message; }
+      } catch (e) {
+        console.error('[BUILD_DOC] FAILED | format=' + args.format + ' | ' + (e && e.status ? 'status=' + e.status + ' | ' : '') + (e && e.message) + '\n' + (e && e.stack));
+        return 'File build failed: ' + e.message;
+      }
     },
   };
 }
@@ -262,12 +254,19 @@ function buildPromptText(message, history) {
   return 'Previous conversation:\n' + historyText + '\n\nUser: ' + message;
 }
 
+// Detects when the model has *narrated* that it is producing a file instead of
+// actually calling build_document (e.g. "Building the Word doc now."). Used by
+// the safety net below so a promise can never end a turn without a real build.
+const FILE_PROMISE_RE = /\b(building|creating|preparing|generating|assembling|putting together|i'?ll (?:make|create|build|prepare|generate|put together)|working on)\b[^.!?\n]{0,60}\b(file|document|doc|word|excel|spreadsheet|workbook|pdf|powerpoint|deck|presentation|\.docx|\.xlsx|\.pdf|\.pptx)\b/i;
+
 async function runStreamingChat(res, { model, system, tools }, promptText) {
   const toolsById = new Map(tools.map((t) => [t.name, t]));
   const toolSchemas = tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
   const messages = [{ role: 'user', content: promptText }];
   let answer = '';
   let sentGenerating = false;
+  let calledBuild = false;   // did the model ever actually invoke build_document?
+  let nudged = false;        // have we already sent the corrective nudge once?
 
   for (let step = 0; step < MAX_STEPS; step++) {
     sse(res, 'stage', { key: 'thinking', label: stageLabel('thinking') });
@@ -285,7 +284,22 @@ async function runStreamingChat(res, { model, system, tools }, promptText) {
     const finalMsg = await stream.finalMessage();
     messages.push({ role: 'assistant', content: finalMsg.content });
 
-    if (finalMsg.stop_reason !== 'tool_use') break;
+    for (const block of finalMsg.content) {
+      if (block && block.type === 'tool_use' && block.name === 'build_document') calledBuild = true;
+    }
+
+    if (finalMsg.stop_reason !== 'tool_use') {
+      // SAFETY NET: the model said it would produce a file but never called the
+      // builder. Nudge it exactly once to actually invoke build_document.
+      if (!calledBuild && !nudged && toolsById.has('build_document') && FILE_PROMISE_RE.test(answer)) {
+        nudged = true;
+        console.warn('[BUILD_DOC] safety-net: model promised a file without calling build_document — nudging.');
+        sse(res, 'stage', { key: 'build_document', label: stageLabel('build_document') });
+        messages.push({ role: 'user', content: 'SYSTEM: You told the user you would create a file but did not call the build_document tool. Do NOT reply with text only. Call build_document now, in this turn, with a clear instruction, the data to include, and the format. If you are missing data, gather it with your other tools first, then call build_document.' });
+        continue;
+      }
+      break;
+    }
 
     const toolResults = [];
     for (const block of finalMsg.content) {
@@ -383,7 +397,10 @@ module.exports = function createChatRouter() {
     }
 
     // File building is a role capability now (files: build), not an agent flag.
-    if (caps.files.has('build')) tools.push(makeBuildDocumentTool(res, req.session));
+    if (caps.files.has('build')) {
+      tools.push(makeBuildDocumentTool(res, req.session));
+      system += '\n\nFILE BUILDING (MANDATORY): When the user asks for a file, document, Word doc, Excel, spreadsheet, PDF, or presentation, you MUST call the build_document tool in THIS SAME turn. Never say you are building, creating, preparing, or generating a file — and never end your turn on a promise like "building it now" — without actually calling build_document in the same message. If you need data first, fetch it with your other tools, then call build_document before replying. Only after the tool returns and the download link is shown should you briefly confirm the file is ready.';
+    }
 
     const model = isGeneral ? DEFAULT_MODEL : ((agent.model && (MODEL_ALIASES[agent.model] || agent.model)) || DEFAULT_MODEL);
     const promptText = buildPromptText(message, history);

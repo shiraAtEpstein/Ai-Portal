@@ -492,29 +492,89 @@
     }
     .msg-bubble li { margin-bottom: 4px; }
 
-    /* Typing indicator */
-    .typing .msg-bubble {
-      display: flex;
-      gap: 5px;
-      align-items: center;
-      padding: 14px 18px;
+    /* ── AI Thinking experience (premium waiting state) ── */
+    .message.assistant.thinking .msg-bubble { padding: 0; background: transparent; border: none; }
+    .think-card {
+      min-width: 250px; max-width: 340px;
+      padding: 13px 15px;
+      border-radius: 16px; border-bottom-left-radius: 4px;
+      background: var(--gray-50); border: 1px solid var(--gray-200);
+      position: relative; overflow: hidden;
     }
-
-    .dot {
-      width: 7px;
-      height: 7px;
-      background: var(--gray-400);
-      border-radius: 50%;
-      animation: bounce 1.2s infinite;
+    /* glowing agent "core" */
+    .message.assistant.thinking .msg-avatar { position: relative; overflow: visible; }
+    .message.assistant.thinking .msg-avatar::after {
+      content: ""; position: absolute; inset: -4px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(21,22,26,0.30), transparent 70%);
+      animation: think-pulse 1.8s ease-in-out infinite; z-index: -1;
     }
-
-    .dot:nth-child(2) { animation-delay: 0.2s; }
-    .dot:nth-child(3) { animation-delay: 0.4s; }
-
-    @keyframes bounce {
-      0%, 80%, 100% { transform: translateY(0); }
-      40%            { transform: translateY(-8px); }
+    @keyframes think-pulse {
+      0%, 100% { transform: scale(0.8); opacity: 0.3; }
+      50%      { transform: scale(1.3); opacity: 0.85; }
     }
+    .think-head { display: flex; align-items: center; gap: 8px; min-height: 19px; }
+    .think-status {
+      font-size: 13.5px; font-weight: 600; letter-spacing: 0.1px; color: var(--navy);
+      background: linear-gradient(90deg, var(--gray-400) 20%, var(--navy) 50%, var(--gray-400) 80%);
+      background-size: 200% 100%;
+      -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+      animation: think-shimmer 2.4s linear infinite, think-fade 0.4s ease;
+    }
+    @keyframes think-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    @keyframes think-fade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+    .think-steps { margin-top: 9px; display: flex; flex-direction: column; gap: 5px; }
+    .think-steps:empty { margin-top: 0; }
+    .think-step {
+      display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--gray-600);
+      animation: think-fade 0.45s ease;
+    }
+    .think-step .tk-ic {
+      width: 14px; height: 14px; flex-shrink: 0; border-radius: 50%;
+      background: var(--navy); position: relative;
+    }
+    .think-step .tk-ic::after {
+      content: "\2713"; position: absolute; inset: 0; display: flex; align-items: center;
+      justify-content: center; font-size: 9px; color: #fff; line-height: 1;
+    }
+    .think-bar { margin-top: 11px; height: 3px; border-radius: 3px; background: var(--gray-200); overflow: hidden; }
+    .think-bar > span {
+      display: block; height: 100%; width: 40%; border-radius: 3px;
+      background: linear-gradient(90deg, transparent, var(--navy), transparent);
+      animation: think-bar-move 1.6s ease-in-out infinite;
+    }
+    @keyframes think-bar-move { 0% { transform: translateX(-130%); } 100% { transform: translateX(330%); } }
+    .think-actions { margin-top: 12px; padding-top: 11px; border-top: 1px dashed var(--gray-200); animation: think-fade 0.5s ease; }
+    .think-actions .tk-note { font-size: 12px; color: var(--gray-600); margin-bottom: 9px; line-height: 1.55; }
+    .think-actions .tk-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+    .think-actions button {
+      font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+      padding: 7px 12px; border-radius: 8px; border: 1px solid var(--gray-200);
+      background: #fff; color: var(--navy); transition: background .15s, border-color .15s;
+    }
+    .think-actions button:hover { background: var(--gray-50); border-color: var(--gray-400); }
+    .think-actions button.tk-primary { background: var(--navy); color: #fff; border-color: var(--navy); }
+    .think-actions button.tk-primary:hover { background: var(--navy-mid); }
+    /* RTL mirror */
+    #portal[dir="rtl"] .think-card, .message.thinking[dir="rtl"] .think-card {
+      border-bottom-left-radius: 16px; border-bottom-right-radius: 4px;
+    }
+    /* Accessibility: respect reduced-motion — keep meaning, drop movement */
+    @media (prefers-reduced-motion: reduce) {
+      .message.assistant.thinking .msg-avatar::after,
+      .think-status, .think-bar > span, .think-step { animation: none !important; }
+      .think-status { -webkit-text-fill-color: var(--navy); color: var(--navy); }
+      .think-bar > span { width: 100%; background: var(--gray-400); }
+    }
+    /* Dark-mode ready (dormant until a .theme-dark theme is added to the portal) */
+    .theme-dark .think-card { background: #1b1c21; border-color: #2b2c32; }
+    .theme-dark .think-status { background: linear-gradient(90deg,#6c757d 20%,#e9ecef 50%,#6c757d 80%); background-size:200% 100%; -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+    .theme-dark .think-step { color: #adb5bd; }
+    .theme-dark .think-step .tk-ic { background:#e9ecef; }
+    .theme-dark .think-step .tk-ic::after { color:#1b1c21; }
+    .theme-dark .think-bar { background:#2b2c32; }
+    .theme-dark .think-bar > span { background: linear-gradient(90deg,transparent,#cfd2d8,transparent); }
+    .theme-dark .think-actions button { background:#2b2c32; color:#e9ecef; border-color:#3a3b42; }
+    .theme-dark .think-actions button.tk-primary { background:#e9ecef; color:#15161a; border-color:#e9ecef; }
 
     /* ── INPUT AREA ── */
     .input-area {
@@ -1412,7 +1472,9 @@ async function sendMessage() {
     });
 
     const data = await res.json();
+    const stillHere = document.body.contains(typingEl);
     typingEl.remove();
+    if (!stillHere) { isLoading = false; document.getElementById('send-btn').disabled = false; return; }
 
     if (!res.ok) {
       if (res.status === 401) return handleSessionExpired();
@@ -1463,19 +1525,123 @@ function appendMessage(role, text) {
   return wrapper;
 }
 
+// Agent-personality "thinking" scripts (EN + HE). Keyed by agent id; falls back to default.
+const THINK_SCRIPTS = {
+  default: {
+    en: ['Understanding your request','Planning the best approach','Reviewing relevant knowledge','Analysing the details','Composing your answer','Final review'],
+    he: ['מנתח את הבקשה','בונה את הגישה הטובה','סוקר מידע רלוונטי','מעבד את הפרטים','מנסח את התשובה','בדיקה אחרונה']
+  },
+  legal_research: {
+    en: ['Understanding your question','Reviewing the legal context','Checking relevant sources','Structuring the analysis','Composing your answer','Final review'],
+    he: ['מבין את השאלה','בוחן את ההקשר המשפטי','בודק מקורות רלוונטיים','בונה את הניתוח','מנסח את התשובה','בדיקה אחרונה']
+  },
+  paralegal: {
+    en: ['Understanding your request','Organising the details','Checking the file','Preparing a structured response','Composing your answer','Final review'],
+    he: ['מבין את הבקשה','מסדר את הפרטים','בודק את התיק','מכין תשובה מסודרת','מנסח את התשובה','בדיקה אחרונה']
+  },
+  document_review: {
+    en: ['Reading the document','Identifying key clauses','Cross-checking the details','Flagging what matters','Composing your answer','Final review'],
+    he: ['קורא את המסמך','מזהה סעיפים מרכזיים','מצליב את הפרטים','מסמן את העיקר','מנסח את התשובה','בדיקה אחרונה']
+  },
+  client_intake: {
+    en: ['Understanding your request','Reviewing the client details','Organising the information','Preparing next steps','Composing your answer','Final review'],
+    he: ['מבין את הבקשה','סוקר את פרטי הלקוח','מארגן את המידע','מכין את השלבים הבאים','מנסח את התשובה','בדיקה אחרונה']
+  },
+  researcher: {
+    en: ['Understanding your request','Searching relevant knowledge','Gathering the details','Analysing the information','Composing your answer','Final review'],
+    he: ['מבין את הבקשה','מחפש מידע רלוונטי','אוסף את הפרטים','מנתח את המידע','מנסח את התשובה','בדיקה אחרונה']
+  },
+  copywriter: {
+    en: ['Understanding your brief','Shaping the angle','Drafting the message','Refining the wording','Polishing the copy','Final review'],
+    he: ['מבין את הבריף','מגבש את הזווית','מנסח טיוטה','מלטש את הניסוח','משכלל את הטקסט','בדיקה אחרונה']
+  }
+};
+
+function thinkLang() {
+  try { var l = localStorage.getItem('portalLang'); if (l) return l === 'he' ? 'he' : 'en'; } catch (e) {}
+  var p = document.getElementById('portal');
+  return (p && p.getAttribute('dir') === 'rtl') ? 'he' : 'en';
+}
+
+// Premium staged "thinking" indicator. Returns the wrapper element; the send
+// flow removes it when the response arrives, which auto-stops the timer.
 function appendTyping() {
-  const msgs    = document.getElementById('messages');
+  const msgs  = document.getElementById('messages');
+  const lang  = thinkLang();
+  const icon  = (typeof agentIcons !== 'undefined' && currentAgent && (agentIcons[currentAgent] || agentIcons.default)) || '⚖️';
+  const script = ((THINK_SCRIPTS[currentAgent] || THINK_SCRIPTS.default)[lang]) || THINK_SCRIPTS.default.en;
+  const COPY = {
+    en: { longer: 'This is taking a little longer than usual — still working on it.', notify: 'You can keep this open; your answer will appear here as soon as it’s ready.', another: 'Start another chat' },
+    he: { longer: 'זה לוקח קצת יותר זמן מהרגיל — עדיין עובד על זה.', notify: 'אפשר להשאיר את החלון פתוח; התשובה תופיע כאן ברגע שתהיה מוכנה.', another: 'התחילו צ׳אט נוסף' }
+  }[lang];
+
   const wrapper = document.createElement('div');
-  wrapper.className = 'message assistant typing';
-  wrapper.innerHTML = `
-    <div class="msg-avatar">⚖️</div>
-    <div class="msg-bubble">
-      <div class="dot"></div>
-      <div class="dot"></div>
-      <div class="dot"></div>
-    </div>`;
+  wrapper.className = 'message assistant thinking';
+  wrapper.setAttribute('dir', lang === 'he' ? 'rtl' : 'ltr');
+  wrapper.innerHTML =
+    '<div class="msg-avatar">' + icon + '</div>' +
+    '<div class="msg-bubble">' +
+      '<div class="think-card">' +
+        '<div class="think-head"><span class="think-status" role="status" aria-live="polite"></span></div>' +
+        '<div class="think-steps" aria-hidden="true"></div>' +
+        '<div class="think-bar"><span></span></div>' +
+        '<div class="think-actions" hidden></div>' +
+      '</div>' +
+    '</div>';
   msgs.appendChild(wrapper);
   msgs.scrollTop = msgs.scrollHeight;
+
+  const statusEl  = wrapper.querySelector('.think-status');
+  const stepsEl   = wrapper.querySelector('.think-steps');
+  const actionsEl = wrapper.querySelector('.think-actions');
+  const start = Date.now();
+  let stage = -1;
+
+  function setStatus(txt) {
+    statusEl.textContent = txt;
+    statusEl.style.animation = 'none'; void statusEl.offsetWidth; statusEl.style.animation = '';
+  }
+  function addDoneStep(txt) {
+    const el = document.createElement('div');
+    el.className = 'think-step';
+    el.innerHTML = '<span class="tk-ic"></span><span></span>';
+    el.lastChild.textContent = txt;
+    stepsEl.appendChild(el);
+    while (stepsEl.children.length > 3) stepsEl.removeChild(stepsEl.firstChild);
+  }
+  function showActions() {
+    if (!actionsEl.hasAttribute('hidden')) return;
+    actionsEl.removeAttribute('hidden');
+    const note = document.createElement('div'); note.className = 'tk-note';
+    note.textContent = COPY.longer; note.appendChild(document.createElement('br'));
+    note.appendChild(document.createTextNode(COPY.notify));
+    const btns = document.createElement('div'); btns.className = 'tk-btns';
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = COPY.another;
+    b.addEventListener('click', function () { if (typeof newChat === 'function') newChat(); });
+    btns.appendChild(b);
+    actionsEl.appendChild(note); actionsEl.appendChild(btns);
+    msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  const tick = setInterval(function () {
+    if (!document.body.contains(wrapper)) { clearInterval(tick); return; }
+    const t = (Date.now() - start) / 1000;
+    if (t < 2) return;                              // 0-2s: subtle animation only
+    let target;
+    if (t < 6) target = 0;                          // 2-6s: first stage
+    else target = Math.min(script.length - 2, 1 + Math.floor((t - 6) / 5)); // 6-50s: advance, hold before final
+    if (t >= 50) target = script.length - 1;        // reveal final stage only very late
+    if (target > stage) {
+      for (let sidx = stage + 1; sidx <= target; sidx++) {
+        if (sidx > 0) addDoneStep(script[sidx - 1]);
+        setStatus(script[sidx]);
+        stage = sidx;
+      }
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+    if (t >= 50) showActions();                     // 50s+: helpful actions
+  }, 600);
+
   return wrapper;
 }
 
@@ -1769,7 +1935,7 @@ function fmtDetails(meta) {
     else if (v && typeof v === 'object') v = JSON.stringify(v);
     parts.push(esc(k) + ': ' + esc(v));
   }
-  return parts.join(' \u00b7 ');
+  return parts.join(' · ');
 }
 
 let auditEvents = [];

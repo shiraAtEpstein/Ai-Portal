@@ -1382,7 +1382,6 @@ document.getElementById('message-input').addEventListener('keydown', e => {
 async function sendMessage() {
   const input = document.getElementById('message-input');
   const msg   = input.value.trim();
-
   if (!msg || isLoading) return;
   if (!currentAgent) { appendMessage('assistant', '⚠️ Please choose an agent at the top first.'); return; }
 
@@ -1391,18 +1390,25 @@ async function sendMessage() {
   input.style.height = 'auto';
   document.getElementById('send-btn').disabled = true;
 
-  // Add user message to UI and history
   appendMessage('user', msg);
   conversationHistory.push({ role: 'user', content: msg });
 
-  // Show typing indicator
-  const typingEl = appendTyping();
+  // Live assistant bubble + a stage line above it.
+  const wrapper = appendMessage('assistant', '');
+  const bubble  = wrapper.querySelector('.msg-bubble');
+  const stage   = document.createElement('div');
+  stage.className = 'msg-stage';
+  stage.textContent = 'Got your question';
+  bubble.parentNode.insertBefore(stage, bubble);
+  const setStage = (t) => { stage.textContent = t; };
+  const scroll = () => { const m = document.getElementById('messages'); m.scrollTop = m.scrollHeight; };
 
+  let answer = '';
   try {
-    const res  = await fetch('/api/chat', {
-      method:  'POST',
+    const res = await fetch('/api/chat', {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body:    JSON.stringify({
+      body: JSON.stringify({
         agentId: currentAgent,
         message: msg,
         history: conversationHistory.slice(0, -1),
@@ -1411,32 +1417,54 @@ async function sendMessage() {
       }),
     });
 
-    const data = await res.json();
-    typingEl.remove();
-
     if (!res.ok) {
-      if (res.status === 401) return handleSessionExpired();
-      appendMessage('assistant', `⚠️ ${data.error || 'Something went wrong.'}`);
-    } else {
-      appendMessage('assistant', data.response);
-      conversationHistory.push({ role: 'assistant', content: data.response });
-      if (data.conversationId && !conversationId) {
-        conversationId = data.conversationId;
-        document.getElementById('agent-select').disabled = true;
-        loadConversations();
+      if (res.status === 401) { stage.remove(); return handleSessionExpired(); }
+      let e = {}; try { e = await res.json(); } catch (_) {}
+      stage.remove();
+      bubble.innerHTML = formatText('⚠️ ' + (e.error || 'Something went wrong.'));
+      isLoading = false; document.getElementById('send-btn').disabled = false; return;
+    }
+
+    // Read the SSE stream.
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '', doneData = null;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, nl); buf = buf.slice(nl + 2);
+        const line = frame.split('\n').find((l) => l.startsWith('data:'));
+        if (!line) continue;
+        let evt; try { evt = JSON.parse(line.slice(5).trim()); } catch (_) { continue; }
+        if (evt.type === 'stage')      setStage(evt.label);
+        else if (evt.type === 'token') { answer += evt.text; bubble.innerHTML = formatText(answer); scroll(); }
+        else if (evt.type === 'meta')  { if (evt.conversationId && !conversationId) conversationId = evt.conversationId; }
+        else if (evt.type === 'done')  doneData = evt;
+        else if (evt.type === 'error') { bubble.innerHTML = formatText('⚠️ ' + (evt.error || 'Something went wrong.')); }
       }
     }
 
+    stage.remove();
+    const finalText = (doneData && doneData.response) || answer;
+    if (finalText) {
+      bubble.innerHTML = formatText(finalText);
+      conversationHistory.push({ role: 'assistant', content: finalText });
+    }
+    if (doneData && doneData.conversationId && !conversationId) conversationId = doneData.conversationId;
+    if (conversationId) { document.getElementById('agent-select').disabled = true; loadConversations(); }
+    scroll();
   } catch (err) {
-    typingEl.remove();
-    appendMessage('assistant', '⚠️ Connection error. Please check your network and try again.');
+    stage.remove();
+    bubble.innerHTML = formatText('⚠️ Connection error. Please check your network and try again.');
   }
 
   isLoading = false;
   document.getElementById('send-btn').disabled = false;
   input.focus();
 }
-
 // ══════════════════════════════════════════════════════════
 //  RENDER MESSAGES
 // ══════════════════════════════════════════════════════════

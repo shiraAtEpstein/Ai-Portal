@@ -36,7 +36,7 @@ const MAX_STEPS = 8;
 const DATA_TOOLS = new Set(['monday_read_board', 'monday_query', 'monday_my_tasks', 'gmail_search', 'dropbox_read']);
 // Firm house rules live in Dropbox (single source of truth), not the DB.
 const FIRM_RULES_PATH = process.env.FIRM_RULES_PATH || '/shared-claude/framework/CLAUDE.md';
-const SUPPORTED_TOOLS = new Set(['gmail_search', 'dropbox_list', 'dropbox_read', 'dropbox_write', 'dropbox_append', 'monday_my_tasks', 'monday_list_columns', 'monday_read_board']);
+const SUPPORTED_TOOLS = new Set(['gmail_search', 'gmail_draft', 'dropbox_list', 'dropbox_read', 'dropbox_write', 'dropbox_append', 'monday_my_tasks', 'monday_list_columns', 'monday_read_board']);
 
 const STAGE_LABELS = {
   received: 'Got your question',
@@ -44,6 +44,7 @@ const STAGE_LABELS = {
   generating: 'Writing your answer…',
   load_skill: 'Choosing the right skill…',
   gmail_search: 'Reading your email…',
+  gmail_draft: 'Drafting an email…',
   monday_my_tasks: 'Checking your monday deals…',
   monday_list_columns: 'Checking the board columns…',
   monday_read_board: 'Reading the monday board…',
@@ -74,6 +75,7 @@ function sse(res, type, data) {
 function toolAllowFromCaps(caps) {
   const s = new Set();
   if (caps.gmail.has('read')) s.add('gmail_search');
+  if (caps.gmail.has('draft')) s.add('gmail_draft');
   if (caps.dropbox.has('read')) { s.add('dropbox_list'); s.add('dropbox_read'); }
   if (caps.dropbox.has('write')) { s.add('dropbox_write'); s.add('dropbox_append'); }
   if (caps.monday.has('read_own')) s.add('monday_my_tasks');
@@ -111,6 +113,25 @@ function buildScopedTools({ session, toolAllow, getScope }) {
       run: async (args) => {
         const r = await gmail.searchMail(session.userId, { query: args.query || '', maxResults: args.maxResults || 8, includeBody: true });
         return r.text;
+      },
+    });
+  }
+  if (toolAllow.has('gmail_draft')) {
+    tools.push({
+      name: 'gmail_draft',
+      description: "Create a DRAFT email in the signed-in user's Gmail. IMPORTANT: it is ONLY ever saved as a draft for the user to review and send themselves - it NEVER sends. Use it (a) to save the daily brief as an email draft whenever you produce a daily, and (b) whenever the user asks you to draft an email. Preserve Hebrew exactly. Never invent a recipient - if you are not sure who it goes to, leave `to` empty (the user fills it in).",
+      input_schema: { type: 'object', properties: {
+        subject: { type: 'string', description: 'Email subject.' },
+        body: { type: 'string', description: 'Full plain-text email body.' },
+        to: { type: 'string', description: 'Recipient address(es), comma-separated. Leave empty if unknown.' },
+        cc: { type: 'string', description: 'Optional Cc address(es).' },
+      }, required: ['subject', 'body'] },
+      run: async (args) => {
+        try {
+          const r = await gmail.createDraft(session.userId, { to: args.to, cc: args.cc, subject: args.subject, body: args.body });
+          if (!r.ok) return r.scope ? 'Could not draft: the Gmail draft permission is missing. Tell the user to reconnect Gmail (Connect Gmail) to grant draft access.' : ('Could not create the draft: ' + r.error);
+          return 'Draft saved in Gmail (NOT sent) - subject "' + String(args.subject || '') + '"' + (args.to ? (' to ' + args.to) : '') + '. It is waiting in the user\'s Gmail Drafts for them to review and send.';
+        } catch (e) { return 'Draft error: ' + e.message; }
       },
     });
   }

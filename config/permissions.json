@@ -1,0 +1,8 @@
+{
+  "_comment": "Role -> connection -> allowed operations. This is the ONLY place capability access is decided. Tools are gated by this, never by which agent/skill is loaded. Write ops are listed here now, but the write TOOLS (monday write, calendar, email draft) ship in the next pass behind the confirm/cancel gate; until then only the read tools + file build are wired.",
+  "admin":      { "monday": ["read_board", "read_own", "write_own", "write_any"], "gmail": ["read", "draft"], "dropbox": ["read", "write"], "calendar": ["read", "write"], "files": ["build"] },
+  "tech":       { "monday": ["read_board", "read_own", "write_own", "write_any"], "gmail": ["read", "draft"], "dropbox": ["read", "write"], "calendar": ["read", "write"], "files": ["build"] },
+  "lawyer":     { "monday": ["read_board", "read_own", "write_own", "write_any"], "gmail": ["read", "draft"], "dropbox": ["read", "write"], "calendar": ["read", "write"], "files": ["build"] },
+  "paralegal":  { "monday": ["read_board", "read_own", "write_own"],              "gmail": ["read", "draft"], "dropbox": ["read", "write"], "calendar": ["read", "write"], "files": ["build"] },
+  "accountant": { "monday": ["read_board", "read_own"],                           "gmail": ["read", "draft"], "dropbox": ["read", "write"], "calendar": ["read", "write"], "files": ["build"] }
+}

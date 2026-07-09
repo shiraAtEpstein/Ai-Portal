@@ -1,5 +1,10 @@
 {
   "agents": {
+    "lawly": {
+      "name": "Lawly",
+      "description": "Your everyday legal assistant",
+      "systemPrompt": "You are Lawly, the everyday AI assistant for Epstein & Co., an Israeli real-estate law firm. You help everyone at the firm — attorneys, paralegals, marketing, and operations — with whatever they need the moment they open the portal: drafting and summarising text, organising information, answering general questions, and pointing them to the right specialist when a task calls for one. Tone: warm and plain-spoken, but exact and professional — a calm, capable colleague, never a salesperson. Match the user's language (Hebrew or English) and preserve any Hebrew names, addresses, and wording exactly as written. You assist internal staff only; you do not give legal advice to clients or guarantee outcomes. When a request clearly needs a specialist — deep legal research, contract review, client intake, marketing copy — help as best you can and suggest switching with \"/\". Be concise by default, and ask a clarifying question when a request is ambiguous."
+    },
     "copywriter": {
       "name": "Content Writer",
       "description": "Creates newsletters, posts and professional content",
@@ -50,6 +55,7 @@
     "admin": {
       "description": "Full access to all agents and the admin panel",
       "agents": [
+        "lawly",
         "copywriter",
         "researcher",
         "paralegal",
@@ -66,6 +72,7 @@
     "lawyer": {
       "description": "Access to all legal work agents",
       "agents": [
+        "lawly",
         "legal_research",
         "document_review",
         "paralegal",
@@ -77,6 +84,7 @@
     "paralegal": {
       "description": "Access to paralegal and document tools",
       "agents": [
+        "lawly",
         "paralegal",
         "document_review",
         "daily"
@@ -86,6 +94,7 @@
     "law_intern": {
       "description": "Paralegal, document review and research support",
       "agents": [
+        "lawly",
         "paralegal",
         "document_review",
         "researcher",
@@ -96,6 +105,7 @@
     "notary": {
       "description": "Document review and legal research",
       "agents": [
+        "lawly",
         "document_review",
         "legal_research",
         "daily"
@@ -105,6 +115,7 @@
     "tech": {
       "description": "All agents, no admin panel",
       "agents": [
+        "lawly",
         "copywriter",
         "researcher",
         "paralegal",
@@ -119,6 +130,7 @@
     "team_manager": {
       "description": "All agents, no admin panel",
       "agents": [
+        "lawly",
         "copywriter",
         "researcher",
         "paralegal",
@@ -132,6 +144,7 @@
     "marketing": {
       "description": "Marketing team agents",
       "agents": [
+        "lawly",
         "marketing_director",
         "content_planner",
         "mkt_copywriter"
@@ -141,6 +154,7 @@
     "accountant": {
       "description": "Parked — no agents yet",
       "agents": [
+        "lawly",
         "daily"
       ],
       "topicRestrictions": []

@@ -933,6 +933,34 @@
     .lang-toggle { display:inline-flex; margin-top:12px; border:1px solid var(--gold); border-radius:999px; overflow:hidden; }
     .lang-btn { padding:3px 12px; font-size:12px; font-weight:600; background:transparent; color:var(--gold); border:none; cursor:pointer; line-height:1.6; }
     .lang-btn.active { background:var(--gold); color:var(--navy-dark); }
+
+    /* ══════ LAWLY LIGHT SIDEBAR THEME (design only) ══════ */
+    .sidebar { background: #f6f3ec; border-right: 1px solid rgba(0,0,0,0.06); }
+    .sidebar-header { border-bottom: 1px solid rgba(0,0,0,0.06); }
+    .lawly-wordmark { font-family: Georgia, 'Frank Ruhl Libre', 'Times New Roman', serif; color:#17181c; font-weight:600; letter-spacing:1.5px; }
+    .lawly-wordsub { color:#9c968b; font-weight:600; }
+    .sidebar-subtitle { color:#9c968b; }
+    .sidebar-user { border-bottom: 1px solid rgba(0,0,0,0.06); }
+    .user-avatar { background:#15161a; color:#fff; }
+    .user-name { color:#17181c; }
+    .user-role { color:#8f897e; }
+    .agents-label { color:#9c968b; }
+    .agent-btn { color:#3c3d42; }
+    .agent-btn:hover { background: rgba(0,0,0,0.05); color:#15161a; }
+    .agent-btn.active { background:#ebe5da; color:#15161a; border-left:3px solid #15161a; }
+    .agent-btn-desc { color:#8f897e; opacity:1; }
+    .sidebar-bottom { border-top:1px solid rgba(0,0,0,0.06); }
+    #new-chat-btn { background:#15161a !important; color:#fff !important; border:1px solid #15161a !important; }
+    #new-chat-btn:hover { background:#000 !important; }
+    .admin-btn { color:#3c3d42; border-color: rgba(0,0,0,0.12); }
+    .admin-btn:hover { background: rgba(0,0,0,0.05); }
+    .gmail-btn { color:#3c3d42; border-color: rgba(0,0,0,0.12); }
+    .gmail-btn.connected { color:#1a7f37; border-color: rgba(26,127,55,0.45); }
+    .logout-btn { border:1px solid rgba(0,0,0,0.12); color:#8f897e; }
+    .logout-btn:hover { background: rgba(0,0,0,0.05); color:#15161a; }
+    .lang-toggle { border:1px solid rgba(0,0,0,0.15); }
+    .lang-btn { color:#6b665d; }
+    .lang-btn.active { background:#15161a; color:#fff; }
     #portal[dir="rtl"] .input-hint, #portal[dir="rtl"] .agents-label { text-align:right; }
     #portal[dir="rtl"] .welcome { text-align:center; }
     #admin-screen[dir="rtl"], #audit-screen[dir="rtl"], #invite-modal[dir="rtl"] { text-align:right; }
@@ -999,9 +1027,9 @@
     <div class="sidebar-header">
       <div style="display:flex;align-items:center;gap:10px;justify-content:center;">
         <img src="/smallLogo.png.jpg" alt="Lawly" style="width:34px;height:34px;border-radius:9px;object-fit:cover;" />
-        <div style="line-height:1.05;text-align:left;">
-          <div style="font-size:19px;font-weight:800;letter-spacing:1.5px;color:var(--gold);">LAWLY</div>
-          <div style="font-size:9.5px;letter-spacing:2px;color:var(--gold-light);">EPSTEIN &amp; CO.</div>
+        <div style="line-height:1.1;text-align:left;">
+          <div class="lawly-wordmark" style="font-size:23px;">LAWLY</div>
+          <div class="lawly-wordsub" style="font-size:9.5px;letter-spacing:2px;">EPSTEIN &amp; CO.</div>
         </div>
       </div>
       <div class="sidebar-subtitle" style="margin-top:8px;" data-i18n="subtitle">Your everyday legal assistant</div>

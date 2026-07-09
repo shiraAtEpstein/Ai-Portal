@@ -476,7 +476,11 @@ module.exports = function createChatRouter() {
     if (!f) return res.status(404).json({ error: 'File not found or expired.' });
     if (f.userId !== req.session.userId) return res.status(403).json({ error: 'Not your file.' });
     res.setHeader('Content-Type', f.mime || 'application/octet-stream');
-    res.setHeader('Content-Disposition', 'attachment; filename="' + String(f.filename || 'document').replace(/"/g, '') + '"');
+    // Filenames can be non-ASCII (e.g. Hebrew). HTTP headers are ASCII-only, so
+    // send an ASCII fallback plus an RFC 5987 UTF-8 encoded name for the real one.
+    const rawName = String(f.filename || 'document');
+    const asciiName = rawName.replace(/[^\x20-\x7E]/g, '_').replace(/"/g, '');
+    res.setHeader('Content-Disposition', "attachment; filename=\"" + asciiName + "\"; filename*=UTF-8''" + encodeURIComponent(rawName));
     res.send(f.buffer);
   });
 

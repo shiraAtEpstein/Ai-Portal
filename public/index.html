@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Epstein &amp; Co. AI Portal</title>
+  <title>Lawly · Epstein &amp; Co.</title>
   <link rel="icon" type="image/jpeg" href="/smallLogo.png.jpg" />
 
   <!-- Markdown rendering: marked (GFM) + DOMPurify (sanitise). Pinned versions.
@@ -400,6 +400,12 @@
     }
 
     .welcome-icon { font-size: 48px; }
+
+    /* ── LAWLY HOME HERO (empty state) ── */
+    .lawly-hero { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:14px; padding:32px 24px; }
+    .lawly-hero .lh-mascot { width:210px; max-width:50%; height:auto; margin-bottom:2px; filter: drop-shadow(0 8px 24px rgba(0,0,0,.08)); }
+    .lawly-hero .lh-greeting { font-family: Georgia, 'Frank Ruhl Libre', 'Times New Roman', serif; font-size:40px; font-weight:500; color: var(--navy, #15161a); letter-spacing:.3px; margin:0; }
+    .lawly-hero .lh-sub { font-size:15px; color:#7a7f88; max-width:430px; line-height:1.55; margin:0; }
 
     .welcome h2 {
       font-size: 20px;
@@ -991,8 +997,14 @@
   <!-- Sidebar -->
   <div class="sidebar">
     <div class="sidebar-header">
-      <img src="/logo.png.jpg" alt="Epstein &amp; Co." style="display:block;width:90%;max-width:180px;height:auto;" />
-      <div class="sidebar-subtitle" style="margin-top:8px;" data-i18n="subtitle">Secure · Confidential</div>
+      <div style="display:flex;align-items:center;gap:10px;justify-content:center;">
+        <img src="/smallLogo.png.jpg" alt="Lawly" style="width:34px;height:34px;border-radius:9px;object-fit:cover;" />
+        <div style="line-height:1.05;text-align:left;">
+          <div style="font-size:19px;font-weight:800;letter-spacing:1.5px;color:var(--gold);">LAWLY</div>
+          <div style="font-size:9.5px;letter-spacing:2px;color:var(--gold-light);">EPSTEIN &amp; CO.</div>
+        </div>
+      </div>
+      <div class="sidebar-subtitle" style="margin-top:8px;" data-i18n="subtitle">Your everyday legal assistant</div>
       <div class="lang-toggle" role="group" aria-label="Language">
         <button type="button" class="lang-btn" data-lang="en">EN</button>
         <button type="button" class="lang-btn" data-lang="he">עברית</button>
@@ -1311,6 +1323,18 @@ function fmtConvTime(ts) {
   } catch (e) { return ''; }
 }
 
+// Presentational: time-of-day + signed-in name for the home hero.
+function setWelcomeGreeting() {
+  var el = document.getElementById('welcome-greeting');
+  if (!el) return;
+  var nm = ((document.getElementById('user-name') || {}).textContent || '').trim();
+  var first = (nm.split(/[\s,]+/)[0] || '');
+  if (/^(loading|—|-)?$/i.test(first) || first.toLowerCase() === 'loading...') first = '';
+  var hr = new Date().getHours();
+  var part = (hr < 5) ? 'Good evening' : (hr < 12) ? 'Good morning' : (hr < 18) ? 'Good afternoon' : 'Good evening';
+  el.textContent = part + (first ? ', ' + first : '') + '.';
+}
+
 function newChat() {
   conversationId = null;
   conversationHistory = [];
@@ -1322,12 +1346,17 @@ function newChat() {
   const nrow = document.getElementById('input-row'); if (nrow) nrow.style.borderColor = '';
   document.getElementById('message-input').placeholder = 'Choose an agent to begin…';
   document.getElementById('header-icon').textContent = '🤖';
-  document.getElementById('header-name').textContent = 'New chat';
-  document.getElementById('header-desc').textContent = 'Pick an agent to begin';
+  document.getElementById('header-name').textContent = 'Lawly';
+  document.getElementById('header-desc').textContent = 'Your everyday legal assistant';
   document.getElementById('no-agent').style.display = 'none';
   document.getElementById('chat-view').style.display = 'flex';
-  document.getElementById('messages').innerHTML = '';
-  appendMessage('assistant', 'Pick an agent in the message box below, then type to start a new chat.');
+  document.getElementById('messages').innerHTML =
+    '<div class="lawly-hero">' +
+    '<img class="lh-mascot" src="/LAWLY%20-%20are%20new%20best%20worker.png" alt="Lawly" />' +
+    '<h2 class="lh-greeting" id="welcome-greeting">Welcome</h2>' +
+    '<p class="lh-sub">How can I help today? Pick an agent below and ask anything.</p>' +
+    '</div>';
+  setWelcomeGreeting();
   const inp = document.getElementById('message-input'); if (inp) inp.focus();
 }
 
@@ -1682,6 +1711,7 @@ async function sendMessage() {
 // ══════════════════════════════════════════════════════════
 function appendMessage(role, text) {
   const msgs      = document.getElementById('messages');
+  var __hero = msgs.querySelector('.lawly-hero'); if (__hero) __hero.remove();
   const userName  = document.getElementById('user-name').textContent;
   const isUser    = role === 'user';
 

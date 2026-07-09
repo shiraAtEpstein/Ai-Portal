@@ -33,7 +33,9 @@ const MAX_TOKENS = 16000;  // must be big enough for a build_document call whose
 const MAX_STEPS = 8;
 // Tools whose (possibly large) output we cache so build_document can reuse it
 // server-side instead of the model retyping it into the tool call.
-const DATA_TOOLS = new Set(['monday_read_board', 'monday_my_tasks', 'gmail_search', 'dropbox_read']);
+const DATA_TOOLS = new Set(['monday_read_board', 'monday_query', 'monday_my_tasks', 'gmail_search', 'dropbox_read']);
+// Firm house rules live in Dropbox (single source of truth), not the DB.
+const FIRM_RULES_PATH = process.env.FIRM_RULES_PATH || '/shared-claude/framework/CLAUDE.md';
 const SUPPORTED_TOOLS = new Set(['gmail_search', 'dropbox_list', 'dropbox_read', 'dropbox_write', 'dropbox_append', 'monday_my_tasks', 'monday_list_columns', 'monday_read_board']);
 
 const STAGE_LABELS = {
@@ -45,6 +47,7 @@ const STAGE_LABELS = {
   monday_my_tasks: 'Checking your monday deals…',
   monday_list_columns: 'Checking the board columns…',
   monday_read_board: 'Reading the monday board…',
+  monday_query: 'Querying monday…',
   dropbox_list: 'Looking through files…',
   dropbox_read: 'Reading a file…',
   dropbox_write: 'Saving to Dropbox…',
@@ -139,7 +142,7 @@ function buildScopedTools({ session, toolAllow, getScope }) {
     });
     tools.push({
       name: 'monday_read_board',
-      description: "STEP 2 for firm-wide reports: read items across a whole board, but ONLY the columns you ask for. ALWAYS call monday_list_columns FIRST, then pass the specific column ids you need in `columns`. Do NOT read the board without choosing columns: it has hundreds of columns (many are expensive mirror/formula fields) and reading them all overloads monday and fails. Boards: 'contractor' (קבלן), 'second-hand' (יד 2), 'wills' (צוואות). If a field the user wants isn't in the column list, tell them it's not on the board.",
+      description: "STEP 2 for firm-wide reports: read items across a whole board, but ONLY the columns you ask for. ALWAYS call monday_list_columns FIRST, then pass the specific column ids you need in `columns`. Do NOT read the board without choosing columns: it has hundreds of columns (many are expensive mirror/formula fields) and reading them all overloads monday and fails. Boards: 'contractor' (קבלן), 'second-hand' (יד 2), 'wills' (צוואות). To find deals linked to a BROKER, agent, project, developer, or company (a referral), filter on that LINKED board-relation column (e.g. broker = 'קישור למתווך נדל״ן'), NOT by matching the deal name. If a field the user wants isn't in the column list, tell them it's not on the board.",
       input_schema: { type: 'object', properties: {
         board: { type: 'string', description: "Which board: 'contractor', 'second-hand', or 'wills'." },
         columns: { type: 'array', items: { type: 'string' }, description: "The column ids (or exact titles) to read, chosen from monday_list_columns. Keep it focused: a handful of columns, and avoid mirror/formula columns. If omitted, falls back to a limited default set of plain columns." },
@@ -153,6 +156,22 @@ function buildScopedTools({ session, toolAllow, getScope }) {
       run: async (args) => {
         try { return monday.renderBoard(await monday.boardItems(args.board, args.columns, args.filters)); }
         catch (e) { return 'monday board error: ' + e.message; }
+      },
+    });
+    tools.push({
+      name: 'monday_query',
+      description: "ESCAPE HATCH: run ANY read-only monday.com GraphQL query (monday API v2) when the structured tools can't express what you need - aggregations, cross-board links, or FOLLOWING a board-relation to the other board to get the linked item's details. Read-only: mutations are rejected. Board ids: contractor 1603266152, second-hand 1772652154, wills 5096606714. Prefer monday_read_board for ordinary per-column reads; use this for the unusual cases so you never get stuck.",
+      input_schema: { type: 'object', properties: {
+        query: { type: 'string', description: 'A read-only GraphQL query (monday API v2). No mutations.' },
+        variables: { type: 'string', description: 'Optional JSON string of GraphQL variables.' },
+      }, required: ['query'] },
+      run: async (args) => {
+        try {
+          const data = await monday.readQuery(args.query, args.variables);
+          let out = JSON.stringify(data);
+          if (out.length > 60000) out = out.slice(0, 60000) + '\n...[truncated - narrow your query]';
+          return out;
+        } catch (e) { return 'monday query error: ' + e.message; }
       },
     });
   }
@@ -263,12 +282,35 @@ function makeBuildDocumentTool(res, session, ctx) {
   };
 }
 
+// Non-negotiable firm facts, pinned in code so the agent always has them even
+// if the DB copy of the firm rules is stale or missing.
+function firmCriticalFacts() {
+  return [
+    'CRITICAL FIRM FACTS (these override anything ambiguous; never contradict them):',
+    '- The two Yaakovs: "Yaacov Epstein" is the BOSS and firm principal (the lawyer). "Yaakov Hershkovitz" is the PARALEGAL (always written with his surname). A bare "Yaacov" or "יעקב" means Yaacov Epstein, the boss - NOT Hershkovitz. Never equate the two.',
+    '- When someone asks what "Yaacov charged" or how much the firm charged, that is the firm fee in the monday column "שכ"ט אפשטיין" (Epstein / firm fee). It is never Hershkovitz.',
+    '- To find deals ASSOCIATED WITH a broker, real-estate agent, referrer, project, developer, or company, filter on the relevant LINKED (board-relation) column - for a broker that is the column "קישור למתווך נדל״ן". Do NOT match the deal name: the deal name is the client, not the referrer.',
+    '- Currency is NIS (₪) unless stated otherwise. Never invent client names, prices, IDs, addresses, or column values - read them from monday.',
+  ].join('\n');
+}
+
 async function firmPreamble() {
-  let preamble = '';
+  let preamble = 'FIRM RULES (these apply to every answer, no exceptions):\n\n' + firmCriticalFacts() + '\n\n';
+  let rules = '';
+  // Primary source: the house rules in Dropbox (the framework CLAUDE.md).
   try {
-    const firmRules = await db.getFirmRules();
-    if (firmRules) preamble += 'FIRM RULES (these apply to every answer, no exceptions):\n\n' + firmRules + '\n\n----------------------------------------\n\n';
-  } catch (e) { console.error('[CHAT] could not load firm rules:', e.message); }
+    rules = String(await dropbox.readFile(FIRM_RULES_PATH) || '').trim();
+    if (rules) console.log('[FIRM] loaded house rules from Dropbox: ' + FIRM_RULES_PATH + ' (' + rules.length + ' chars)');
+  } catch (e) {
+    console.error('[FIRM] Dropbox house rules unavailable (' + FIRM_RULES_PATH + '): ' + e.message);
+  }
+  // Fallback only if Dropbox is unreachable, so the portal never runs rule-less.
+  if (!rules) {
+    try { rules = String(await db.getFirmRules() || '').trim(); }
+    catch (e) { console.error('[CHAT] could not load fallback firm rules:', e.message); }
+  }
+  if (rules) preamble += rules + '\n\n';
+  preamble += '----------------------------------------\n\n';
   return preamble;
 }
 

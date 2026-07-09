@@ -961,6 +961,16 @@
     .lang-toggle { border:1px solid rgba(0,0,0,0.15); }
     .lang-btn { color:#6b665d; }
     .lang-btn.active { background:#15161a; color:#fff; }
+
+    /* hide Marketing from the sidebar */
+    #marketing-open-btn { display: none !important; }
+
+    /* refined, on-theme scrollbar for the chat history list */
+    .agent-list { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,0.18) transparent; }
+    .agent-list::-webkit-scrollbar { width: 8px; }
+    .agent-list::-webkit-scrollbar-track { background: transparent; }
+    .agent-list::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+    .agent-list::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.30); background-clip: padding-box; }
     #portal[dir="rtl"] .input-hint, #portal[dir="rtl"] .agents-label { text-align:right; }
     #portal[dir="rtl"] .welcome { text-align:center; }
     #admin-screen[dir="rtl"], #audit-screen[dir="rtl"], #invite-modal[dir="rtl"] { text-align:right; }

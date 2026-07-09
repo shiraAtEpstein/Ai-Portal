@@ -31,6 +31,9 @@ const MODEL_ALIASES = { sonnet: 'claude-sonnet-4-6', haiku: 'claude-haiku-4-5-20
 const DEFAULT_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';
 const MAX_TOKENS = 16000;  // must be big enough for a build_document call whose data field carries the whole report; 4096 truncated it mid-tool-call
 const MAX_STEPS = 8;
+// Tools whose (possibly large) output we cache so build_document can reuse it
+// server-side instead of the model retyping it into the tool call.
+const DATA_TOOLS = new Set(['monday_read_board', 'monday_my_tasks', 'gmail_search', 'dropbox_read']);
 const SUPPORTED_TOOLS = new Set(['gmail_search', 'dropbox_list', 'dropbox_read', 'dropbox_write', 'dropbox_append', 'monday_my_tasks', 'monday_list_columns', 'monday_read_board']);
 
 const STAGE_LABELS = {
@@ -140,9 +143,15 @@ function buildScopedTools({ session, toolAllow, getScope }) {
       input_schema: { type: 'object', properties: {
         board: { type: 'string', description: "Which board: 'contractor', 'second-hand', or 'wills'." },
         columns: { type: 'array', items: { type: 'string' }, description: "The column ids (or exact titles) to read, chosen from monday_list_columns. Keep it focused: a handful of columns, and avoid mirror/formula columns. If omitted, falls back to a limited default set of plain columns." },
+        filters: { type: 'array', description: "Server-side row filters so ONLY matching rows come back (fewer rows = faster and much cheaper). Build these from the user's request instead of reading the whole board and filtering yourself. Each rule: { column (id or title), operator, value }. Operators: eq, ne, contains, not_contains, gt, gte, lt, lte, is_empty, is_not_empty. Dates compare correctly, e.g. for 'deals from August 2024' pass { column: 'תאריך פתיחת תיק', operator: 'gte', value: '2024-08-01' }.",
+          items: { type: 'object', properties: {
+            column: { type: 'string', description: 'Column id or exact title to filter on.' },
+            operator: { type: 'string', description: 'eq | ne | contains | not_contains | gt | gte | lt | lte | is_empty | is_not_empty' },
+            value: { type: 'string', description: 'Value to compare against (for is_empty/is_not_empty leave blank).' },
+          }, required: ['column', 'operator'] } },
       }, required: ['board'] },
       run: async (args) => {
-        try { return monday.renderBoard(await monday.boardItems(args.board, args.columns)); }
+        try { return monday.renderBoard(await monday.boardItems(args.board, args.columns, args.filters)); }
         catch (e) { return 'monday board error: ' + e.message; }
       },
     });
@@ -221,20 +230,26 @@ function buildScopedTools({ session, toolAllow, getScope }) {
 }
 
 // ---- the file-building tool (hosted sandbox) --------------------------------
-function makeBuildDocumentTool(res, session) {
+function makeBuildDocumentTool(res, session, ctx) {
   return {
     name: 'build_document',
-    description: 'Create a downloadable FILE (Excel .xlsx, Word .docx, PDF .pdf, or PowerPoint .pptx) from data you provide. Runs in a secure sandbox. Call this IMMEDIATELY, in the SAME turn, whenever the user wants an actual file rather than a pasted table — do NOT announce that you will build it or say "building it now"; invoke this tool instead. IMPORTANT: the builder cannot see this conversation, so put everything it needs — the rows, values, layout notes — into the `data` field.',
+    description: 'Create a downloadable FILE (Excel .xlsx, Word .docx, PDF .pdf, or PowerPoint .pptx). Runs in a secure sandbox. Call this IMMEDIATELY, in the SAME turn, whenever the user wants an actual file — do NOT announce that you will build it or say "building it now"; invoke this tool instead. IMPORTANT: if the file is based on data you just fetched with a tool (a monday board, emails, etc.), set use_last_data=true INSTEAD of retyping the rows into `data` — the server passes that fetched data straight to the builder. This is required for reports and any large dataset, because retyping it will overflow the response. Only use `data` for content you are composing yourself.',
     input_schema: { type: 'object', properties: {
-      instruction: { type: 'string', description: 'What to build, e.g. "A spreadsheet of these clients with columns: name, email, tax status, notes."' },
-      data: { type: 'string', description: 'The actual content/rows to include, as text or JSON. Required for data-driven files.' },
+      instruction: { type: 'string', description: 'What to build and how to lay it out, e.g. "A spreadsheet of these clients, columns: name, tax status, tax paid, email, phone; number the rows."' },
+      data: { type: 'string', description: 'Content/rows to include, as text or JSON. For data you already fetched with a tool, do NOT paste it here — set use_last_data=true instead.' },
+      use_last_data: { type: 'boolean', description: 'Set true to build from the data your previous tool call already fetched (the monday board / emails you just read). Strongly preferred for reports and large datasets, so you never have to retype rows.' },
       format: { type: 'string', enum: ['xlsx', 'docx', 'pdf', 'pptx'], description: 'The file format to produce.' },
     }, required: ['instruction', 'format'] },
     run: async (args) => {
       try {
-        const { files } = await sandbox.buildDocument({ userId: session.userId, instruction: args.instruction, data: args.data, format: args.format });
+        let data = args.data || '';
+        if ((args.use_last_data || !data) && ctx && ctx.lastToolText) {
+          data = ctx.lastToolText + (args.data ? '\n\nAdditional notes:\n' + args.data : '');
+          console.log('[BUILD_DOC] using server-side data handoff from ' + (ctx.lastToolName || 'last tool') + ' | dataLen=' + data.length);
+        }
+        const { files } = await sandbox.buildDocument({ userId: session.userId, instruction: args.instruction, data, format: args.format });
         if (!files.length) {
-          console.error('[BUILD_DOC] no file produced | format=' + args.format + ' | instrLen=' + String(args.instruction || '').length + ' | dataLen=' + String(args.data || '').length);
+          console.error('[BUILD_DOC] no file produced | format=' + args.format + ' | instrLen=' + String(args.instruction || '').length + ' | dataLen=' + String(data || '').length);
           return 'The sandbox ran but produced no file. Try again with clearer data.';
         }
         for (const f of files) sse(res, 'file', { url: f.url, filename: f.filename });
@@ -277,7 +292,7 @@ const FILE_PROMISE_RE = /(?:\b(?:building|creating|preparing|generating|assembli
 // never end in a text-only reply.
 const USER_FILE_INTENT_RE = /(?:\bexcel\b|\bspreadsheet\b|\bxlsx?\b|\bword\b|\bdocx?\b|\bdocument\b|\bpdf\b|\bpower\s?point\b|\bpptx?\b|\bpresentation\b|\bslides?\b|\bdeck\b|\breport\b|\bfile\b|\bdownload\b|\bspread ?sheet\b|אקסל|וורד|מסמך|קובץ|קבצים|דו["״]?ח|מצגת|טבלה|להוריד|תוציא|תפיק|תכין|להפיק|דוח)/i;
 
-async function runStreamingChat(res, { model, system, tools }, promptText, userMessage) {
+async function runStreamingChat(res, { model, system, tools }, promptText, userMessage, ctx) {
   const toolsById = new Map(tools.map((t) => [t.name, t]));
   const toolSchemas = tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
   const messages = [{ role: 'user', content: promptText }];
@@ -325,7 +340,7 @@ async function runStreamingChat(res, { model, system, tools }, promptText, userM
         forceBuildNext = true;   // next call is forced to invoke build_document
         console.warn('[BUILD_DOC] safety-net: a file was requested but build_document was never called — forcing the build.');
         sse(res, 'stage', { key: 'build_document', label: stageLabel('build_document') });
-        messages.push({ role: 'user', content: 'SYSTEM: The user asked for a downloadable file but no file was produced. Call the build_document tool now, using the content from your previous message as the data. Choose the right format (xlsx for tables/reports, docx for letters/text, pdf, or pptx). Do not reply with text only.' });
+        messages.push({ role: 'user', content: 'SYSTEM: The user asked for a downloadable file but no file was produced. Call the build_document tool now. If you already fetched the data with a tool (e.g. a monday board), set use_last_data=true instead of retyping it. Choose the right format (xlsx for tables/reports, docx for letters/text, pdf, or pptx). Do not reply with text only.' });
         continue;
       }
       break;
@@ -339,6 +354,9 @@ async function runStreamingChat(res, { model, system, tools }, promptText, userM
       let out;
       try { out = t ? await t.run(block.input || {}) : 'Unknown tool.'; }
       catch (e) { out = 'Tool error: ' + e.message; }
+      if (ctx && DATA_TOOLS.has(block.name) && typeof out === 'string' && out.length > 40) {
+        ctx.lastToolText = out; ctx.lastToolName = block.name;
+      }
       toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: String(out) });
       sentGenerating = false;
     }
@@ -427,9 +445,10 @@ module.exports = function createChatRouter() {
     }
 
     // File building is a role capability now (files: build), not an agent flag.
+    const buildCtx = { lastToolText: '', lastToolName: '' };
     if (caps.files.has('build')) {
-      tools.push(makeBuildDocumentTool(res, req.session));
-      system += '\n\nFILE BUILDING (MANDATORY): When the user asks for a file, document, Word doc, Excel, spreadsheet, PDF, or presentation, you MUST call the build_document tool in THIS SAME turn. Never say you are building, creating, preparing, or generating a file — and never end your turn on a promise like "building it now" — without actually calling build_document in the same message. If you need data first, fetch it with your other tools, then call build_document before replying. Only after the tool returns and the download link is shown should you briefly confirm the file is ready.';
+      tools.push(makeBuildDocumentTool(res, req.session, buildCtx));
+      system += '\n\nFILE BUILDING (MANDATORY): When the user asks for a file, document, Word doc, Excel, spreadsheet, PDF, or presentation, you MUST call the build_document tool in THIS SAME turn. Never say you are building, creating, preparing, or generating a file — and never end your turn on a promise like "building it now" — without actually calling build_document in the same message. If you need data first, fetch it with your other tools, then call build_document before replying. If the file is based on data you fetched with a tool (e.g. a monday board), call build_document with use_last_data=true instead of copying the rows into `data`. Only after the tool returns and the download link is shown should you briefly confirm the file is ready.';
     }
     console.log('[DIAG] req agent=' + agentId + ' roles=' + JSON.stringify(roles) + ' buildCap=' + caps.files.has('build') + ' tools=[' + tools.map((t) => t.name).join(',') + ']');
 
@@ -441,7 +460,7 @@ module.exports = function createChatRouter() {
     if (convId) sse(res, 'meta', { conversationId: convId });
 
     try {
-      const answer = await runStreamingChat(res, { model, system, tools }, promptText, message);
+      const answer = await runStreamingChat(res, { model, system, tools }, promptText, message, buildCtx);
       console.log('[CHAT] ' + name + ' (' + (roles || []).join('/') + ') -> ' + agentId + (active ? ' [' + active.id + ']' : ''));
       if (persist && convId) await db.addMessage(convId, 'assistant', answer).catch(function (e) { console.error('[CHAT] save reply failed:', e.message); });
       sse(res, 'done', { conversationId: convId, response: answer });

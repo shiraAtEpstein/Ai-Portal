@@ -724,7 +724,6 @@ document.getElementById('audit-refresh-btn').addEventListener('click', loadAudit
 document.getElementById('audit-q').addEventListener('input', renderAudit);
 document.getElementById('audit-action').addEventListener('change', renderAudit);
 document.getElementById('audit-from').addEventListener('change', renderAudit);
-document.getElement('audit-to') ? null : null;
 document.getElementById('audit-to').addEventListener('change', renderAudit);
 document.getElementById('audit-export').addEventListener('click', exportAudit);
 document.getElementById('audit-clear').addEventListener('click', function () {

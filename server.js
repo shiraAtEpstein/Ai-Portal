@@ -16,6 +16,7 @@ const createGoogleAuthRouter = require('./google-auth');
 const createAuthRouter = require('./routes/auth');
 const createChatRouter = require('./routes/chat');
 const createGmailRouter = require('./routes/gmail');
+const createCalendarRouter = require('./routes/calendar');
 const createDropboxRouter = require('./routes/dropbox');
 const createAdminRouter = require('./routes/admin');
 const createMarketingRouter = require('./routes/marketing');
@@ -35,7 +36,7 @@ app.use(express.json());
 let INDEX_HTML = null;
 try {
   INDEX_HTML = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8')
-    .replace('</body>', '  <script defer src="/marketing.js"></script>\n</body>');
+    .replace('</body>', '  <script defer src="/marketing.js"></script>\n  <script defer src="/calendar-connect.js"></script>\n</body>');
 } catch (e) {
   console.error('[BOOT] could not preload index.html for injection:', e.message);
 }
@@ -74,6 +75,7 @@ app.use(createGoogleAuthRouter({ createSession: createDbSession, findUserByEmail
 app.use(createAuthRouter({ loadUsers, saveUsers, transporter }));
 app.use(createChatRouter());
 app.use(createGmailRouter());
+app.use(createCalendarRouter());
   app.use(createDropboxRouter());
 app.use(createAdminRouter({ loadUsers }));
 app.use(createMarketingRouter());
@@ -101,7 +103,7 @@ async function refreshAgents(reason) {
   if (r.ok) {
     console.log('[AGENTS] loaded ' + r.count + ' agent file(s) from Dropbox (' + reason + ')');
   } else {
-    console.warn('[AGENTS] using bundled agents \u2014 Dropbox skipped: ' + r.reason + ' (' + reason + ')');
+    console.warn('[AGENTS] using bundled agents — Dropbox skipped: ' + r.reason + ' (' + reason + ')');
   }
 }
 refreshAgents('boot');

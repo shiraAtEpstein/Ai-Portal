@@ -537,7 +537,7 @@
     .msg-bubble li { margin-bottom: 4px; }
 
     /* ── AI Thinking experience (premium waiting state, driven by live SSE stages) ── */
-    .message.assistant.thinking .msg-bubble:empty { padding: 0; background: transparent; border: none; }
+    .message.assistant.thinking .msg-bubble { padding: 0; background: transparent; border: none; }
     .think-card {
       min-width: 250px; max-width: 340px;
       padding: 13px 15px;
@@ -1525,7 +1525,7 @@ function startThinking(wrapper) {
   const actionsEl = card.querySelector('.think-actions');
   const msgs = document.getElementById('messages');
   const start = Date.now();
-  let scripted = -1, serverDriven = false, finished = false, answering = false;
+  let scripted = -1, serverDriven = false, finished = false;
   const scroll = () => { msgs.scrollTop = msgs.scrollHeight; };
 
   function setStatus(txt) { statusEl.textContent = txt; statusEl.style.animation = 'none'; void statusEl.offsetWidth; statusEl.style.animation = ''; }
@@ -1550,19 +1550,16 @@ function startThinking(wrapper) {
   const tick = setInterval(function () {
     if (finished || !document.body.contains(card)) { clearInterval(tick); return; }
     const t = (Date.now() - start) / 1000;
-    if (!serverDriven && !answering) {
+    if (!serverDriven) {
       let target;
       if (t < 2) target = -1; else if (t < 6) target = 0; else target = Math.min(script.length - 2, 1 + Math.floor((t - 6) / 5));
       if (t >= 50) target = script.length - 1;
       if (target > scripted) { for (let s = scripted + 1; s <= target; s++) { if (s > 0) addDoneStep(script[s - 1]); setStatus(script[s]); scripted = s; } scroll(); }
     }
-    if (t >= 50 && !answering) showActions();
+    if (t >= 50) showActions();
   }, 600);
 
   return {
-    // Answer started streaming: keep the card + live stages, stop the scripted
-    // fallback and suppress the "taking longer" nudge.
-    answering: function () { answering = true; },
     setStage: function (label) {
       if (finished || !label) return;
       const cur = statusEl.textContent;
@@ -1640,7 +1637,7 @@ async function sendMessage() {
         if (evt.type === 'stage') {
           think.setStage(evt.label);
         } else if (evt.type === 'token') {
-          think.answering();
+          think.done();
           answer += evt.text;
           bubble.innerHTML = formatText(answer);
           scroll();
@@ -2628,10 +2625,24 @@ function restoreAgentFromUrl() {
     body.innerHTML='<div class="d-loading">Reading your monday deals…</div>';
     fetch('/api/chat',{ method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ agentId:'daily', message:'Give me my tasks for today. Respond with ONLY a JSON array (no prose, no code fence). Each element: {"task": string, "deal": string, "why": string, "url": string, "urgency": "overdue"|"today"|"soon"}.' }) })
-      .then(function(r){ return r.json(); })
-      .then(function(j){ if(j&&j.error){ body.innerHTML='<div class="d-empty">'+esc(j.error)+'</div>'; return; }
-        var tasks=extract(j&&j.response); if(!tasks){ body.innerHTML='<div class="d-empty">Couldn\'t read a task list yet. Open the My Daily chat agent to check.</div>'; return; }
-        loaded=true; render(tasks); })
+      .then(async function(r){
+        if(!r.ok){ var e={}; try{ e=await r.json(); }catch(_){} body.innerHTML='<div class="d-empty">'+esc((e&&e.error)||'Could not load your daily right now.')+'</div>'; return; }
+        // /api/chat streams Server-Sent Events, not JSON. Read the stream and
+        // collect the final answer, then pull the JSON task array out of it.
+        var reader=r.body.getReader(), dec=new TextDecoder(), buf='', answer='', finalResp=null;
+        while(true){ var chunk=await reader.read(); if(chunk.done) break; buf+=dec.decode(chunk.value,{stream:true});
+          var nl; while((nl=buf.indexOf('\n\n'))>=0){ var frame=buf.slice(0,nl); buf=buf.slice(nl+2);
+            var line=frame.split('\n').find(function(l){ return l.indexOf('data:')===0; }); if(!line) continue;
+            var evt; try{ evt=JSON.parse(line.slice(5).trim()); }catch(_){ continue; }
+            if(evt.type==='token') answer+=evt.text;
+            else if(evt.type==='done') finalResp=(evt.response||answer);
+            else if(evt.type==='error'){ body.innerHTML='<div class="d-empty">'+esc(evt.error||'Something went wrong.')+'</div>'; return; }
+          }
+        }
+        var tasks=extract(finalResp||answer);
+        if(!tasks){ body.innerHTML='<div class="d-empty">Couldn\'t read a task list yet. Open the My Daily chat agent to check.</div>'; return; }
+        loaded=true; render(tasks);
+      })
       .catch(function(){ body.innerHTML='<div class="d-empty">Could not load your daily right now.</div>'; });
   }
   fab.addEventListener('click', function(){ var willOpen=!panel.classList.contains('open'); panel.classList.toggle('open', willOpen); if(willOpen&&!loaded) load(); });

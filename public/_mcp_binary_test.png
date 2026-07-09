@@ -1,1 +1,1 @@
-iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==
+DELETE ME - MCP binary probe artifact, not a real image. The GitHub MCP stores file content verbatim (no base64 decode), so it cannot push valid PNGs. Remove this file manually.

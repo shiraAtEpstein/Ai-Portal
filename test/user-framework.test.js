@@ -71,3 +71,8 @@ test('a single broken/missing file does not break the others', async () => {
   assert.match(r.text, /Personal dos and don'ts/);
   assert.deepStrictEqual(r.files, ['dos-and-donts.md']);
 });
+
+test('slugForEmail strips path-traversal characters', () => {
+  assert.strictEqual(uf.slugForEmail('../../etc/passwd@x'), '....etcpasswd@x');
+  assert.ok(!uf.slugForEmail('a/../../b@x.com').includes('/'));
+});

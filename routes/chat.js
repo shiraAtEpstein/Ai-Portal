@@ -23,6 +23,8 @@ const monday = require('../lib/monday');
 const sandbox = require('../lib/sandbox');
 const filestore = require('../lib/filestore');
 const { PROACTIVE_PROMPT, catalogForRoles, renderCatalog } = require('../lib/skill-catalog');
+// Layer 2 — the signed-in user's personal framework (deltas only; Firm Core wins).
+const userFramework = require('../lib/user-framework');
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -474,6 +476,14 @@ module.exports = function createChatRouter() {
     const toolAllow = toolAllowFromCaps(caps);
 
     let system = await firmPreamble();
+    // Layer 2 — inject the signed-in user's personal framework right after the
+    // Firm Core, clearly subordinate to it. Empty for users with no framework
+    // (pure Firm Core), so this can never break an existing user.
+    try {
+      const uf = await userFramework.loadForEmail(req.session.email);
+      const ufBlock = userFramework.render(uf, req.session.name);
+      if (ufBlock) system += ufBlock + '\n\n';
+    } catch (e) { console.error('[USER-FW] inject failed:', e.message); }
     let tools = [];
     let active = null;
 

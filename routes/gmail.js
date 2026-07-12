@@ -2,7 +2,7 @@
 // routes/gmail.js — connect / disconnect a user's own Gmail (read-only).
 //
 // Phase 2, Stage 2. Endpoints:
-//   GET  /api/gmail/status      -> { configured, connected, email }
+//   GET  /api/gmail/status      -> { configured, connected, email, canDraft }
 //   GET  /api/gmail/connect     -> redirect to Google's consent screen
 //   GET  /auth/gmail/callback   -> Google returns here; we save the token
 //   POST /api/gmail/disconnect  -> forget this user's Gmail permission
@@ -33,11 +33,11 @@ module.exports = function createGmailRouter() {
   router.get('/api/gmail/status', authenticate, async (req, res) => {
     if (!gmail.configured()) return res.json({ configured: false, connected: false });
     try {
-      const conn = await gmail.getConnection(req.session.userId);
-      res.json({ configured: true, connected: !!conn, email: conn ? conn.email : null });
+      const st = await gmail.connectionStatus(req.session.userId);
+      res.json({ configured: true, connected: st.connected, email: st.email, canDraft: st.canDraft });
     } catch (e) {
       console.error('[GMAIL] status failed:', e.message);
-      res.json({ configured: true, connected: false });
+      res.json({ configured: true, connected: false, canDraft: false });
     }
   });
 

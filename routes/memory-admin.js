@@ -21,15 +21,19 @@ module.exports = function createMemoryAdminRouter() {
       const user = await db.getUserAuthByEmail(email);
       if (!user) return res.status(404).json({ error: 'No such user in the database.' });
       const mem = await memory.listForUser(user.id);
+      const facts = await memory.listFactsForAdmin(user.id);
       res.json({
         email,
         name: user.name,
         promoteAfter: memory.PROMOTE_AFTER,   // sightings needed to trust a staged item
         decayDays: memory.DECAY_DAYS,
+        factDecayDays: memory.FACT_DECAY_DAYS,
         trustedCount: mem.trusted.length,
         stagedCount: mem.staged.length,
+        factsCount: facts.length,
         trusted: mem.trusted,   // the preferences currently shaping this user's chats
         staged: mem.staged,     // candidates not yet trusted (with seen_count)
+        facts,                  // Layer 3b: walled matter facts (per agent_id)
       });
     } catch (e) {
       console.error('[ADMIN] memory view failed:', e.message);

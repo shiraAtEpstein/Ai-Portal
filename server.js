@@ -18,6 +18,7 @@ const createChatRouter = require('./routes/chat');
 const createGmailRouter = require('./routes/gmail');
 const createDropboxRouter = require('./routes/dropbox');
 const createAdminRouter = require('./routes/admin');
+const createMemoryAdminRouter = require('./routes/memory-admin');
 const createMarketingRouter = require('./routes/marketing');
 
 // Dropbox-backed agents: load framework .md files from the connected Dropbox
@@ -76,6 +77,7 @@ app.use(createChatRouter());
 app.use(createGmailRouter());
   app.use(createDropboxRouter());
 app.use(createAdminRouter({ loadUsers }));
+app.use(createMemoryAdminRouter());
 app.use(createMarketingRouter());
 
 // Health check — also reports whether the database is reachable.
@@ -101,7 +103,7 @@ async function refreshAgents(reason) {
   if (r.ok) {
     console.log('[AGENTS] loaded ' + r.count + ' agent file(s) from Dropbox (' + reason + ')');
   } else {
-    console.warn('[AGENTS] using bundled agents \u2014 Dropbox skipped: ' + r.reason + ' (' + reason + ')');
+    console.warn('[AGENTS] using bundled agents — Dropbox skipped: ' + r.reason + ' (' + reason + ')');
   }
 }
 refreshAgents('boot');

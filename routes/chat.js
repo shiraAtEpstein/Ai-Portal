@@ -493,6 +493,13 @@ module.exports = function createChatRouter() {
       const mem = await memory.loadForUser(req.session.userId, { name: req.session.name });
       if (mem && mem.text) system += mem.text + '\n\n';
     } catch (e) { console.error('[MEMORY] inject failed:', e.message); }
+    // Layer 3b — matter facts, WALLED to this agent only. Never loaded for the
+    // general router or externally-publishing agents (see lib/memory exclusion).
+    // Empty otherwise, and any failure is swallowed.
+    try {
+      const facts = await memory.loadFactsForAgent(req.session.userId, agentId);
+      if (facts && facts.text) system += facts.text + '\n\n';
+    } catch (e) { console.error('[MEMORY] facts inject failed:', e.message); }
     let tools = [];
     let active = null;
 
@@ -546,8 +553,9 @@ module.exports = function createChatRouter() {
       console.log('[CHAT] ' + name + ' (' + (roles || []).join('/') + ') -> ' + agentId + (active ? ' [' + active.id + ']' : ''));
       if (persist && convId) await db.addMessage(convId, 'assistant', answer).catch(function (e) { console.error('[CHAT] save reply failed:', e.message); });
       // Layer 3 — learn from this exchange in the BACKGROUND. Fire-and-forget so
-      // it never blocks or breaks the reply; it only stages/promotes preferences.
-      if (persist) memory.observe(req.session.userId, { userText: message, assistantText: answer }).catch(function (e) { console.error('[MEMORY] observe failed:', e.message); });
+      // it never blocks or breaks the reply; it only stages/promotes preferences
+      // and stores explicit matter facts (walled to this agent).
+      if (persist) memory.observe(req.session.userId, { userText: message, assistantText: answer, agentId }).catch(function (e) { console.error('[MEMORY] observe failed:', e.message); });
       sse(res, 'done', { conversationId: convId, response: answer });
     } catch (error) {
       console.error('[ERROR] chat stream failed:', error.message);

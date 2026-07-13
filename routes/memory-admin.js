@@ -37,5 +37,22 @@ module.exports = function createMemoryAdminRouter() {
     }
   });
 
+  // POST /api/admin/memory/clear-staged { email } — delete a user's STAGED
+  // candidates (the not-yet-trusted noise). Trusted memory is left untouched.
+  router.post('/api/admin/memory/clear-staged', authenticate, requireAdmin, async (req, res) => {
+    const email = String((req.body && req.body.email) || req.query.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: 'email is required.' });
+    try {
+      const user = await db.getUserAuthByEmail(email);
+      if (!user) return res.status(404).json({ error: 'No such user in the database.' });
+      const removed = await memory.clearStaged(user.id);
+      db.writeAudit({ actorId: req.session.userId, actorName: req.session.name, action: 'memory.staged_cleared', targetType: 'user', targetName: user.name, metadata: { removed } }).catch(function () {});
+      res.json({ ok: true, email, removed });
+    } catch (e) {
+      console.error('[ADMIN] clear staged failed:', e.message);
+      res.status(500).json({ error: 'Could not clear staged candidates.' });
+    }
+  });
+
   return router;
 };

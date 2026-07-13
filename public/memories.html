@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Your Memory · Epstein & Co. Portal</title>
+<style>
+  :root { --bg:#0f1012; --card:#17181c; --line:#2a2c33; --ink:#ececee; --mut:#9aa0a8; --silver:#c9ccd3; --danger:#b64b4b; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif; line-height:1.5; }
+  .wrap { max-width:760px; margin:0 auto; padding:28px 20px 60px; }
+  header h1 { font-size:22px; margin:0 0 4px; }
+  header p { color:var(--mut); margin:0 0 22px; font-size:14px; }
+  h2 { font-size:15px; letter-spacing:.4px; text-transform:uppercase; color:var(--silver); margin:26px 0 10px; }
+  .hint { color:var(--mut); font-size:13px; margin:-4px 0 12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .row { display:flex; align-items:flex-start; gap:12px; padding:13px 15px; border-top:1px solid var(--line); }
+  .row:first-child { border-top:none; }
+  .row .txt { flex:1; font-size:14.5px; }
+  .row .meta { color:var(--mut); font-size:12px; margin-top:3px; }
+  .agent { display:inline-block; font-size:11px; color:var(--bg); background:var(--silver); border-radius:4px; padding:1px 7px; margin-bottom:5px; font-weight:600; }
+  button.del { background:transparent; color:var(--danger); border:1px solid var(--line); border-radius:6px; padding:5px 11px; font-size:13px; cursor:pointer; white-space:nowrap; }
+  button.del:hover { border-color:var(--danger); }
+  .empty { color:var(--mut); font-size:14px; padding:16px 15px; }
+  .note { background:var(--card); border:1px solid var(--line); border-left:3px solid var(--silver); border-radius:8px; padding:12px 14px; color:var(--mut); font-size:13px; margin:8px 0 0; }
+  .signin { text-align:center; padding:50px 20px; color:var(--mut); }
+  .signin a { color:var(--silver); }
+  [dir="rtl"] { direction:rtl; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Your memory</h1>
+    <p>What the assistant has learned about how you like to work, and the matter notes you asked it to remember. You can delete anything here at any time.</p>
+  </header>
+
+  <div id="app" class="signin">Loading…</div>
+
+  <p class="note">Preferences shape every chat of yours. Matter notes are private to the specific agent you saved them with and never reach marketing or client-facing work. The firm rules always come first.</p>
+</div>
+
+<script>
+(function () {
+  var app = document.getElementById('app');
+
+  function isRTL(s) { return /[֐-׿]/.test(s || ''); }
+  function fmtDate(s) { try { return new Date(s).toLocaleDateString(); } catch (e) { return ''; } }
+
+  function makeRow(item, opts) {
+    var row = document.createElement('div'); row.className = 'row';
+    var txt = document.createElement('div'); txt.className = 'txt';
+    if (opts.agentId) {
+      var tag = document.createElement('span'); tag.className = 'agent';
+      tag.textContent = opts.agentId; txt.appendChild(tag); txt.appendChild(document.createElement('br'));
+    }
+    var span = document.createElement('span');
+    span.textContent = item.text;                 // textContent — never innerHTML (XSS-safe)
+    if (isRTL(item.text)) span.setAttribute('dir', 'rtl');
+    txt.appendChild(span);
+    var when = item.lastReaffirmed || item.createdAt;
+    if (when) { var m = document.createElement('div'); m.className = 'meta'; m.textContent = 'updated ' + fmtDate(when); txt.appendChild(m); }
+    var btn = document.createElement('button'); btn.className = 'del'; btn.textContent = 'Delete';
+    btn.onclick = function () {
+      btn.disabled = true; btn.textContent = 'Deleting…';
+      fetch('/api/me/memory/forget', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ kind: opts.kind, text: item.text, agentId: opts.agentId })
+      }).then(function (r) { return r.json(); }).then(function () { row.remove(); })
+        .catch(function () { btn.disabled = false; btn.textContent = 'Delete'; alert('Could not delete that — please try again.'); });
+    };
+    row.appendChild(txt); row.appendChild(btn);
+    return row;
+  }
+
+  function section(title, hint, items, opts) {
+    var h = document.createElement('h2'); h.textContent = title; app.appendChild(h);
+    if (hint) { var p = document.createElement('div'); p.className = 'hint'; p.textContent = hint; app.appendChild(p); }
+    var card = document.createElement('div'); card.className = 'card';
+    if (!items.length) { var e = document.createElement('div'); e.className = 'empty'; e.textContent = 'Nothing yet.'; card.appendChild(e); }
+    else items.forEach(function (it) { card.appendChild(makeRow(it, typeof opts === 'function' ? opts(it) : opts)); });
+    app.appendChild(card);
+  }
+
+  fetch('/api/me/memory', { credentials: 'include' }).then(function (r) {
+    if (r.status === 401) throw new Error('unauth');
+    if (!r.ok) throw new Error('load');
+    return r.json();
+  }).then(function (data) {
+    app.className = ''; app.textContent = '';
+    section('Preferences', 'How you like the assistant to work — applied in every chat.', data.preferences || [], { kind: 'preference' });
+    section('Matter notes', 'Facts you asked an agent to remember. Private to that agent only.', data.facts || [], function (it) { return { kind: 'fact', agentId: it.agentId }; });
+  }).catch(function (err) {
+    app.className = 'signin';
+    app.textContent = '';
+    if (err.message === 'unauth') {
+      app.appendChild(document.createTextNode('Please sign in to the portal first, then reopen this page. '));
+      var a = document.createElement('a'); a.href = '/'; a.textContent = 'Go to the portal'; app.appendChild(a);
+    } else {
+      app.textContent = 'Could not load your memory right now. Please try again in a moment.';
+    }
+  });
+})();
+</script>
+</body>
+</html>

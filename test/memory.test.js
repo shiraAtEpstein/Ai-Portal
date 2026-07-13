@@ -118,3 +118,22 @@ test('disabled/empty inputs are safe no-ops', async () => {
   const r = await mem.observe(U, { store, infer: inferReturning([]) });
   assert.deepStrictEqual(r, { staged: 0, promoted: 0, confirmed: 0, forgotten: 0 });
 });
+
+test('listForUser returns trusted + staged from the store (admin view)', async () => {
+  const store = {
+    async adminListForUser() {
+      return {
+        trusted: [{ text: 'Reply concisely', source: 'confirmed', createdAt: 'x', lastReaffirmed: 'y' }],
+        staged: [{ text: 'Use headings', seenCount: 1, status: 'staged' }],
+      };
+    },
+  };
+  const out = await mem.listForUser('11111111-1111-1111-1111-111111111111', { store });
+  assert.strictEqual(out.trusted.length, 1);
+  assert.strictEqual(out.trusted[0].text, 'Reply concisely');
+  assert.strictEqual(out.staged[0].seenCount, 1);
+});
+
+test('listForUser is a safe no-op without a user id', async () => {
+  assert.deepStrictEqual(await mem.listForUser('', {}), { trusted: [], staged: [] });
+});

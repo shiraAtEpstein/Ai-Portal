@@ -25,6 +25,8 @@ const filestore = require('../lib/filestore');
 const { PROACTIVE_PROMPT, catalogForRoles, renderCatalog } = require('../lib/skill-catalog');
 // Layer 2 — the signed-in user's personal framework (deltas only; Firm Core wins).
 const userFramework = require('../lib/user-framework');
+// Layer 3 — learned preferences (staged→promoted memory; preferences only).
+const memory = require('../lib/memory');
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -484,6 +486,13 @@ module.exports = function createChatRouter() {
       const ufBlock = userFramework.render(uf, req.session.name);
       if (ufBlock) system += ufBlock + '\n\n';
     } catch (e) { console.error('[USER-FW] inject failed:', e.message); }
+    // Layer 3 — learned preferences (staged→promoted memory). Firm Core and the
+    // profile above still win; a direct instruction this turn wins over these.
+    // Empty for users with no learned memory, and any failure is swallowed.
+    try {
+      const mem = await memory.loadForUser(req.session.userId, { name: req.session.name });
+      if (mem && mem.text) system += mem.text + '\n\n';
+    } catch (e) { console.error('[MEMORY] inject failed:', e.message); }
     let tools = [];
     let active = null;
 
@@ -536,6 +545,9 @@ module.exports = function createChatRouter() {
       const answer = await runStreamingChat(res, { model, system, tools }, promptText, message, buildCtx);
       console.log('[CHAT] ' + name + ' (' + (roles || []).join('/') + ') -> ' + agentId + (active ? ' [' + active.id + ']' : ''));
       if (persist && convId) await db.addMessage(convId, 'assistant', answer).catch(function (e) { console.error('[CHAT] save reply failed:', e.message); });
+      // Layer 3 — learn from this exchange in the BACKGROUND. Fire-and-forget so
+      // it never blocks or breaks the reply; it only stages/promotes preferences.
+      if (persist) memory.observe(req.session.userId, { userText: message, assistantText: answer }).catch(function (e) { console.error('[MEMORY] observe failed:', e.message); });
       sse(res, 'done', { conversationId: convId, response: answer });
     } catch (error) {
       console.error('[ERROR] chat stream failed:', error.message);

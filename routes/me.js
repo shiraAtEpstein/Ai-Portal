@@ -5,6 +5,7 @@
 // is the user-facing counterpart to the admin viewer; it is scoped strictly to
 // the signed-in user (req.session.userId) and only ever reads/deletes their own.
 //
+//   GET  /api/me                   -> { name, email, roles, isAdmin }
 //   GET  /api/me/memory            -> { preferences, facts }
 //   POST /api/me/memory/forget     -> { kind:'preference'|'fact', text, agentId? }
 // ============================================================
@@ -14,6 +15,18 @@ const memory = require('../lib/memory');
 
 module.exports = function createMeRouter() {
   const router = express.Router();
+
+  // Who am I — lets the settings page greet the user and show the admin section
+  // only to admins. Read-only; no memory access.
+  router.get('/api/me', authenticate, (req, res) => {
+    const roles = (req.session && req.session.roles) || [];
+    res.json({
+      name: (req.session && req.session.name) || null,
+      email: (req.session && req.session.email) || null,
+      roles,
+      isAdmin: roles.includes('admin'),
+    });
+  });
 
   // Everything a user has stored about themselves (active items only).
   router.get('/api/me/memory', authenticate, async (req, res) => {

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Settings · Epstein & Co. Portal</title>
+<style>
+  :root { --bg:#0f1012; --card:#17181c; --line:#2a2c33; --ink:#ececee; --mut:#9aa0a8; --silver:#c9ccd3; --danger:#b64b4b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif; line-height:1.5; }
+  .wrap { max-width:820px; margin:0 auto; padding:26px 20px 70px; }
+  header h1 { font-size:22px; margin:0 0 2px; }
+  header p { color:var(--mut); margin:0 0 18px; font-size:14px; }
+  nav { display:flex; gap:8px; border-bottom:1px solid var(--line); margin-bottom:22px; flex-wrap:wrap; }
+  nav button { background:transparent; border:none; color:var(--mut); padding:10px 14px; font-size:14px; cursor:pointer; border-bottom:2px solid transparent; }
+  nav button.active { color:var(--ink); border-bottom-color:var(--silver); }
+  h2 { font-size:14px; letter-spacing:.4px; text-transform:uppercase; color:var(--silver); margin:24px 0 8px; }
+  .hint { color:var(--mut); font-size:13px; margin:-2px 0 12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  .row { display:flex; align-items:flex-start; gap:12px; padding:13px 15px; border-top:1px solid var(--line); }
+  .row:first-child { border-top:none; }
+  .row .txt { flex:1; font-size:14.5px; }
+  .row .meta { color:var(--mut); font-size:12px; margin-top:3px; }
+  .agent { display:inline-block; font-size:11px; color:var(--bg); background:var(--silver); border-radius:4px; padding:1px 7px; margin-bottom:5px; font-weight:600; }
+  button.del { background:transparent; color:var(--danger); border:1px solid var(--line); border-radius:6px; padding:5px 11px; font-size:13px; cursor:pointer; white-space:nowrap; }
+  button.del:hover { border-color:var(--danger); }
+  .empty { color:var(--mut); font-size:14px; padding:16px 15px; }
+  .note { background:var(--card); border:1px solid var(--line); border-left:3px solid var(--silver); border-radius:8px; padding:12px 14px; color:var(--mut); font-size:13px; margin:16px 0 0; }
+  .lookup { display:flex; gap:8px; margin-bottom:12px; }
+  .lookup input { flex:1; background:#0b0c0e; border:1px solid var(--line); color:var(--ink); border-radius:6px; padding:9px 11px; font-size:14px; }
+  .lookup button { background:var(--silver); color:#111; border:none; border-radius:6px; padding:0 16px; font-size:14px; font-weight:600; cursor:pointer; }
+  .signin { text-align:center; padding:50px 20px; color:var(--mut); }
+  .signin a { color:var(--silver); }
+  [dir="rtl"] { direction:rtl; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Settings</h1>
+    <p id="who">Loading…</p>
+  </header>
+
+  <nav id="nav" class="hidden">
+    <button data-tab="memory" class="active">Your memory</button>
+    <button data-tab="admin" id="adminTab" class="hidden">Team memory (admin)</button>
+  </nav>
+
+  <div id="tab-memory"></div>
+  <div id="tab-admin" class="hidden"></div>
+
+  <div id="signin" class="signin hidden"></div>
+</div>
+
+<script>
+(function () {
+  var isRTL = function (s) { return /[֐-׿]/.test(s || ''); };
+  var fmt = function (s) { try { return new Date(s).toLocaleDateString(); } catch (e) { return ''; } };
+  var el = function (id) { return document.getElementById(id); };
+
+  function row(item, opts) {
+    var r = document.createElement('div'); r.className = 'row';
+    var t = document.createElement('div'); t.className = 'txt';
+    if (opts.agentId) { var a = document.createElement('span'); a.className = 'agent'; a.textContent = opts.agentId; t.appendChild(a); t.appendChild(document.createElement('br')); }
+    var span = document.createElement('span'); span.textContent = item.text; if (isRTL(item.text)) span.setAttribute('dir', 'rtl'); t.appendChild(span);
+    var when = item.lastReaffirmed || item.createdAt;
+    if (when) { var m = document.createElement('div'); m.className = 'meta'; m.textContent = 'updated ' + fmt(when); t.appendChild(m); }
+    r.appendChild(t);
+    if (opts.onDelete) {
+      var b = document.createElement('button'); b.className = 'del'; b.textContent = 'Delete';
+      b.onclick = function () { b.disabled = true; b.textContent = 'Deleting…'; opts.onDelete(function (ok) { if (ok) r.remove(); else { b.disabled = false; b.textContent = 'Delete'; alert('Could not delete — try again.'); } }); };
+      r.appendChild(b);
+    }
+    return r;
+  }
+
+  function card(items, opts) {
+    var c = document.createElement('div'); c.className = 'card';
+    if (!items.length) { var e = document.createElement('div'); e.className = 'empty'; e.textContent = opts.empty || 'Nothing yet.'; c.appendChild(e); }
+    else items.forEach(function (it) { c.appendChild(row(it, typeof opts.rowOpts === 'function' ? opts.rowOpts(it) : opts.rowOpts)); });
+    return c;
+  }
+  function h2(txt) { var h = document.createElement('h2'); h.textContent = txt; return h; }
+  function hint(txt) { var p = document.createElement('div'); p.className = 'hint'; p.textContent = txt; return p; }
+
+  // ----- Your memory -----
+  function renderMyMemory() {
+    var wrap = el('tab-memory'); wrap.textContent = 'Loading…';
+    fetch('/api/me/memory', { credentials: 'include' }).then(function (r) {
+      if (r.status === 401) throw new Error('unauth'); if (!r.ok) throw new Error('load'); return r.json();
+    }).then(function (data) {
+      wrap.textContent = '';
+      wrap.appendChild(h2('Preferences'));
+      wrap.appendChild(hint('How you like the assistant to work — applied in every chat.'));
+      wrap.appendChild(card(data.preferences || [], { empty: 'No preferences learned yet.', rowOpts: function (it) { return { onDelete: function (done) { forget({ kind: 'preference', text: it.text }, done); } }; } }));
+      wrap.appendChild(h2('Matter notes'));
+      wrap.appendChild(hint('Facts you asked an agent to remember. Private to that agent only.'));
+      wrap.appendChild(card(data.facts || [], { empty: 'No matter notes saved.', rowOpts: function (it) { return { agentId: it.agentId, onDelete: function (done) { forget({ kind: 'fact', text: it.text, agentId: it.agentId }, done); } }; } }));
+    }).catch(function (err) { if (err.message === 'unauth') showSignin(); else wrap.textContent = 'Could not load your memory right now.'; });
+  }
+  function forget(body, done) {
+    fetch('/api/me/memory/forget', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body) })
+      .then(function (r) { return r.json(); }).then(function (j) { done(!!(j && j.ok)); }).catch(function () { done(false); });
+  }
+
+  // ----- Admin: teammate memory lookup -----
+  function renderAdmin() {
+    var wrap = el('tab-admin'); wrap.textContent = '';
+    wrap.appendChild(h2('Look up a teammate’s memory'));
+    wrap.appendChild(hint('Read-only. Enter a staff email to see what the assistant has stored for them.'));
+    var box = document.createElement('div'); box.className = 'lookup';
+    var input = document.createElement('input'); input.type = 'email'; input.placeholder = 'name@epsteinlaw.co.il';
+    var btn = document.createElement('button'); btn.textContent = 'Look up';
+    box.appendChild(input); box.appendChild(btn); wrap.appendChild(box);
+    var out = document.createElement('div'); wrap.appendChild(out);
+    btn.onclick = function () {
+      var email = (input.value || '').trim(); if (!email) return;
+      out.textContent = 'Loading…';
+      fetch('/api/admin/memory?email=' + encodeURIComponent(email), { credentials: 'include' })
+        .then(function (r) { if (r.status === 403) throw new Error('forbidden'); if (r.status === 404) throw new Error('nouser'); if (!r.ok) throw new Error('load'); return r.json(); })
+        .then(function (d) {
+          out.textContent = '';
+          out.appendChild(h2('Trusted preferences (' + (d.trusted || []).length + ')'));
+          out.appendChild(card(d.trusted || [], { empty: 'None.', rowOpts: {} }));
+          out.appendChild(h2('Staged (' + (d.staged || []).length + ')'));
+          out.appendChild(card(d.staged || [], { empty: 'None.', rowOpts: {} }));
+          out.appendChild(h2('Matter notes (' + (d.facts || []).length + ')'));
+          out.appendChild(card(d.facts || [], { empty: 'None.', rowOpts: function (it) { return { agentId: it.agentId }; } }));
+        })
+        .catch(function (err) {
+          out.textContent = err.message === 'forbidden' ? 'Admins only.' : err.message === 'nouser' ? 'No such user.' : 'Could not load.';
+        });
+    };
+  }
+
+  function showSignin() {
+    el('nav').classList.add('hidden'); el('tab-memory').classList.add('hidden'); el('tab-admin').classList.add('hidden');
+    var s = el('signin'); s.classList.remove('hidden'); s.textContent = '';
+    s.appendChild(document.createTextNode('Please sign in to the portal first, then reopen this page. '));
+    var a = document.createElement('a'); a.href = '/'; a.textContent = 'Go to the portal'; s.appendChild(a);
+  }
+
+  function setTab(tab) {
+    var tabs = ['memory', 'admin'];
+    tabs.forEach(function (t) { el('tab-' + t).classList.toggle('hidden', t !== tab); });
+    Array.prototype.forEach.call(document.querySelectorAll('#nav button'), function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === tab); });
+  }
+
+  fetch('/api/me', { credentials: 'include' }).then(function (r) {
+    if (r.status === 401) throw new Error('unauth'); if (!r.ok) throw new Error('load'); return r.json();
+  }).then(function (me) {
+    el('who').textContent = (me.name ? me.name + ' · ' : '') + (me.email || '');
+    el('nav').classList.remove('hidden');
+    renderMyMemory();
+    if (me.isAdmin) { el('adminTab').classList.remove('hidden'); renderAdmin(); }
+    Array.prototype.forEach.call(document.querySelectorAll('#nav button'), function (b) { b.onclick = function () { setTab(b.getAttribute('data-tab')); }; });
+  }).catch(function (err) { showSignin(); });
+})();
+</script>
+</body>
+</html>

@@ -359,6 +359,11 @@ const FILE_PROMISE_RE = /(?:\b(?:building|creating|preparing|generating|assembli
 // never end in a text-only reply.
 const USER_FILE_INTENT_RE = /(?:\bexcel\b|\bspreadsheet\b|\bxlsx?\b|\bword\b|\bdocx?\b|\bdocument\b|\bpdf\b|\bpower\s?point\b|\bpptx?\b|\bpresentation\b|\bslides?\b|\bdeck\b|\breport\b|\bfile\b|\bdownload\b|\bspread ?sheet\b|אקסל|וורד|מסמך|קובץ|קבצים|דו["״]?ח|מצגת|טבלה|להוריד|תוציא|תפיק|תכין|להפיק|דוח)/i;
 
+// Layer 4 (session context): the user asking NOT to remember / learn from this
+// chat. Matches common English and Hebrew phrasings. When it fires we mute the
+// whole conversation so the observe pass never learns from it again.
+const SESSION_FORGET_RE = /(?:don'?t|do not|please don'?t|never)\s+(?:remember|save|store|memor\w+|learn from|keep)\b|forget (?:this|the) (?:chat|conversation)|off the record|incognito|private chat|אל תזכור|אל תשמור|בלי לזכור|שיחה פרטית/i;
+
 async function runStreamingChat(res, { model, system, tools }, promptText, userMessage, ctx) {
   const toolsById = new Map(tools.map((t) => [t.name, t]));
   const toolSchemas = tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
@@ -473,6 +478,17 @@ module.exports = function createChatRouter() {
       } catch (e) { return res.status(500).json({ error: 'Could not start the chat.' }); }
     }
 
+    // Layer 4 — "don't remember this chat". If the user asks now (or asked on an
+    // earlier turn of this conversation), mute it so nothing is learned from it.
+    // Loading memory still works; only the WRITE (observe) is suppressed.
+    let sessionMuted = false;
+    if (persist && convId) {
+      try {
+        if (SESSION_FORGET_RE.test(message)) await memory.muteConversation(convId, req.session.userId);
+        sessionMuted = await memory.isConversationMuted(convId);
+      } catch (e) { console.error('[MEMORY] mute check failed:', e.message); }
+    }
+
     // Capability tools come from the ROLE, not the agent/skill.
     const caps = capabilitiesFor(roles);
     const toolAllow = toolAllowFromCaps(caps);
@@ -500,6 +516,10 @@ module.exports = function createChatRouter() {
       const facts = await memory.loadFactsForAgent(req.session.userId, agentId);
       if (facts && facts.text) system += facts.text + '\n\n';
     } catch (e) { console.error('[MEMORY] facts inject failed:', e.message); }
+    if (sessionMuted) {
+      system += 'SESSION NOTE: The user asked not to remember this conversation. Nothing said here '
+        + 'will be saved to long-term memory. If they just asked for this, you may briefly confirm it.\n\n';
+    }
     let tools = [];
     let active = null;
 
@@ -554,8 +574,9 @@ module.exports = function createChatRouter() {
       if (persist && convId) await db.addMessage(convId, 'assistant', answer).catch(function (e) { console.error('[CHAT] save reply failed:', e.message); });
       // Layer 3 — learn from this exchange in the BACKGROUND. Fire-and-forget so
       // it never blocks or breaks the reply; it only stages/promotes preferences
-      // and stores explicit matter facts (walled to this agent).
-      if (persist) memory.observe(req.session.userId, { userText: message, assistantText: answer, agentId }).catch(function (e) { console.error('[MEMORY] observe failed:', e.message); });
+      // and stores explicit matter facts (walled to this agent). Skipped when the
+      // conversation is muted (Layer 4 "don't remember this chat").
+      if (persist && !sessionMuted) memory.observe(req.session.userId, { userText: message, assistantText: answer, agentId }).catch(function (e) { console.error('[MEMORY] observe failed:', e.message); });
       sse(res, 'done', { conversationId: convId, response: answer });
     } catch (error) {
       console.error('[ERROR] chat stream failed:', error.message);

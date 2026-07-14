@@ -669,6 +669,24 @@
     }
     .admin-btn:hover { background: rgba(201,162,39,0.12); }
 
+    /* ── SIDEBAR BUTTON ── */
+    .side-bar-btn {
+      width: 100%;
+      padding: 10px 14px;
+      margin-bottom: 8px;
+      border: 1px solid var(--gold);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--gold);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: center;
+      display: block; 
+    }
+    .side-bar-btn:hover { background: rgba(201,162,39,0.12); }
+
     /* ── ADMIN SCREEN (overlay) ── */
     #admin-screen, #audit-screen, #marketing-screen {
       display: none;

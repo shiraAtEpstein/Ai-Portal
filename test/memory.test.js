@@ -35,6 +35,10 @@ function fakeStore() {
     async upsertFact(_u, agentId, key, text) { this._facts.set(agentId + '|' + key, { text, revoked: false }); },
     async revokeFact(_u, agentId, key) { const v = this._facts.get(agentId + '|' + key); if (v) v.revoked = true; },
     async adminListFacts() { return [...this._facts.entries()].filter(([, v]) => !v.revoked).map(([k, v]) => ({ agentId: k.split('|')[0], text: v.text, revoked: false })); },
+    // Layer 4 mute
+    _muted: new Set(),
+    async muteConversation(convId) { this._muted.add(String(convId)); },
+    async isConversationMuted(convId) { return this._muted.has(String(convId)); },
   };
   return s;
 }
@@ -214,4 +218,20 @@ test('factsAllowedForAgent gates correctly', () => {
   assert.strictEqual(mem.factsAllowedForAgent('general'), false);
   assert.strictEqual(mem.factsAllowedForAgent('marketing_director'), false);
   assert.strictEqual(mem.factsAllowedForAgent(''), false);
+});
+
+// ---------- Layer 4: session-context mute ----------
+test('a conversation can be muted, and mute is reported', async () => {
+  const store = fakeStore();
+  assert.strictEqual(await mem.isConversationMuted('conv-1', { store }), false);
+  assert.strictEqual(await mem.muteConversation('conv-1', U, { store }), true);
+  assert.strictEqual(await mem.isConversationMuted('conv-1', { store }), true);
+  // another conversation is unaffected
+  assert.strictEqual(await mem.isConversationMuted('conv-2', { store }), false);
+});
+
+test('mute helpers are safe no-ops without a conversation id', async () => {
+  const store = fakeStore();
+  assert.strictEqual(await mem.muteConversation('', U, { store }), false);
+  assert.strictEqual(await mem.isConversationMuted('', { store }), false);
 });

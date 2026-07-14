@@ -126,6 +126,8 @@
       box.appendChild(memCard(d.facts||[],'No matter notes saved.',function(it){return {agent:it.agentId,onDel:function(cb){forget({kind:'fact',text:it.text,agentId:it.agentId},cb);}};}));
     }).catch(function(){box.textContent='Could not load your memory right now.';});
 
+    w.appendChild(firmRulesSection());
+
     if(me.isAdmin){
       w.appendChild(elc('h2',null,'Team memory · admin'));
       w.appendChild(elc('p','desc','Read-only. Look up what the assistant has stored for any staff member.'));
@@ -146,8 +148,7 @@
         }).catch(function(err){out.textContent=err.message==='forbidden'?'Admins only.':err.message==='nouser'?'No such user.':'Could not load.';});
       };
 
-      w.appendChild(elc('h2',null,'Approvals · admin'));
-      w.appendChild(soon('Pending firm house-rule change requests will appear here for you to approve or reject. Arrives with the approval-flow build.'));
+      w.appendChild(approvalsSection());
     }
     return w;
   }
@@ -170,6 +171,79 @@
   function forget(body,cb){
     fetch('/api/me/memory/forget',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(body)})
       .then(function(r){return r.json();}).then(function(j){cb(!!(j&&j.ok));}).catch(function(){cb(false);});
+  }
+
+  // ---- §9 firm-rule change: propose (everyone) + approvals (admins) ----
+  function firmRulesSection(){
+    var w=elc('div');
+    w.appendChild(elc('h2',null,'Firm rules'));
+    w.appendChild(elc('p','desc','Propose a change to the firm-wide house rules. An admin reviews it before it takes effect — nothing changes until it is approved.'));
+    var card=elc('div','card'); var pad=elc('div'); pad.style.padding='14px 16px';
+    var ta=elc('textarea'); ta.rows=3;
+    ta.placeholder='e.g. Always CC the assigned paralegal on client emails.';
+    ta.style.cssText='width:100%;box-sizing:border-box;background:#fff;border:1px solid var(--line-2);color:var(--ink);border-radius:var(--r-sm);padding:10px 12px;font:inherit;font-size:14px;resize:vertical;';
+    var bar=elc('div'); bar.style.cssText='display:flex;align-items:center;gap:8px;margin-top:10px;';
+    var note=elc('span','meta'); note.style.marginRight='auto';
+    var btn=elc('button',null,'Submit for approval');
+    btn.style.cssText='background:var(--gold);color:#fff;border:none;border-radius:var(--r-sm);padding:9px 16px;font:inherit;font-size:14px;font-weight:600;cursor:pointer;';
+    btn.onclick=function(){
+      var text=(ta.value||'').trim();
+      if(!text){note.textContent='Type a rule first.';return;}
+      btn.disabled=true; note.textContent='Submitting…';
+      fetch('/api/firm-rules/request',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({text:text})})
+        .then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});})
+        .then(function(x){ btn.disabled=false;
+          if(!x.ok){note.textContent=(x.j&&x.j.error)||'Could not submit.';return;}
+          ta.value=''; note.textContent=x.j.duplicate?'Already pending — thanks.':'Submitted for admin approval.';
+          if(me.isAdmin) loadApprovals();
+        }).catch(function(){btn.disabled=false;note.textContent='Could not submit.';});
+    };
+    bar.appendChild(note); bar.appendChild(btn);
+    pad.appendChild(ta); pad.appendChild(bar); card.appendChild(pad); w.appendChild(card);
+    return w;
+  }
+
+  var _apprBox=null;
+  function approvalsSection(){
+    var w=elc('div');
+    w.appendChild(elc('h2',null,'Approvals · admin'));
+    w.appendChild(elc('p','desc','Firm-rule changes proposed by staff or detected in chat. Approving one applies it to every chat immediately; rejecting discards it.'));
+    _apprBox=elc('div'); w.appendChild(_apprBox); loadApprovals();
+    return w;
+  }
+  function loadApprovals(){
+    if(!_apprBox)return; _apprBox.textContent='Loading…';
+    fetch('/api/admin/firm-rules',{credentials:'include'}).then(function(r){if(!r.ok)throw 0;return r.json();}).then(function(d){
+      _apprBox.textContent='';
+      _apprBox.appendChild(elc('div','desc','Pending ('+((d.pending||[]).length)+')'));
+      var pc=elc('div','card');
+      if(!(d.pending||[]).length){ pc.appendChild(elc('div','empty','Nothing waiting for approval.')); }
+      else { d.pending.forEach(function(it){ pc.appendChild(apprRow(it)); }); }
+      _apprBox.appendChild(pc);
+      _apprBox.appendChild(elc('div','desc','Active firm-rule updates ('+((d.active||[]).length)+')'));
+      _apprBox.appendChild(memCard((d.active||[]).map(function(a){return {text:a.text};}),'No approved updates yet.',null));
+    }).catch(function(){ _apprBox.textContent='Could not load approvals right now.'; });
+  }
+  function apprRow(it){
+    var r=elc('div','row'); var t=elc('div','txt');
+    t.appendChild(elc('span','pill', it.source==='chat'?'from chat':'proposed'));
+    t.appendChild(document.createElement('br'));
+    var sp=elc('span',null,it.text); if(isRTL(it.text))sp.setAttribute('dir','rtl'); t.appendChild(sp);
+    if(it.requestedByName)t.appendChild(elc('div','meta','by '+it.requestedByName));
+    r.appendChild(t);
+    var acts=elc('div'); acts.style.cssText='display:flex;gap:6px;flex-shrink:0;';
+    var ap=elc('button','del','Approve'); ap.style.color='var(--green)'; ap.style.borderColor='var(--gold-soft)';
+    var rj=elc('button','del','Reject');
+    ap.onclick=function(){decide(it.id,'approve',ap,rj);};
+    rj.onclick=function(){decide(it.id,'reject',ap,rj);};
+    acts.appendChild(ap); acts.appendChild(rj); r.appendChild(acts);
+    return r;
+  }
+  function decide(id,action,ap,rj){
+    ap.disabled=true; rj.disabled=true;
+    fetch('/api/admin/firm-rules/'+action,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({id:id})})
+      .then(function(r){return r.ok;}).then(function(ok){ if(ok){loadApprovals();} else {ap.disabled=false;rj.disabled=false;alert('Could not '+action+' — it may no longer be pending.');} })
+      .catch(function(){ap.disabled=false;rj.disabled=false;alert('Could not '+action+'.');});
   }
 
   var SOON={

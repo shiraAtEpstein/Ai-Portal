@@ -20,6 +20,7 @@ const createDropboxRouter = require('./routes/dropbox');
 const createAdminRouter = require('./routes/admin');
 const createMemoryAdminRouter = require('./routes/memory-admin');
 const createMeRouter = require('./routes/me');
+const createFirmRulesRouter = require('./routes/firm-rules');
 const createMarketingRouter = require('./routes/marketing');
 
 // Dropbox-backed agents: load framework .md files from the connected Dropbox
@@ -80,6 +81,7 @@ app.use(createGmailRouter());
 app.use(createAdminRouter({ loadUsers }));
 app.use(createMemoryAdminRouter());
 app.use(createMeRouter());
+app.use(createFirmRulesRouter());
 app.use(createMarketingRouter());
 
 // Health check — also reports whether the database is reachable.

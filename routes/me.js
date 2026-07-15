@@ -29,7 +29,8 @@ module.exports = function createMeRouter() {
       name: (req.session && req.session.name) || null,
       email: (req.session && req.session.email) || null,
       roles,
-      isAdmin: roles.includes('admin'),
+      // Case-insensitive: roles may be stored capitalized (e.g. "Admin").
+      isAdmin: roles.some((r) => String(r).toLowerCase() === 'admin'),
     });
   });
 

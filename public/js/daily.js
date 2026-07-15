@@ -1,15 +1,18 @@
 // daily.js — 'Today' docked panel + full-view overlay.
-// The old floating FAB/panel is a docked column beside the chat, collapsible to
-// a rail, with an expandable full view. Data pipeline (task list) is the same
-// /api/chat 'daily' agent returning {task, deal, why, url, urgency}.
+// Docked column beside the chat (collapsible to a rail) + expandable full view.
+// Task list still comes from the /api/chat 'daily' agent {task, deal, why, url, urgency}.
 //
-// Completion is now SERVER-SIDE: /api/daily/completions (GET) and
-// /api/daily/complete (POST), scoped to the signed-in user, so a ticked task
-// survives refresh, another device, and a cache clear. localStorage is kept as
-// a fast local cache / offline fallback: we render from it instantly, then the
-// server's truth (once fetched) overrides it. Task identity is a NORMALIZED
-// deal|task key so trivial whitespace/case drift from the agent doesn't lose a
-// tick. Everything the agent returns is escaped before it touches innerHTML.
+// Server-backed per-user state (with localStorage as fast cache / offline fallback):
+//   • completion  — GET /api/daily/completions, POST /api/daily/complete
+//   • snooze      — POST /api/daily/snooze ; GET returns keys still hidden today
+// Task identity is a NORMALIZED deal|task key so trivial wording drift doesn't
+// lose a tick or a snooze. All agent-supplied text is escaped before innerHTML;
+// agent URLs pass an http(s) allowlist.
+//
+// Dates: `day` is the LOCAL calendar date and nextDay() does UTC-based calendar
+// math. (Parsing 'YYYY-MM-DDT00:00:00' as local and re-serialising with
+// toISOString() shifts backwards across midnight in UTC+ zones such as
+// Asia/Jerusalem, which made "tomorrow" resolve to today.)
 (function () {
   var portal = document.getElementById('portal');
   var dock = document.getElementById('daily-dock');
@@ -28,9 +31,12 @@
 
   var tasks = [];
   var loaded = false;
-  var day = new Date().toISOString().slice(0,10);
-  var doneMap = {};        // in-memory truth: { normalizedKey: true }
-  var serverSynced = false;
+  var prevKeys = null;                     // for the refresh diff
+  function localDay(){ var d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10); }
+  function nextDay(d){ var t=new Date(d+'T00:00:00Z'); t.setUTCDate(t.getUTCDate()+1); return t.toISOString().slice(0,10); }
+  var day = localDay();
+  var doneMap = {};                        // { normalizedKey: true }
+  var snoozeMap = {};                      // { normalizedKey: true } — hidden today
 
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function safeUrl(u){ u=String(u||'').trim(); return /^https?:\/\//i.test(u) ? u : ''; }
@@ -38,25 +44,33 @@
   function keyFor(t){ return norm(t.deal)+'|'+norm(t.task); }
   function isDone(k){ return doneMap[k]===true; }
   function urg(t){ var u=(t.urgency||'today').toLowerCase(); return (u==='overdue'||u==='soon')?u:'today'; }
+  // tasks visible today = not snoozed-until-later
+  function visibleTasks(){ return tasks.filter(function(t){ return !snoozeMap[keyFor(t)]; }); }
 
   // --- local cache (fallback / instant paint) ---
-  function cacheKey(){ return 'daily-done-'+day; }
-  function readCache(){ try { var a=JSON.parse(localStorage.getItem(cacheKey())||'[]'); var m={}; a.forEach(function(k){ m[k]=true; }); return m; } catch(e){ return {}; } }
-  function writeCache(){ try { localStorage.setItem(cacheKey(), JSON.stringify(Object.keys(doneMap).filter(function(k){ return doneMap[k]; }))); } catch(e){} }
+  function readList(name){ try { return JSON.parse(localStorage.getItem(name+'-'+day)||'[]'); } catch(e){ return []; } }
+  function writeList(name, map){ try { localStorage.setItem(name+'-'+day, JSON.stringify(Object.keys(map).filter(function(k){ return map[k]; }))); } catch(e){} }
+  function toMap(arr){ var m={}; (arr||[]).forEach(function(k){ m[k]=true; }); return m; }
 
   // --- server sync ---
-  function loadCompletions(){
+  function loadState(){
     fetch('/api/daily/completions?day='+encodeURIComponent(day), { credentials:'same-origin' })
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(j){
-        if(j && j.keys){ doneMap={}; j.keys.forEach(function(k){ doneMap[k]=true; }); serverSynced=true; writeCache();
-          renderDock(); if(full.classList.contains('open')) renderFull(); }
+        if(!j) return;
+        if(j.keys){ doneMap = toMap(j.keys); writeList('daily-done', doneMap); }
+        if(j.snoozed){ snoozeMap = toMap(j.snoozed); writeList('daily-snoozed', snoozeMap); }
+        renderDock(); if(full.classList.contains('open')) renderFull();
       })
       .catch(function(){ /* keep local cache */ });
   }
-  function persist(k, val){
+  function persistDone(k, val){
     fetch('/api/daily/complete', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ day:day, key:k, done:val }) }).catch(function(){ /* stays in local cache; reconciles next load */ });
+      body: JSON.stringify({ day:day, key:k, done:val }) }).catch(function(){});
+  }
+  function persistSnooze(k, until){
+    fetch('/api/daily/snooze', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ key:k, until:until }) }).catch(function(){});
   }
 
   var GROUPS = [
@@ -64,22 +78,16 @@
     { id:'today',   label:'Today',   urgent:false },
     { id:'soon',    label:'Soon',    urgent:false }
   ];
+  var ORDER = { overdue:0, today:1, soon:2 };
 
   var DOTS = ['#15161a','#7a6f5a','#4a6b8a','#8a5a6b','#5a7a6b','#8a7a4a','#6b5a8a'];
   function dotFor(deal){ var s=String(deal||''); var h=0; for(var i=0;i<s.length;i++){ h=(h*31+s.charCodeAt(i))>>>0; } return DOTS[h%DOTS.length]; }
 
   function counts(){
-    var total=tasks.length, doneN=0;
-    tasks.forEach(function(t){ if(isDone(keyFor(t))) doneN++; });
-    var overdueOpen=tasks.filter(function(t){ return urg(t)==='overdue' && !isDone(keyFor(t)); }).length;
+    var vis=visibleTasks(), total=vis.length, doneN=0;
+    vis.forEach(function(t){ if(isDone(keyFor(t))) doneN++; });
+    var overdueOpen=vis.filter(function(t){ return urg(t)==='overdue' && !isDone(keyFor(t)); }).length;
     return { total:total, done:doneN, open:total-doneN, overdueOpen:overdueOpen };
-  }
-
-  function openOrdered(){
-    var order={overdue:0,today:1,soon:2}, out=[];
-    tasks.forEach(function(t){ if(!isDone(keyFor(t))) out.push(t); });
-    out.sort(function(a,b){ return (order[urg(a)]||1)-(order[urg(b)]||1); });
-    return out;
   }
 
   function metaBits(t){
@@ -104,39 +112,49 @@
       var why = t.why ? '<b>Why:</b> '+esc(t.why) : 'No extra detail.';
       var url = safeUrl(t.url);
       var open = url ? '<a href="'+esc(url)+'" target="_blank" rel="noopener">Open ↗</a>' : '';
-      html += '<div class="dl-detail" data-detail="'+esc(k)+'">'+why+'<div class="dl-acts">'+open+'</div></div>';
+      var snz = d ? '' : '<button type="button" class="dl-snooze" data-snooze="'+esc(k)+'">Snooze to tomorrow</button>';
+      html += '<div class="dl-detail" data-detail="'+esc(k)+'">'+why+'<div class="dl-acts">'+open+snz+'</div></div>';
     }
     return html;
   }
 
-  function groupsHtml(full_){
-    var next=openOrdered()[0], nextKey=next?keyFor(next):null, html='';
+  function contentHtml(full_){
+    var vis=visibleTasks();
+    var open=vis.filter(function(t){ return !isDone(keyFor(t)); });
+    var doneL=vis.filter(function(t){ return isDone(keyFor(t)); });
+    var ordered=open.slice().sort(function(a,b){ return (ORDER[urg(a)]||1)-(ORDER[urg(b)]||1); });
+    var next=ordered[0], nextKey=next?keyFor(next):null, html='';
     if(next){ html+='<div class="dl-kick">Next</div><div class="dl-next">'+rowHtml(next,{full:full_})+'</div>'; }
     GROUPS.forEach(function(g){
-      var list=tasks.filter(function(t){ return urg(t)===g.id && keyFor(t)!==nextKey; });
-      var openL=list.filter(function(t){ return !isDone(keyFor(t)); });
-      var doneL=list.filter(function(t){ return isDone(keyFor(t)); });
-      var ordered=openL.concat(doneL);
-      if(!ordered.length) return;
-      html+='<div class="dl-kick'+(g.urgent?' od':'')+'">'+esc(g.label)+' <span class="dl-cnt">'+openL.length+'</span></div>';
-      ordered.forEach(function(t){ html+=rowHtml(t,{full:full_}); });
+      var list=open.filter(function(t){ return urg(t)===g.id && keyFor(t)!==nextKey; });
+      if(!list.length) return;
+      html+='<div class="dl-kick'+(g.urgent?' od':'')+'">'+esc(g.label)+' <span class="dl-cnt">'+list.length+'</span></div>';
+      list.forEach(function(t){ html+=rowHtml(t,{full:full_}); });
     });
+    if(doneL.length){
+      html+='<details class="dl-donesec"'+(open.length?'':' open')+'><summary>Done ('+doneL.length+')</summary><div class="dl-done-list">';
+      doneL.forEach(function(t){ html+=rowHtml(t,{full:full_}); });
+      html+='</div></details>';
+    }
     return html;
   }
 
   function renderDock(){
     var c=counts();
     if(!tasks.length){ body.innerHTML='<div class="dl-empty">Nothing on your plate today.</div>'; }
+    else if(c.total===0){ body.innerHTML='<div class="dl-empty">Everything is snoozed for later. 🌙</div>'; }
     else if(c.open===0){ body.innerHTML='<div class="dl-clear"><div class="dl-clear-ring">✓</div>'+
-      '<div class="dl-clear-t">All clear for today</div><div class="dl-clear-s">'+c.done+' completed</div></div>'; }
-    else { body.innerHTML=groupsHtml(false); }
+      '<div class="dl-clear-t">All clear for today</div>'+
+      '<div class="dl-clear-s">'+c.done+' completed</div>'+
+      '<div class="dl-clear-list">'+contentHtml(false)+'</div></div>'; }
+    else { body.innerHTML=contentHtml(false); }
     updateMeta(c);
     wire(body,false);
   }
 
   function renderFull(){
     var c=counts();
-    fullBody.innerHTML = tasks.length ? groupsHtml(true) : '<div class="dl-empty">Nothing on your plate today.</div>';
+    fullBody.innerHTML = tasks.length ? contentHtml(true) : '<div class="dl-empty">Nothing on your plate today.</div>';
     fullMeta.innerHTML='<b>'+c.done+' of '+c.total+'</b> done today'+
       (c.overdueOpen>0?' · <span class="dl-odflag">'+c.overdueOpen+' overdue</span>':'');
     wire(fullBody,true);
@@ -154,10 +172,20 @@
   function toggle(k){
     var val = !isDone(k);
     if(val) doneMap[k]=true; else delete doneMap[k];
-    writeCache();
+    writeList('daily-done', doneMap);
     renderDock();
     if(full.classList.contains('open')) renderFull();
-    persist(k, val);
+    persistDone(k, val);
+  }
+
+  function snooze(k){
+    var until = nextDay(day);
+    snoozeMap[k]=true;
+    writeList('daily-snoozed', snoozeMap);
+    renderDock();
+    if(full.classList.contains('open')) renderFull();
+    persistSnooze(k, until);
+    showToast('Snoozed to tomorrow');
   }
 
   function wire(root, isFull){
@@ -165,21 +193,40 @@
       row.addEventListener('click', function(e){
         var k=row.getAttribute('data-key');
         if(e.target.closest('.dl-cbx')){ toggle(k); e.stopPropagation(); return; }
-        if(e.target.closest('a')) return;
+        if(e.target.closest('a') || e.target.closest('.dl-snooze')) return;
         if(isFull){ var det=fullBody.querySelector('[data-detail="'+cssEsc(k)+'"]'); if(det){ det.classList.toggle('open'); } }
         else { openFull(); }
       });
       var cbx=row.querySelector('.dl-cbx');
       if(cbx){ cbx.addEventListener('keydown', function(e){ if(e.key===' '||e.key==='Enter'){ e.preventDefault(); toggle(row.getAttribute('data-key')); } }); }
     });
+    root.querySelectorAll('.dl-snooze').forEach(function(btn){
+      btn.addEventListener('click', function(e){ e.stopPropagation(); snooze(btn.getAttribute('data-snooze')); });
+    });
   }
   function cssEsc(s){ return String(s).replace(/["\\\]]/g,'\\$&'); }
 
-  // --- task load: same SSE-reading logic as before -------------------------
+  // --- transient toast in the dock ---
+  var toastEl=null, toastT=null;
+  function showToast(msg){
+    if(!toastEl){ toastEl=document.createElement('div'); toastEl.className='dl-toast'; dock.appendChild(toastEl); }
+    toastEl.textContent=msg; toastEl.classList.add('show');
+    clearTimeout(toastT); toastT=setTimeout(function(){ toastEl.classList.remove('show'); }, 2600);
+  }
+
+  // --- task load: same SSE-reading logic, now with a non-destructive diff ---
   function extract(t){ if(!t) return null; var m=t.match(/\[[\s\S]*\]/); if(!m) return null; try { return JSON.parse(m[0]); } catch(e){ return null; } }
+  function diffToast(newTasks){
+    if(prevKeys===null) return; // first load — nothing to compare
+    var nk=newTasks.map(keyFor);
+    var added=nk.filter(function(k){ return prevKeys.indexOf(k)===-1; }).length;
+    var gone =prevKeys.filter(function(k){ return nk.indexOf(k)===-1; }).length;
+    if(added||gone){ showToast(added+' new · '+gone+' resolved'); }
+    else { showToast('Up to date'); }
+  }
   function load(){
     body.innerHTML='<div class="dl-loading">Reading your day…</div>';
-    loadCompletions(); // refresh completion truth in parallel
+    loadState(); // refresh completion + snooze truth in parallel
     fetch('/api/chat',{ method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ agentId:'daily', message:'Give me my tasks for today. Respond with ONLY a JSON array (no prose, no code fence). Each element: {"task": string, "deal": string, "why": string, "url": string, "urgency": "overdue"|"today"|"soon"}.' }) })
       .then(async function(r){
@@ -196,7 +243,9 @@
         }
         var parsed=extract(finalResp||answer);
         if(!parsed || !parsed.length){ body.innerHTML='<div class="dl-empty">Couldn\'t read a task list yet. Try refresh, or open the Daily agent in chat.</div>'; return; }
-        tasks=parsed; loaded=true; renderDock();
+        diffToast(parsed);
+        tasks=parsed; prevKeys=parsed.map(keyFor); loaded=true;
+        renderDock();
         if(full.classList.contains('open')) renderFull();
       })
       .catch(function(){ body.innerHTML='<div class="dl-empty">Could not load your day right now.</div>'; });
@@ -224,7 +273,8 @@
   if(dateEl) dateEl.textContent = new Date().toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'});
 
   // seed from local cache so the panel paints instantly, then server overrides
-  doneMap = readCache();
+  doneMap = toMap(readList('daily-done'));
+  snoozeMap = toMap(readList('daily-snoozed'));
 
   function sync(){
     var on = portal && getComputedStyle(portal).display !== 'none';

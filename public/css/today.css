@@ -10,6 +10,7 @@
 
 /* Docked column (sits inside #portal, right of .main) */
 #daily-dock{
+  position:relative;
   width:322px; min-width:322px; height:100vh; background:#fff;
   border-left:1px solid var(--dl-line); display:flex; flex-direction:column;
   font-family:var(--font,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif);
@@ -66,11 +67,32 @@
 .dl-pill.time{ color:var(--dl-warm); background:#f4e9e1; }
 
 .dl-loading,.dl-empty{ text-align:center; color:var(--dl-muted); font-size:12.5px; padding:26px 12px; line-height:1.5; }
-.dl-clear{ text-align:center; padding:34px 16px; }
+.dl-clear{ text-align:center; padding:24px 8px 8px; }
 .dl-clear-ring{ width:52px; height:52px; margin:0 auto 12px; border-radius:50%; background:var(--dl-ink); color:#fff;
   display:flex; align-items:center; justify-content:center; font-size:22px; }
 .dl-clear-t{ font-size:15px; font-weight:700; color:var(--dl-ink); }
-.dl-clear-s{ font-size:12px; color:var(--dl-muted); margin-top:3px; }
+.dl-clear-s{ font-size:12px; color:var(--dl-muted); margin-top:3px; margin-bottom:6px; }
+.dl-clear-list{ text-align:left; }
+
+/* Done (recently completed) — collapsible */
+.dl-donesec{ margin-top:16px; border-top:1px solid var(--dl-line); padding-top:8px; }
+.dl-donesec > summary{ list-style:none; cursor:pointer; font-size:11px; font-weight:700; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--dl-muted); padding:4px 6px; user-select:none; }
+.dl-donesec > summary::-webkit-details-marker{ display:none; }
+.dl-donesec > summary::before{ content:'\25B8  '; }
+.dl-donesec[open] > summary::before{ content:'\25BE  '; }
+.dl-done-list{ margin-top:4px; }
+
+/* Snooze button (in full-view detail) */
+.dl-snooze{ border:1px solid var(--dl-line); background:#fff; border-radius:8px; padding:6px 11px;
+  font-size:12px; color:var(--dl-ink); cursor:pointer; font-family:inherit; }
+.dl-snooze:hover{ background:var(--dl-cream); border-color:#c7c2b6; }
+
+/* Transient toast (refresh diff, snooze confirmation) */
+.dl-toast{ position:absolute; left:50%; bottom:16px; transform:translate(-50%,8px); z-index:5;
+  background:var(--dl-ink); color:#fff; font-size:12px; padding:8px 15px; border-radius:22px; white-space:nowrap;
+  box-shadow:0 8px 20px rgba(0,0,0,0.28); opacity:0; pointer-events:none; transition:opacity .25s, transform .25s; }
+.dl-toast.show{ opacity:1; transform:translate(-50%,0); }
 
 /* Collapsed rail (slim tab on the edge) */
 #daily-rail{ display:none; position:fixed; top:50%; right:0; transform:translateY(-50%); z-index:290;
@@ -113,6 +135,7 @@
 #portal[dir="rtl"] #daily-rail{ right:auto; left:0; border-radius:0 10px 10px 0; }
 #portal[dir="rtl"] .dl-detail{ margin:0 46px 10px 12px; }
 #portal[dir="rtl"] .dl-title,#portal[dir="rtl"] .dl-head-title{ text-align:right; }
+#portal[dir="rtl"] .dl-clear-list{ text-align:right; }
 
 /* Responsive: on narrow screens the dock overlays instead of squeezing chat */
 @media (max-width:900px){
@@ -120,5 +143,5 @@
   #portal[dir="rtl"] #daily-dock{ right:auto; left:0; box-shadow:8px 0 30px rgba(0,0,0,0.15); }
 }
 @media (prefers-reduced-motion:reduce){
-  .dl-ring,.dl-cbx svg,.dl-cbx,.dl-ico.spinning{ transition:none !important; animation:none !important; }
+  .dl-ring,.dl-cbx svg,.dl-cbx,.dl-ico.spinning,.dl-toast{ transition:none !important; animation:none !important; }
 }

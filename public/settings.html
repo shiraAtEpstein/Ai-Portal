@@ -457,7 +457,8 @@ textarea.tin{resize:vertical;min-height:80px;line-height:1.55}
     return head('Firm workspace · Admin','Activity log','A searchable record of everything that happens in the portal — who did what, when.')+
       '<div class="filterbar"><input id="aud-q" type="text" placeholder="Search person or target…" style="flex:1;min-width:180px"><select id="aud-action"><option value="">All actions</option></select><input id="aud-from" type="date"><input id="aud-to" type="date"><button class="btn sm" id="aud-refresh">Refresh</button><button class="btn sm" id="aud-export">Export CSV</button></div>'+
       '<div id="aud-count" style="font-size:12px;color:var(--gray-600);margin-bottom:8px"></div>'+
-      '<div class="card" style="padding:6px 10px"><table class="tbl"><thead><tr><th>When</th><th>Who</th><th>Action</th><th>On</th><th>Details</th></tr></thead><tbody id="aud-tbody"><tr><td colspan="5" style="color:var(--gray-400)">Loading…</td></tr></tbody></table></div>';
+      '<div class="card" style="padding:6px 10px"><table class="tbl"><thead><tr><th>When</th><th>Who</th><th>Action</th><th>On</th><th>Details</th></tr></thead><tbody id="aud-tbody"><tr><td colspan="5" style="color:var(--gray-400)">Loading…</td></tr></tbody></table></div>'+
+      '<div id="aud-pager" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px"></div>';
   };
   PAGES.agents=function(){
     return head('Firm workspace · Admin','Agents','The AI agents available to the firm, and who can use each.')+
@@ -695,10 +696,13 @@ textarea.tin{resize:vertical;min-height:80px;line-height:1.55}
   // ── ACTIVITY (live) ──
   var AUDIT_LABELS={'agent.used':'Used an agent','chat.deleted':'Deleted a chat','user.invite_resent':'Resent an invite','auth.login':'Signed in','auth.login.denied':'Sign-in denied','auth.login.pending':'Sign-in (pending invite)','user.invited':'Invited a user','user.roles_changed':'Changed roles','user.disabled':'Disabled a user','user.enabled':'Enabled a user','user.deleted':'Deleted a user','user.name_changed':'Changed their name','firm_rule.requested':'Proposed rule change','firm_rule.approved':'Approved rule change','firm_rule.rejected':'Rejected rule change'};
   var auditEvents=[];
+  var auditPage=0;
+  var AUDIT_PAGE_SIZE=25;
   function initAudit(){
+    auditPage=0;
     $('#aud-refresh').onclick=loadAudit;
     $('#aud-export').onclick=exportAudit;
-    ['#aud-q','#aud-action','#aud-from','#aud-to'].forEach(function(s){var el=$(s);el.addEventListener(s==='#aud-q'?'input':'change',renderAudit);});
+    ['#aud-q','#aud-action','#aud-from','#aud-to'].forEach(function(s){var el=$(s);el.addEventListener(s==='#aud-q'?'input':'change',function(){auditPage=0;renderAudit();});});
   }
   function loadAudit(){
     var tb=$('#aud-tbody'); if(!tb)return;
@@ -719,9 +723,25 @@ textarea.tin{resize:vertical;min-height:80px;line-height:1.55}
   }
   function renderAudit(){
     var tb=$('#aud-tbody'); if(!tb)return; var rows=filteredAudit();
-    $('#aud-count').textContent=rows.length+' event'+(rows.length===1?'':'s');
-    if(!rows.length){ tb.innerHTML='<tr><td colspan="5" style="color:var(--gray-400)">No matching events.</td></tr>'; return; }
-    tb.innerHTML=rows.map(function(e){var who=e.actorName?esc(e.actorName):'<span style="color:var(--gray-400)">system</span>';return '<tr><td style="white-space:nowrap">'+fmtWhen(e.ts)+'</td><td>'+who+'</td><td>'+esc(AUDIT_LABELS[e.action]||e.action)+'</td><td>'+(e.target?esc(e.target):'')+'</td><td style="color:var(--gray-600)">'+fmtDetails(e.metadata)+'</td></tr>';}).join('');
+    var total=rows.length;
+    var pages=Math.max(1,Math.ceil(total/AUDIT_PAGE_SIZE));
+    if(auditPage>pages-1)auditPage=pages-1; if(auditPage<0)auditPage=0;
+    var start=auditPage*AUDIT_PAGE_SIZE; var slice=rows.slice(start,start+AUDIT_PAGE_SIZE);
+    $('#aud-count').textContent=total+' event'+(total===1?'':'s');
+    if(!total){ tb.innerHTML='<tr><td colspan="5" style="color:var(--gray-400)">No matching events.</td></tr>'; }
+    else { tb.innerHTML=slice.map(function(e){var who=e.actorName?esc(e.actorName):'<span style="color:var(--gray-400)">system</span>';return '<tr><td style="white-space:nowrap">'+fmtWhen(e.ts)+'</td><td>'+who+'</td><td>'+esc(AUDIT_LABELS[e.action]||e.action)+'</td><td>'+(e.target?esc(e.target):'')+'</td><td style="color:var(--gray-600)">'+fmtDetails(e.metadata)+'</td></tr>';}).join(''); }
+    renderAuditPager(total,pages,start,slice.length);
+  }
+  function renderAuditPager(total,pages,start,shown){
+    var p=$('#aud-pager'); if(!p)return;
+    if(total<=AUDIT_PAGE_SIZE){ p.innerHTML=''; return; }
+    var fromN=total?start+1:0, toN=start+shown;
+    p.innerHTML='<div class="csub" style="margin:0">Showing '+fromN+'–'+toN+' of '+total+'</div>'+
+      '<div style="display:flex;align-items:center;gap:8px"><button class="btn sm" id="aud-prev"'+(auditPage<=0?' disabled':'')+'>← Prev</button>'+
+      '<span class="csub" style="margin:0">Page '+(auditPage+1)+' of '+pages+'</span>'+
+      '<button class="btn sm" id="aud-next"'+(auditPage>=pages-1?' disabled':'')+'>Next →</button></div>';
+    var pv=$('#aud-prev'); if(pv)pv.onclick=function(){ if(auditPage>0){auditPage--;renderAudit();} };
+    var nx=$('#aud-next'); if(nx)nx.onclick=function(){ if(auditPage<pages-1){auditPage++;renderAudit();} };
   }
   function exportAudit(){
     var rows=filteredAudit();var headr=['When','Who','Action','On','Details'];var cell=function(s){return '"'+String(s==null?'':s).replace(/"/g,'""')+'"';};

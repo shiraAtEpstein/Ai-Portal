@@ -43,6 +43,11 @@ module.exports = function createMeRouter() {
     try {
       const email = (req.session && req.session.email) || '';
       const fw = await userFramework.loadForEmail(email);
+      // Dropbox unreachable is NOT the same as "no profile" — say so, rather
+      // than telling a user with a real CORE that they don't have one.
+      if (fw && fw.error) {
+        return res.status(503).json({ error: 'Your AI profile is temporarily unavailable.' });
+      }
       res.json({ text: (fw && fw.text) || '', files: (fw && fw.files) || [] });
     } catch (e) {
       console.error('[ME] core load failed:', e.message);

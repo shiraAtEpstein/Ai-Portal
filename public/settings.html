@@ -360,18 +360,52 @@ textarea.tin{resize:vertical;min-height:80px;line-height:1.55}
       '<div class="phase-note">Reads from your User Framework (Layer 2). Editing from the portal arrives in a later phase.</div>';
   };
   PAGES.connections=function(){
-    var items=[
-      {ic:IC.link,name:'Gmail',acct:me.email||'',status:'active',last:'recently',perms:'Read, search, and draft (never sends without your OK)'},
-      {ic:IC.bell,name:'Google Calendar',acct:me.email||'',status:'active',last:'recently',perms:'Read events and availability'},
-      {ic:IC.doc,name:'Dropbox',acct:'Epstein & Co. (shared)',status:'active',last:'recently',perms:'Read matter files and firm rules'},
-      {ic:IC.activity,name:'monday.com',acct:'Epstein workspace',status:'active',last:'recently',perms:'Read deal boards (read-only)'}
-    ];
-    var rows=items.map(function(c){return '<div class="conn"><div class="logo">'+svg(c.ic)+'</div><div class="cbody"><div class="cname">'+esc(c.name)+' <span class="badge-st b-active"><span class="dot g"></span>Connected</span></div><div class="cmeta">'+esc(c.acct)+'</div><div class="cperms">Permissions: '+esc(c.perms)+'</div></div><div class="cactions"><button class="btn sm">Manage</button></div></div>';}).join('');
     return head('AI &amp; personalization','Connections','External services the portal can act on for you. You stay in control of what agents are allowed to do.')+
-      '<div class="hidden-banner">🚧 <div>Design preview — connection status shown here reflects the services the portal uses today; per-user management arrives in a later phase.</div></div>'+
-      '<div class="card"><h2>Connected</h2>'+rows+'</div>'+
-      '<div class="card"><h2>Available to connect</h2><div class="conn"><div class="logo">'+svg(IC.link)+'</div><div class="cbody"><div class="cname">WhatsApp <span class="badge-st b-off">not connected</span></div><div class="cmeta">Let agents draft and send client updates over WhatsApp.</div></div><div class="cactions"><button class="btn sm primary">Connect</button></div></div></div>';
+      '<div class="card"><h2>Your connections</h2><div class="csub">Linked to your own account.</div><div id="conn-user">Loading…</div></div>'+
+      '<div class="card"><h2>Firm services</h2><div class="csub">Shared integrations configured for the whole firm.</div><div id="conn-firm">Loading…</div></div>'+
+      '<div class="card"><h2>Available to connect</h2><div class="conn"><div class="logo">'+svg(IC.link)+'</div><div class="cbody"><div class="cname">WhatsApp <span class="badge-st b-off">not connected</span></div><div class="cmeta">Let agents draft and send client updates over WhatsApp.</div></div><div class="cactions"><button class="btn sm" disabled>Coming soon</button></div></div></div>';
   };
+  function connRow(o){
+    var st = o.state==='connected' ? '<span class="badge-st b-active"><span class="dot g"></span>Connected</span>'
+      : o.state==='expired' ? '<span class="badge-st b-expired"><span class="dot r"></span>Auth expired</span>'
+      : o.state==='firm' ? '<span class="badge-st b-off">Firm service</span>'
+      : '<span class="badge-st b-off">Not connected</span>';
+    return '<div class="conn"><div class="logo">'+svg(o.ic)+'</div><div class="cbody"><div class="cname">'+esc(o.name)+' '+st+'</div><div class="cmeta">'+(o.meta||'')+'</div>'+(o.perms?'<div class="cperms">Permissions: '+esc(o.perms)+'</div>':'')+'</div><div class="cactions">'+(o.actions||'')+'</div></div>';
+  }
+  function initConnections(){ loadUserConnections(); loadFirmConnections(); }
+  function loadUserConnections(){
+    var host=$('#conn-user'); if(!host)return;
+    jget('/api/gmail/status').then(function(r){
+      var g=(r.ok&&r.j)?r.j:null; var row;
+      if(!g){ row=connRow({ic:IC.link,name:'Gmail',state:'na',meta:'Could not load Gmail status.'}); }
+      else if(g.configured===false){ row=connRow({ic:IC.link,name:'Gmail',state:'na',meta:'Gmail isn’t configured for this firm yet.'}); }
+      else if(g.connected){ row=connRow({ic:IC.link,name:'Gmail',state:'connected',meta:esc(g.email||'your mailbox')+(g.canDraft?' · read &amp; draft':' · read-only'),perms:'Read and search your mail; draft replies (never sends without your OK)',actions:'<button class="btn sm danger" data-gm="disc">Disconnect</button>'}); }
+      else { row=connRow({ic:IC.link,name:'Gmail',state:'na',meta:'Let the Email Assistant read and draft from your mailbox.',actions:'<button class="btn sm primary" data-gm="conn">Connect</button>'}); }
+      host.innerHTML=row;
+      var c=$('[data-gm="conn"]',host); if(c)c.onclick=function(){location.href='/api/gmail/connect';};
+      var d=$('[data-gm="disc"]',host); if(d)d.onclick=function(){ if(!confirm('Disconnect your Gmail? The Email Assistant will no longer read your mail until you reconnect.'))return; jpost('/api/gmail/disconnect').then(function(){toast('Gmail disconnected');initConnections();}).catch(function(){toast('Could not disconnect.');}); };
+    }).catch(function(){ host.innerHTML=connRow({ic:IC.link,name:'Gmail',state:'na',meta:'Could not load Gmail status.'}); });
+  }
+  function loadFirmConnections(){
+    var host=$('#conn-firm'); if(!host)return;
+    function paint(dbx){
+      var html='';
+      if(dbx.admin){
+        if(dbx.configured===false){ html+=connRow({ic:IC.doc,name:'Dropbox',state:'na',meta:'Not configured.'}); }
+        else if(dbx.connected){ html+=connRow({ic:IC.doc,name:'Dropbox',state:'connected',meta:'Firm account'+(dbx.account?' · '+esc(dbx.account):'')+' · matter files &amp; firm rules (read-only)',actions:'<button class="btn sm danger" data-dbx="disc">Disconnect</button>'}); }
+        else { html+=connRow({ic:IC.doc,name:'Dropbox',state:'na',meta:'Connect the firm Dropbox.',actions:'<button class="btn sm primary" data-dbx="conn">Connect</button>'}); }
+      } else {
+        html+=connRow({ic:IC.doc,name:'Dropbox',state:'firm',meta:'Firm files · managed by an administrator'});
+      }
+      html+=connRow({ic:IC.activity,name:'monday.com',state:'firm',meta:'Deal boards (read-only) · managed by an administrator'});
+      html+=connRow({ic:IC.bell,name:'Google Calendar',state:'firm',meta:'Used by your Daily brief · via your Google account'});
+      host.innerHTML=html;
+      var c=$('[data-dbx="conn"]',host); if(c)c.onclick=function(){location.href='/api/dropbox/connect';};
+      var d=$('[data-dbx="disc"]',host); if(d)d.onclick=function(){ if(!confirm('Disconnect the firm Dropbox? Agents will lose access to matter files and firm rules.'))return; jpost('/api/dropbox/disconnect').then(function(){toast('Dropbox disconnected');initConnections();}).catch(function(){toast('Could not disconnect.');}); };
+    }
+    if(me.isAdmin){ jget('/api/dropbox/status').then(function(r){ var s=(r.ok&&r.j)?r.j:{configured:false}; s.admin=true; paint(s); }).catch(function(){ paint({admin:true,configured:false}); }); }
+    else { paint({admin:false}); }
+  }
   PAGES.memory=function(){
     return head('AI &amp; personalization','AI Memory','Everything the AI has learned about how you work. You’re in control — search or delete anything.')+
       '<div class="info"><span class="si">🧠</span><div>Memory stores <b>how you like to work</b>, never client facts. A preference is only trusted after it recurs or you confirm it. Firm rules always take priority.</div></div>'+
@@ -427,6 +461,7 @@ textarea.tin{resize:vertical;min-height:80px;line-height:1.55}
     if(page==='activity'){ initAudit(); loadAudit(); }
     if(page==='profile') initProfile();
     if(page==='notifications') initDirty();
+    if(page==='connections') initConnections();
     try{ history.replaceState(null,'','#'+page); }catch(e){}
   }
   function initProfile(){

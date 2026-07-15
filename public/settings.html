@@ -342,10 +342,30 @@ textarea.tin{resize:vertical;min-height:80px;line-height:1.55}
   function selBoxSmall(id,cur,opts){return '<select class="tin d-src" id="'+id+'" style="width:auto;padding:7px 10px;font-size:12.5px">'+opts.map(function(o){return '<option value="'+esc(o[0])+'"'+(o[0]===cur?' selected':'')+'>'+esc(o[1])+'</option>';}).join('')+'</select>';}
   PAGES.security=function(){
     return head('Account','Sign-in &amp; security','Your sign-in method and the devices currently signed in.')+
-      '<div class="card"><h2>Sign-in method</h2><div class="conn" style="border-bottom:none;padding-bottom:0"><div class="logo">'+svg(IC.lock)+'</div><div class="cbody"><div class="cname">Google Workspace <span class="badge-st b-active"><span class="dot g"></span>Connected</span></div><div class="cmeta">'+esc(me.email||'')+' · The firm signs in with Google only. Password sign-in is disabled.</div></div></div></div>'+
-      '<div class="card"><div class="card-head-row"><div><h2>Active sessions</h2><div class="csub">Devices where you’re signed in.</div></div><button class="btn sm danger">Sign out everywhere</button></div><table class="tbl"><thead><tr><th>Device</th><th>Location</th><th>Last active</th><th></th></tr></thead><tbody><tr><td><span class="uname">This device</span></td><td>—</td><td>Now</td><td><span class="badge-st b-active">Current</span></td></tr></tbody></table><div class="phase-note">Session listing is wired in a later phase.</div></div>'+
-      '<div class="card"><h2>Data &amp; privacy</h2><div class="csub">Your chats and memory are encrypted at rest.</div>'+trow('Export my data','A copy of your chats, profile, and memories.','<button class="btn sm">Request export</button>')+trow('Close my account','Sends a request to a firm administrator.','<button class="btn sm danger">Request removal</button>')+'</div>';
+      '<div class="card"><h2>Sign-in method</h2><div class="conn" style="border-bottom:none;padding-bottom:0"><div class="logo">'+svg(IC.lock)+'</div><div class="cbody"><div class="cname">Google Workspace <span class="badge-st b-active"><span class="dot g"></span>Connected</span></div><div class="cmeta">'+esc(me.email||'your firm account')+' · The firm signs in with Google only. Password sign-in is disabled.</div></div></div></div>'+
+      '<div class="card"><div class="card-head-row"><div><h2>Active sessions</h2><div class="csub">Devices where you’re signed in. Sign out any you don’t recognise.</div></div><button class="btn sm danger" id="sec-signout-others">Sign out everywhere else</button></div><div id="sec-sessions">Loading…</div></div>'+
+      '<div class="card"><h2>Data &amp; privacy</h2><div class="csub">Your chats and memory are encrypted at rest.</div>'+trow('Export my data','Download a copy of your profile, settings, and memories.','<button class="btn sm" id="sec-export">Download</button>')+trow('Close my account','Sends a request to a firm administrator. Nothing is deleted automatically.','<button class="btn sm danger" id="sec-close">Request removal</button>')+'</div>';
   };
+  function initSecurity(){
+    var so=$('#sec-signout-others'); if(so) so.onclick=function(){ if(!confirm('Sign out of all your other devices? You’ll stay signed in here.'))return; jpost('/api/me/sessions/signout-others').then(function(r){ if(r.ok){ toast('Signed out '+((r.j&&r.j.revoked)||0)+' other device(s)'); loadSessions(); } else toast('Could not sign out.'); }).catch(function(){ toast('Could not sign out.'); }); };
+    var ex=$('#sec-export'); if(ex) ex.onclick=function(){ location.href='/api/me/export'; };
+    var cl=$('#sec-close'); if(cl) cl.onclick=function(){ if(!confirm('Send a request to close your account? An administrator will follow up. Nothing is deleted now.'))return; jpost('/api/me/close-request').then(function(r){ toast(r.ok?'Request sent to your administrators':'Could not send request.'); }).catch(function(){ toast('Could not send request.'); }); };
+    loadSessions();
+  }
+  function loadSessions(){
+    var host=$('#sec-sessions'); if(!host)return;
+    jget('/api/me/sessions').then(function(r){
+      if(!r.ok){ host.innerHTML='<div class="csub" style="margin:0">Could not load your sessions.</div>'; return; }
+      var rows=(r.j&&r.j.sessions)||[];
+      if(!rows.length){ host.innerHTML='<div class="csub" style="margin:0">No active sessions.</div>'; return; }
+      host.innerHTML='<table class="tbl"><thead><tr><th>Device</th><th>Last active</th><th></th></tr></thead><tbody>'+rows.map(function(s){
+        var when=s.current?'Now':(s.lastSeen?fmtWhen(s.lastSeen):'—');
+        var act=s.current?'<span class="badge-st b-active">This device</span>':'<button class="btn sm" data-revoke="'+esc(s.id)+'">Sign out</button>';
+        return '<tr><td><span class="uname">'+esc(s.device)+'</span></td><td>'+when+'</td><td class="row-actions">'+act+'</td></tr>';
+      }).join('')+'</tbody></table>';
+      $$('#sec-sessions [data-revoke]').forEach(function(b){ b.onclick=function(){ jpost('/api/me/sessions/revoke',{id:b.getAttribute('data-revoke')}).then(function(r){ if(r.ok&&r.j&&r.j.ok){ toast('Device signed out'); loadSessions(); } else toast('Could not sign out that device.'); }).catch(function(){ toast('Could not sign out.'); }); }; });
+    }).catch(function(){ host.innerHTML='<div class="csub" style="margin:0">Could not load your sessions.</div>'; });
+  }
   PAGES.appearance=function(){
     return head('Account','Appearance','Personalize how the portal looks and feels.')+
       '<div class="hidden-banner">🚧 <div>This page is <b>hidden at launch</b>. Shown here so the design can be reviewed.</div></div>'+
@@ -460,6 +480,7 @@ textarea.tin{resize:vertical;min-height:80px;line-height:1.55}
     if(page==='approvals') loadApprovals();
     if(page==='activity'){ initAudit(); loadAudit(); }
     if(page==='profile') initProfile();
+    if(page==='security') initSecurity();
     if(page==='notifications') initDirty();
     if(page==='connections') initConnections();
     try{ history.replaceState(null,'','#'+page); }catch(e){}

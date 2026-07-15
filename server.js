@@ -16,6 +16,7 @@ const createGoogleAuthRouter = require('./google-auth');
 const createAuthRouter = require('./routes/auth');
 const createChatRouter = require('./routes/chat');
 const createGmailRouter = require('./routes/gmail');
+const createCalendarRouter = require('./routes/calendar');
 const createDropboxRouter = require('./routes/dropbox');
 const createAdminRouter = require('./routes/admin');
 const createMemoryAdminRouter = require('./routes/memory-admin');
@@ -39,7 +40,7 @@ app.use(express.json());
 let INDEX_HTML = null;
 try {
   INDEX_HTML = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8')
-    .replace('</body>', '  <script defer src="/marketing.js"></script>\n</body>');
+    .replace('</body>', '  <script defer src="/marketing.js"></script>\n  <script defer src="/calendar-connect.js"></script>\n</body>');
 } catch (e) {
   console.error('[BOOT] could not preload index.html for injection:', e.message);
 }
@@ -78,6 +79,7 @@ app.use(createGoogleAuthRouter({ createSession: createDbSession, findUserByEmail
 app.use(createAuthRouter({ loadUsers, saveUsers, transporter }));
 app.use(createChatRouter());
 app.use(createGmailRouter());
+app.use(createCalendarRouter());
   app.use(createDropboxRouter());
 app.use(createAdminRouter({ loadUsers }));
 app.use(createMemoryAdminRouter());

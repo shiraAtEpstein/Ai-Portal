@@ -12,8 +12,18 @@ module.exports = function createAuthRouter() {
   const router = express.Router();
 
   // GET /api/me — current user, based on the session cookie or header.
+  // This handler is registered before routes/me.js, so it is the one that
+  // actually answers /api/me. It must return everything the UI needs:
+  // name + email (Settings → Profile) and roles + isAdmin (admin gating).
   router.get('/api/me', authenticate, (req, res) => {
-    res.json({ name: req.session.name, roles: req.session.roles || [] });
+    const roles = req.session.roles || [];
+    res.json({
+      name: req.session.name,
+      email: req.session.email || null,
+      roles,
+      // Case-insensitive so a capitalised "Admin" role still counts as admin.
+      isAdmin: roles.some((r) => String(r).toLowerCase() === 'admin'),
+    });
   });
 
   // POST /api/logout — revoke the database session and clear the cookie.

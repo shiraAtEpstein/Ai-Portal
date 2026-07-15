@@ -27,6 +27,8 @@ const { PROACTIVE_PROMPT, catalogForRoles, renderCatalog } = require('../lib/ski
 const userFramework = require('../lib/user-framework');
 // Layer 3 — learned preferences (staged→promoted memory; preferences only).
 const memory = require('../lib/memory');
+// §9 — approved firm-rule updates (DB) + chat-detected change requests.
+const firmRules = require('../lib/firm-rules');
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -335,6 +337,11 @@ async function firmPreamble() {
     catch (e) { console.error('[CHAT] could not load fallback firm rules:', e.message); }
   }
   if (rules) preamble += rules + '\n\n';
+  // §9 — approved firm-rule updates from the DB take precedence over the file above.
+  try {
+    const approved = await firmRules.loadActiveRules();
+    if (approved && approved.text) preamble += approved.text + '\n\n';
+  } catch (e) { console.error('[FIRM-RULES] load approved failed:', e.message); }
   preamble += '----------------------------------------\n\n';
   return preamble;
 }
@@ -577,6 +584,9 @@ module.exports = function createChatRouter() {
       // and stores explicit matter facts (walled to this agent). Skipped when the
       // conversation is muted (Layer 4 "don't remember this chat").
       if (persist && !sessionMuted) memory.observe(req.session.userId, { userText: message, assistantText: answer, agentId }).catch(function (e) { console.error('[MEMORY] observe failed:', e.message); });
+      // §9 — background: detect a durable firm-wide rule the user stated and file it
+      // as a PENDING request for admin approval. Never changes rules on its own.
+      if (persist && !sessionMuted) firmRules.detectFromChat({ userId: req.session.userId, name, email: req.session.email, agentId, userText: message }).catch(function (e) { console.error('[FIRM-RULES] detect failed:', e.message); });
       sse(res, 'done', { conversationId: convId, response: answer });
     } catch (error) {
       console.error('[ERROR] chat stream failed:', error.message);

@@ -5,15 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Settings · Epstein &amp; Co. · LAWLY</title>
 <!--
-  Settings — redesign Phase 1.
+  Settings — redesign Phase 2.
   Design ported 1:1 from the approved Settings-Redesign-Prototype (navy/cream
-  portal design system). LIVE wiring preserved from the previous settings.html:
-  identity (/api/me), memory (/api/me/memory + forget), firm-rule proposals
-  (/api/firm-rules/request) and admin approvals (/api/admin/firm-rules …).
-  Added in this phase: People & roles (/api/admin/all-users …) and Activity log
-  (/api/admin/audit). All calls use the session cookie (credentials:'include').
-  Pages with no backend yet (Notifications, Sign-in, Appearance, AI Profile,
-  Connections, Agents) render the approved design and are wired in later phases.
+  portal design system). LIVE wiring: identity (/api/me), memory
+  (/api/me/memory + forget), firm-rule proposals (/api/firm-rules/request),
+  admin approvals (/api/admin/firm-rules …), People (/api/admin/all-users …),
+  Activity (/api/admin/audit), and — new in Phase 2 — profile + notification
+  settings (/api/me/settings GET/PUT) with an editable display name.
+  All calls use the session cookie (credentials:'include').
 -->
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -253,6 +252,14 @@ textarea.tin{resize:vertical;min-height:80px;line-height:1.55}
   function jpost(url,body){return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(body||{})}).then(function(r){return r.json().then(function(j){return {ok:r.ok,status:r.status,j:j};}).catch(function(){return {ok:r.ok,status:r.status,j:{}};});});}
 
   var me=null;
+  var SETTINGS=null;
+  var CURRENT='profile';
+  var DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  function sdefaults(){return {profile:{language:'en',timezone:'Asia/Jerusalem',dateFormat:'DD/MM/YYYY',numberFormat:'1,234,567.89',workStart:'08:30',workEnd:'18:00',workingDays:[0,1,2,3,4]},notifications:{channels:{inApp:true,email:true,desktop:false},types:{taskReminders:true,aiTaskCompleted:true,agentApproval:true,systemAlerts:true,securityAlerts:true,ruleProposal:true},summaries:{daily:{enabled:true,delivery:'email',time:'07:30'},weekly:{enabled:true,delivery:'email'}},quietHours:{enabled:false,from:'19:00',to:'07:00'}}};}
+  function S(){return SETTINGS||sdefaults();}
+  function applyLang(){try{document.documentElement.dir=(S().profile.language==='he')?'rtl':'ltr';}catch(e){}}
+  function swId(id,on,dis){return '<label class="sw"><input type="checkbox" id="'+id+'" class="d-src"'+(on?' checked':'')+(dis?' disabled':'')+'><span class="track"></span></label>';}
+  function selBox(id,cur,opts){return '<select class="tin d-src" id="'+id+'">'+opts.map(function(o){return '<option value="'+esc(o[0])+'"'+(o[0]===cur?' selected':'')+'>'+esc(o[1])+'</option>';}).join('')+'</select>';}
 
   // ── information architecture ──
   var NAV=[
@@ -298,35 +305,41 @@ textarea.tin{resize:vertical;min-height:80px;line-height:1.55}
 
   var PAGES={};
   PAGES.profile=function(){
-    var name=esc(me.name||''),email=esc(me.email||''),roles=(me.roles&&me.roles.length?me.roles.join(', '):'—');
-    return head('Account','Profile','Your personal details. Name, email and roles are managed by the firm; the rest are your preferences.')+
+    var s=S().profile; var email=esc(me.email||'');
+    var roleChipsHtml=(me.roles&&me.roles.length?me.roles.map(function(r){return '<span class="chip">'+esc(r)+'</span>';}).join(''):'<span style="color:var(--gray-400)">—</span>');
+    var dayChips=DAYS.map(function(dLabel,i){var on=s.workingDays.indexOf(i)!==-1;return '<span class="chip day-chip" data-day="'+i+'" style="cursor:pointer'+(on?'':';opacity:.4')+'"'+(on?'':' data-off')+'>'+dLabel+'</span>';}).join('');
+    return head('Account','Profile','Your name and preferences save to your account. Email and roles are managed by the firm.')+
       '<div class="card"><h2>Photo</h2><div class="csub">A square image, at least 200×200px.</div><div class="avatar-row"><div class="avatar-lg">'+esc((me.name||me.email||'·').charAt(0).toUpperCase())+'</div><div class="avatar-actions"><button class="btn sm">Upload</button><button class="btn sm ghost">Remove</button></div></div></div>'+
-      '<div class="card"><h2>Identity</h2><div class="csub">How you appear across the portal. Managed by the firm admin.</div>'+
-        '<div class="grid2"><div class="field"><label class="flabel">Full name <span class="readonly-pill">firm-managed</span></label><input class="tin" value="'+name+'" disabled></div>'+
+      '<div class="card"><h2>Identity</h2><div class="csub">How you appear across the portal.</div>'+
+        '<div class="grid2"><div class="field"><label class="flabel">Full name</label><input class="tin d-src" id="prof-name" value="'+esc(me.name||'')+'" maxlength="80"><div class="hint" id="prof-name-err" style="color:var(--red);display:none"></div></div>'+
         '<div class="field"><label class="flabel">Email <span class="readonly-pill">via Google</span></label><input class="tin" value="'+email+'" disabled></div></div>'+
-        '<div class="field"><label class="flabel">Roles</label><div class="chips">'+(me.roles&&me.roles.length?me.roles.map(function(r){return '<span class="chip">'+esc(r)+'</span>';}).join(''):'<span style="color:var(--gray-400)">—</span>')+'</div></div>'+
-        '<div class="field" style="margin-bottom:0"><label class="flabel">Display name</label><input class="tin d-src" value="'+name+'"><div class="hint">Shown in chat and mentions.</div></div></div>'+
+        '<div class="field" style="margin-bottom:0"><label class="flabel">Roles <span class="readonly-pill">firm-managed</span></label><div class="chips">'+roleChipsHtml+'</div></div></div>'+
       '<div class="card"><h2>Language &amp; region</h2><div class="csub">Controls the portal interface, dates, and numbers. The AI still replies in whatever language you write in.</div>'+
-        '<div class="grid2"><div class="field"><label class="flabel">Interface language</label><select class="tin d-src"><option>עברית (Hebrew)</option><option selected>English</option></select><div class="hint">Hebrew flips the layout to right-to-left.</div></div>'+
-        '<div class="field"><label class="flabel">Time zone</label><select class="tin d-src"><option selected>Jerusalem (GMT+3)</option><option>London (GMT+1)</option><option>New York (GMT-4)</option></select></div></div>'+
-        '<div class="grid2"><div class="field"><label class="flabel">Date format</label><select class="tin d-src"><option selected>DD/MM/YYYY</option><option>MM/DD/YYYY</option><option>YYYY-MM-DD</option></select></div>'+
-        '<div class="field"><label class="flabel">Number format</label><select class="tin d-src"><option selected>1,250,000.50</option><option>1.250.000,50</option></select></div></div></div>'+
+        '<div class="grid2"><div class="field"><label class="flabel">Interface language</label>'+selBox('prof-lang',s.language,[['en','English'],['he','עברית (Hebrew)']])+'<div class="hint">Hebrew flips the layout to right-to-left.</div></div>'+
+        '<div class="field"><label class="flabel">Time zone</label>'+selBox('prof-tz',s.timezone,[['Asia/Jerusalem','Jerusalem (GMT+3)'],['Europe/London','London (GMT+1)'],['America/New_York','New York (GMT-4)']])+'</div></div>'+
+        '<div class="grid2"><div class="field"><label class="flabel">Date format</label>'+selBox('prof-date',s.dateFormat,[['DD/MM/YYYY','DD/MM/YYYY'],['MM/DD/YYYY','MM/DD/YYYY'],['YYYY-MM-DD','YYYY-MM-DD']])+'</div>'+
+        '<div class="field"><label class="flabel">Number format</label>'+selBox('prof-num',s.numberFormat,[['1,234,567.89','1,234,567.89'],['1.234.567,89','1.234.567,89']])+'</div></div></div>'+
       '<div class="card"><h2>Working hours <span class="readonly-pill">optional</span></h2><div class="csub">Helps the AI time reminders and the daily brief.</div>'+
-        '<div class="grid2"><div class="field"><label class="flabel">Start</label><input class="tin d-src" type="time" value="08:30"></div><div class="field"><label class="flabel">End</label><input class="tin d-src" type="time" value="18:00"></div></div></div>'+
-      '<div class="phase-note">Preference fields (display name, language, hours) get their own saved storage in Phase 2.</div>';
+        '<div class="grid2"><div class="field"><label class="flabel">Start</label><input class="tin d-src" id="prof-start" type="time" value="'+esc(s.workStart)+'"></div><div class="field"><label class="flabel">End</label><input class="tin d-src" id="prof-end" type="time" value="'+esc(s.workEnd)+'"></div></div>'+
+        '<div class="field" style="margin-bottom:0"><label class="flabel">Working days</label><div class="chips" id="prof-days">'+dayChips+'</div></div></div>';
   };
   PAGES.notifications=function(){
-    var types=[['Task reminders','A matter task is due',[1,1,0]],['AI task completed','An agent finished a job you started',[1,0,1]],['Agent requires approval','An agent needs your OK to proceed',[1,1,1]],['System alerts','Portal status and outages',[1,1,0]],['Security alerts','New sign-ins, permission changes',[1,1,0]],['Rule proposal (admin)','A firm-rule change is waiting for review',[1,1,0]]];
-    var rows=types.map(function(t){return '<tr><td><div class="tname" style="font-size:13px">'+t[0]+'</div><div class="tdesc">'+t[1]+'</div></td><td style="text-align:center">'+sw(t[2][0])+'</td><td style="text-align:center">'+sw(t[2][1])+'</td><td style="text-align:center">'+sw(t[2][2])+'</td></tr>';}).join('');
-    return head('Account','Notifications','Choose what you’re told about, and how it reaches you.')+
-      '<div class="hidden-banner">🚧 <div>Design preview — notification delivery is wired in a later phase.</div></div>'+
+    var n=S().notifications;
+    var types=[['taskReminders','Task reminders','A matter task is due'],['aiTaskCompleted','AI task completed','An agent finished a job you started'],['agentApproval','Agent requires approval','An agent needs your OK to proceed'],['systemAlerts','System alerts','Portal status and outages'],['securityAlerts','Security alerts','New sign-ins, permission changes'],['ruleProposal','Rule proposal (admin)','You’re emailed when a firm-rule change is proposed']];
+    var typeRows=types.map(function(t){return trow(t[1],t[2],swId('n-ty-'+t[0],!!n.types[t[0]]));}).join('');
+    var delivery=[['inapp_email','In-app + Email'],['email','Email only'],['inapp','In-app only']];
+    return head('Account','Notifications','Choose what you’re told about, and how it reaches you. Saved to your account.')+
       '<div class="card"><h2>Channels</h2><div class="csub">Turn whole delivery methods on or off.</div>'+
-        trow('In-app','The bell inside the portal.',sw(true))+trow('Email','Sent to your firm address.',sw(true))+trow('Desktop push','Browser notifications on this device.',sw(false))+trow('Mobile push <span class="badge-st b-off">soon</span>','When the mobile app ships.',sw(false,true))+'</div>'+
-      '<div class="card"><h2>What to notify me about</h2><div class="csub">Each type can go to any combination of your enabled channels.</div><table class="tbl" style="margin-top:4px"><thead><tr><th>Notification</th><th style="text-align:center;width:74px">In-app</th><th style="text-align:center;width:74px">Email</th><th style="text-align:center;width:74px">Desktop</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+        trow('In-app','The bell inside the portal.',swId('n-ch-inApp',!!n.channels.inApp))+trow('Email','Sent to '+esc(me.email||'your firm address')+'.',swId('n-ch-email',!!n.channels.email))+trow('Desktop push','Browser notifications on this device.',swId('n-ch-desktop',!!n.channels.desktop))+trow('Mobile push <span class="badge-st b-off">soon</span>','When the mobile app ships.',sw(false,true))+'</div>'+
+      '<div class="card"><h2>What to notify me about</h2><div class="csub">Turn each notification type on or off. Enabled types use your channels above.</div>'+typeRows+'</div>'+
       '<div class="card"><h2>Summaries</h2><div class="csub">Digest emails that roll up your day or week.</div>'+
-        '<div class="trow"><div class="tinfo"><div class="tname">Daily summary</div><div class="tdesc">Open matters, deadlines, and replies waiting on you.</div></div><div style="display:flex;align-items:center;gap:12px"><select class="tin" style="width:auto;padding:7px 10px;font-size:12.5px"><option>In-app + Email</option><option selected>Email only</option></select><input class="tin" type="time" value="07:30" style="width:auto;padding:7px 10px">'+sw(true)+'</div></div>'+
-        '<div class="trow"><div class="tinfo"><div class="tname">Weekly summary</div><div class="tdesc">Sent Sunday morning.</div></div>'+sw(true)+'</div></div>';
+        '<div class="trow"><div class="tinfo"><div class="tname">Daily summary</div><div class="tdesc">Open matters, deadlines, and replies waiting on you.</div></div><div style="display:flex;align-items:center;gap:12px">'+selBoxSmall('n-daily-delivery',n.summaries.daily.delivery,delivery)+'<input class="tin d-src" id="n-daily-time" type="time" value="'+esc(n.summaries.daily.time)+'" style="width:auto;padding:7px 10px">'+swId('n-sum-daily',!!n.summaries.daily.enabled)+'</div></div>'+
+        '<div class="trow"><div class="tinfo"><div class="tname">Weekly summary</div><div class="tdesc">Sent Sunday morning.</div></div><div style="display:flex;align-items:center;gap:12px">'+selBoxSmall('n-weekly-delivery',n.summaries.weekly.delivery,delivery)+swId('n-sum-weekly',!!n.summaries.weekly.enabled)+'</div></div></div>'+
+      '<div class="card"><h2>Quiet hours</h2><div class="csub">Pause push and email outside these times. Security alerts always come through.</div>'+
+        trow('Enable quiet hours','',swId('n-qh',!!n.quietHours.enabled))+
+        '<div class="grid2" style="margin-top:14px"><div class="field"><label class="flabel">From</label><input class="tin d-src" id="n-qh-from" type="time" value="'+esc(n.quietHours.from)+'"></div><div class="field"><label class="flabel">To</label><input class="tin d-src" id="n-qh-to" type="time" value="'+esc(n.quietHours.to)+'"></div></div></div>';
   };
+  function selBoxSmall(id,cur,opts){return '<select class="tin d-src" id="'+id+'" style="width:auto;padding:7px 10px;font-size:12.5px">'+opts.map(function(o){return '<option value="'+esc(o[0])+'"'+(o[0]===cur?' selected':'')+'>'+esc(o[1])+'</option>';}).join('')+'</select>';}
   PAGES.security=function(){
     return head('Account','Sign-in &amp; security','Your sign-in method and the devices currently signed in.')+
       '<div class="card"><h2>Sign-in method</h2><div class="conn" style="border-bottom:none;padding-bottom:0"><div class="logo">'+svg(IC.lock)+'</div><div class="cbody"><div class="cname">Google Workspace <span class="badge-st b-active"><span class="dot g"></span>Connected</span></div><div class="cmeta">'+esc(me.email||'')+' · The firm signs in with Google only. Password sign-in is disabled.</div></div></div></div>'+
@@ -398,32 +411,82 @@ textarea.tin{resize:vertical;min-height:80px;line-height:1.55}
   };
 
   // ── navigation ──
-  var loaded={};
   function go(page){
+    CURRENT=page;
+    removeSave();
     $$('.snav-item').forEach(function(i){i.classList.toggle('active',i.getAttribute('data-page')===page);});
     var host=$('#pages');host.innerHTML='';
     var sec=document.createElement('section');sec.className='page active';sec.setAttribute('data-page',page);
     sec.innerHTML=(PAGES[page]||function(){return '';})();
     host.appendChild(sec);
-    $('.content').scrollTop=0;$('#savebar')&&$('#savebar').classList.remove('show');
+    $('.content').scrollTop=0;
     if(page==='memory') initMemory();
     if(page==='people'){ initPeopleButtons(); loadPeople(); }
     if(page==='rules'){ initRules(); loadActiveRules(); }
     if(page==='approvals') loadApprovals();
     if(page==='activity'){ initAudit(); loadAudit(); }
-    if(page==='profile') initDirty();
+    if(page==='profile') initProfile();
+    if(page==='notifications') initDirty();
     try{ history.replaceState(null,'','#'+page); }catch(e){}
   }
-  function initDirty(){
-    $$('.d-src').forEach(function(el){el.addEventListener('input',showSave);});
+  function initProfile(){
+    initDirty();
+    $$('#prof-days .day-chip').forEach(function(c){c.onclick=function(){
+      var off=c.hasAttribute('data-off');
+      if(off){c.removeAttribute('data-off');c.style.opacity='';}else{c.setAttribute('data-off','');c.style.opacity='.4';}
+      showSave();
+    };});
   }
+  function initDirty(){
+    $$('.d-src',$('#pages')).forEach(function(el){el.addEventListener('input',showSave);el.addEventListener('change',showSave);});
+  }
+  function removeSave(){var b=$('#savebar');if(b)b.remove();}
   function showSave(){
     if($('#savebar'))return;
     var bar=document.createElement('div');bar.className='savebar show';bar.id='savebar';
     bar.innerHTML='<div class="sbmsg">You have unsaved changes.</div><div class="sbactions"><button class="btn" id="sb-cancel">Cancel</button><button class="btn primary" id="sb-save">Save changes</button></div>';
     document.body.appendChild(bar);
-    $('#sb-save').onclick=function(){bar.remove();toast('Saved (preference storage lands in Phase 2)');};
-    $('#sb-cancel').onclick=function(){bar.remove();toast('Changes discarded');};
+    $('#sb-save').onclick=saveCurrent;
+    $('#sb-cancel').onclick=function(){removeSave();go(CURRENT);};
+  }
+  function saveCurrent(){ if(CURRENT==='profile')saveProfile(); else if(CURRENT==='notifications')saveNotifications(); else removeSave(); }
+  function valOf(id){var e=$('#'+id);return e?e.value:undefined;}
+  function chkOf(id){var e=$('#'+id);return e?!!e.checked:undefined;}
+  function putSettings(body,cb){
+    fetch('/api/me/settings',{method:'PUT',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(body)})
+      .then(function(r){return r.json().then(function(j){return {ok:r.ok,status:r.status,j:j};}).catch(function(){return {ok:r.ok,status:r.status,j:{}};});})
+      .then(cb).catch(function(){toast('Network error — please try again.');});
+  }
+  function collectProfile(){
+    var days=$$('#prof-days .day-chip').filter(function(c){return !c.hasAttribute('data-off');}).map(function(c){return Number(c.getAttribute('data-day'));});
+    return {language:valOf('prof-lang'),timezone:valOf('prof-tz'),dateFormat:valOf('prof-date'),numberFormat:valOf('prof-num'),workStart:valOf('prof-start'),workEnd:valOf('prof-end'),workingDays:days};
+  }
+  function collectNotifications(){
+    return {
+      channels:{inApp:chkOf('n-ch-inApp'),email:chkOf('n-ch-email'),desktop:chkOf('n-ch-desktop')},
+      types:{taskReminders:chkOf('n-ty-taskReminders'),aiTaskCompleted:chkOf('n-ty-aiTaskCompleted'),agentApproval:chkOf('n-ty-agentApproval'),systemAlerts:chkOf('n-ty-systemAlerts'),securityAlerts:chkOf('n-ty-securityAlerts'),ruleProposal:chkOf('n-ty-ruleProposal')},
+      summaries:{daily:{enabled:chkOf('n-sum-daily'),delivery:valOf('n-daily-delivery'),time:valOf('n-daily-time')},weekly:{enabled:chkOf('n-sum-weekly'),delivery:valOf('n-weekly-delivery')}},
+      quietHours:{enabled:chkOf('n-qh'),from:valOf('n-qh-from'),to:valOf('n-qh-to')}
+    };
+  }
+  function saveProfile(){
+    var name=(valOf('prof-name')||'').trim(); var err=$('#prof-name-err'); if(err)err.style.display='none';
+    var btn=$('#sb-save'); if(btn){btn.disabled=true;btn.textContent='Saving…';}
+    putSettings({name:name,profile:collectProfile()},function(r){
+      if(btn){btn.disabled=false;btn.textContent='Save changes';}
+      if(r.status===409){ if(err){err.textContent=(r.j&&r.j.error)||'That name is already taken.';err.style.display='';} toast('Name already taken'); return; }
+      if(!r.ok){ toast((r.j&&r.j.error)||'Could not save.'); return; }
+      SETTINGS=r.j.settings||SETTINGS; if(r.j.name){me.name=r.j.name;$('#who-name').textContent=me.name;$('#who-av').textContent=(me.name||me.email||'·').trim().charAt(0).toUpperCase();}
+      applyLang(); removeSave(); toast('Profile saved');
+    });
+  }
+  function saveNotifications(){
+    var btn=$('#sb-save'); if(btn){btn.disabled=true;btn.textContent='Saving…';}
+    putSettings({notifications:collectNotifications()},function(r){
+      if(btn){btn.disabled=false;btn.textContent='Save changes';}
+      if(!r.ok){ toast((r.j&&r.j.error)||'Could not save.'); return; }
+      SETTINGS=r.j.settings||SETTINGS; removeSave(); toast('Notifications saved');
+    });
   }
 
   // ── MEMORY (live) ──
@@ -574,7 +637,7 @@ textarea.tin{resize:vertical;min-height:80px;line-height:1.55}
   }
 
   // ── ACTIVITY (live) ──
-  var AUDIT_LABELS={'agent.used':'Used an agent','chat.deleted':'Deleted a chat','user.invite_resent':'Resent an invite','auth.login':'Signed in','auth.login.denied':'Sign-in denied','auth.login.pending':'Sign-in (pending invite)','user.invited':'Invited a user','user.roles_changed':'Changed roles','user.disabled':'Disabled a user','user.enabled':'Enabled a user','user.deleted':'Deleted a user','firm_rule.requested':'Proposed rule change','firm_rule.approved':'Approved rule change','firm_rule.rejected':'Rejected rule change'};
+  var AUDIT_LABELS={'agent.used':'Used an agent','chat.deleted':'Deleted a chat','user.invite_resent':'Resent an invite','auth.login':'Signed in','auth.login.denied':'Sign-in denied','auth.login.pending':'Sign-in (pending invite)','user.invited':'Invited a user','user.roles_changed':'Changed roles','user.disabled':'Disabled a user','user.enabled':'Enabled a user','user.deleted':'Deleted a user','user.name_changed':'Changed their name','firm_rule.requested':'Proposed rule change','firm_rule.approved':'Approved rule change','firm_rule.rejected':'Rejected rule change'};
   var auditEvents=[];
   function initAudit(){
     $('#aud-refresh').onclick=loadAudit;
@@ -625,10 +688,13 @@ textarea.tin{resize:vertical;min-height:80px;line-height:1.55}
   jget('/api/me').then(function(r){
     if(r.status===401||!r.ok) throw new Error('unauth');
     me=r.j;
+    return jget('/api/me/settings').then(function(sr){ if(sr&&sr.ok&&sr.j){ SETTINGS=sr.j.settings||null; if(sr.j.name) me.name=sr.j.name; } }).catch(function(){});
+  }).then(function(){
     $('#app').style.display='flex';
     $('#who-name').textContent=me.name||'—';
     $('#who-role').textContent=(me.roles&&me.roles.length?me.roles.join(', '):'');
     $('#who-av').textContent=(me.name||me.email||'·').trim().charAt(0).toUpperCase();
+    applyLang();
     buildNav(); initGlobal();
     if(me.isAdmin) updateApprBadge();
     var start=(location.hash||'').replace('#','');

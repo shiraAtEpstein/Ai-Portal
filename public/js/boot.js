@@ -10,6 +10,19 @@ function restoreAgentFromUrl() {
   if (btn) btn.click();
 }
 
+// Apply the user's saved interface language (Settings → Profile). This makes the
+// Settings language choice drive the whole portal, and works across devices
+// (the choice lives in the database, not just this browser's localStorage).
+async function applySavedLanguage() {
+  try {
+    const res = await fetch('/api/me/settings', { credentials: 'include' });
+    if (!res.ok) return;
+    const data = await res.json();
+    const lang = data && data.settings && data.settings.profile && data.settings.profile.language;
+    if (lang && typeof window.setPortalLang === 'function') window.setPortalLang(lang);
+  } catch (e) { /* ignore — keep the local toggle choice */ }
+}
+
 (function boot() {
   const loader = document.getElementById('boot-loading');
   const hideLoader = () => { if (loader) loader.style.display = 'none'; };
@@ -17,6 +30,7 @@ function restoreAgentFromUrl() {
   const enterPortal = async (name, roles) => {
     showPortal(name, roles);
     await loadAgents();
+    await applySavedLanguage();
     await loadConversations();
     const hash = location.hash || '';
     const convMatch = hash.match(/c=([^&]+)/);

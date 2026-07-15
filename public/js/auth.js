@@ -62,8 +62,9 @@ function showPortal(name, role) {
   // Show the "Manage Users" button only if this person is an admin.
   const roleList = (role || '').split(/[,\s]+/).map(r => r.trim().toLowerCase()).filter(Boolean);
   const isAdmin = roleList.includes('admin');
-  document.getElementById('admin-open-btn').style.display = isAdmin ? 'block' : 'none';
-  document.getElementById('activity-open-btn').style.display = isAdmin ? 'block' : 'none';
+  // Manage Users and Activity Log now live in Settings (People & roles / Activity log).
+  document.getElementById('admin-open-btn').style.display = 'none';
+  document.getElementById('activity-open-btn').style.display = 'none';
   document.getElementById('marketing-open-btn').style.display = isAdmin ? 'block' : 'none';
 }
 

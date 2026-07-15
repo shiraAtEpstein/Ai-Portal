@@ -66,6 +66,27 @@
 .dl-pill{ background:var(--dl-cream); border-radius:20px; padding:1px 7px; font-size:10.5px; color:#6b665d; }
 .dl-pill.time{ color:var(--dl-warm); background:#f4e9e1; }
 
+/* Row quick actions — revealed on hover / keyboard focus, always on touch. */
+.dl-quick{
+  display:flex; gap:2px; align-items:center; flex-shrink:0; margin-inline-start:auto;
+  opacity:0; transition:opacity .15s;
+}
+.dl-row:hover .dl-quick,
+.dl-row:focus-within .dl-quick{ opacity:1; }
+.dl-q{
+  width:25px; height:25px; border:1px solid transparent; background:transparent; border-radius:6px;
+  cursor:pointer; display:flex; align-items:center; justify-content:center; line-height:1;
+  font-size:12px; color:#6b665d; text-decoration:none; padding:0; font-family:inherit;
+}
+.dl-q svg{ width:13px; height:13px; display:block; }
+.dl-q:hover{ background:#fff; border-color:var(--dl-line); color:var(--dl-ink); }
+.dl-q:focus-visible{ outline:2px solid var(--dl-ink); outline-offset:1px; opacity:1; }
+@media (hover:none){ .dl-quick{ opacity:1; } }
+
+/* Snoozed rows read as parked, not urgent */
+.dl-row.snoozed .dl-title{ color:#a49e92; }
+.dl-snzsec > summary{ color:var(--dl-muted); }
+
 .dl-loading,.dl-empty{ text-align:center; color:var(--dl-muted); font-size:12.5px; padding:26px 12px; line-height:1.5; }
 .dl-clear{ text-align:center; padding:24px 8px 8px; }
 .dl-clear-ring{ width:52px; height:52px; margin:0 auto 12px; border-radius:50%; background:var(--dl-ink); color:#fff;
@@ -84,9 +105,12 @@
 .dl-done-list{ margin-top:4px; }
 
 /* Snooze button (in full-view detail) */
-.dl-snooze{ border:1px solid var(--dl-line); background:#fff; border-radius:8px; padding:6px 11px;
+.dl-snooze,.dl-unsnooze{ border:1px solid var(--dl-line); background:#fff; border-radius:8px; padding:6px 11px;
   font-size:12px; color:var(--dl-ink); cursor:pointer; font-family:inherit; }
-.dl-snooze:hover{ background:var(--dl-cream); border-color:#c7c2b6; }
+.dl-snooze:hover,.dl-unsnooze:hover{ background:var(--dl-cream); border-color:#c7c2b6; }
+/* the compact icon variants keep the icon-button sizing */
+.dl-q.dl-snooze,.dl-q.dl-unsnooze{ width:25px; height:25px; padding:0; border-color:transparent; background:transparent; }
+.dl-q.dl-snooze:hover,.dl-q.dl-unsnooze:hover{ background:#fff; border-color:var(--dl-line); }
 
 /* Transient toast (refresh diff, snooze confirmation) */
 .dl-toast{ position:absolute; left:50%; bottom:16px; transform:translate(-50%,8px); z-index:5;
@@ -143,5 +167,5 @@
   #portal[dir="rtl"] #daily-dock{ right:auto; left:0; box-shadow:8px 0 30px rgba(0,0,0,0.15); }
 }
 @media (prefers-reduced-motion:reduce){
-  .dl-ring,.dl-cbx svg,.dl-cbx,.dl-ico.spinning,.dl-toast{ transition:none !important; animation:none !important; }
+  .dl-ring,.dl-cbx svg,.dl-cbx,.dl-ico.spinning,.dl-toast,.dl-quick{ transition:none !important; animation:none !important; }
 }

@@ -43,9 +43,10 @@
   function norm(s){ return String(s==null?'':s).trim().toLowerCase().replace(/\s+/g,' '); }
   function keyFor(t){ return norm(t.deal)+'|'+norm(t.task); }
   function isDone(k){ return doneMap[k]===true; }
+  function isSnoozed(k){ return snoozeMap[k]===true; }
   function urg(t){ var u=(t.urgency||'today').toLowerCase(); return (u==='overdue'||u==='soon')?u:'today'; }
-  // tasks visible today = not snoozed-until-later
-  function visibleTasks(){ return tasks.filter(function(t){ return !snoozeMap[keyFor(t)]; }); }
+  function visibleTasks(){ return tasks.filter(function(t){ return !isSnoozed(keyFor(t)); }); }
+  function snoozedTasks(){ return tasks.filter(function(t){ return isSnoozed(keyFor(t)); }); }
 
   // --- local cache (fallback / instant paint) ---
   function readList(name){ try { return JSON.parse(localStorage.getItem(name+'-'+day)||'[]'); } catch(e){ return []; } }
@@ -60,7 +61,7 @@
         if(!j) return;
         if(j.keys){ doneMap = toMap(j.keys); writeList('daily-done', doneMap); }
         if(j.snoozed){ snoozeMap = toMap(j.snoozed); writeList('daily-snoozed', snoozeMap); }
-        renderDock(); if(full.classList.contains('open')) renderFull();
+        rerender();
       })
       .catch(function(){ /* keep local cache */ });
   }
@@ -83,6 +84,8 @@
   var DOTS = ['#15161a','#7a6f5a','#4a6b8a','#8a5a6b','#5a7a6b','#8a7a4a','#6b5a8a'];
   function dotFor(deal){ var s=String(deal||''); var h=0; for(var i=0;i<s.length;i++){ h=(h*31+s.charCodeAt(i))>>>0; } return DOTS[h%DOTS.length]; }
 
+  var CLOCK_SVG='<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.6V8l2.4 1.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+
   function counts(){
     var vis=visibleTasks(), total=vis.length, doneN=0;
     vis.forEach(function(t){ if(isDone(keyFor(t))) doneN++; });
@@ -99,20 +102,34 @@
     return bits.join('');
   }
 
+  // Row-level quick actions, revealed on hover/focus (always shown on touch).
+  function quickHtml(t, k, opts){
+    var url=safeUrl(t.url), bits='';
+    if(url) bits+='<a class="dl-q" href="'+esc(url)+'" target="_blank" rel="noopener" title="Open" aria-label="Open">&#8599;</a>';
+    if(opts.snoozed){
+      bits+='<button type="button" class="dl-q dl-unsnooze" data-unsnooze="'+esc(k)+'" title="Un-snooze" aria-label="Un-snooze">&#8617;</button>';
+    } else if(!isDone(k)){
+      bits+='<button type="button" class="dl-q dl-snooze" data-snooze="'+esc(k)+'" title="Snooze to tomorrow" aria-label="Snooze to tomorrow">'+CLOCK_SVG+'</button>';
+    }
+    return bits ? '<div class="dl-quick">'+bits+'</div>' : '';
+  }
+
   function rowHtml(t, opts){
     opts=opts||{};
     var k=keyFor(t), d=isDone(k);
-    var cls='dl-row'+(d?' done':'')+(opts.full?' dl-frow':'');
+    var cls='dl-row'+(d?' done':'')+(opts.full?' dl-frow':'')+(opts.snoozed?' snoozed':'');
     var check='<span class="dl-cbx" role="checkbox" aria-checked="'+(d?'true':'false')+'" tabindex="0">'+
       '<svg viewBox="0 0 12 12" aria-hidden="true"><path fill="#fff" d="M10 2.5 4.5 9 1.5 6l1-1 2 2 4.5-5.5z"/></svg></span>';
     var html='<div class="'+cls+'" data-key="'+esc(k)+'">'+check+
       '<div class="dl-main"><div class="dl-title">'+esc(t.task||'(task)')+'</div>'+
-      '<div class="dl-sub">'+metaBits(t)+'</div></div></div>';
+      '<div class="dl-sub">'+metaBits(t)+'</div></div>'+quickHtml(t,k,opts)+'</div>';
     if(opts.full){
       var why = t.why ? '<b>Why:</b> '+esc(t.why) : 'No extra detail.';
       var url = safeUrl(t.url);
-      var open = url ? '<a href="'+esc(url)+'" target="_blank" rel="noopener">Open ↗</a>' : '';
-      var snz = d ? '' : '<button type="button" class="dl-snooze" data-snooze="'+esc(k)+'">Snooze to tomorrow</button>';
+      var open = url ? '<a href="'+esc(url)+'" target="_blank" rel="noopener">Open &#8599;</a>' : '';
+      var snz = '';
+      if(opts.snoozed) snz='<button type="button" class="dl-unsnooze" data-unsnooze="'+esc(k)+'">Un-snooze</button>';
+      else if(!d) snz='<button type="button" class="dl-snooze" data-snooze="'+esc(k)+'">Snooze to tomorrow</button>';
       html += '<div class="dl-detail" data-detail="'+esc(k)+'">'+why+'<div class="dl-acts">'+open+snz+'</div></div>';
     }
     return html;
@@ -122,6 +139,7 @@
     var vis=visibleTasks();
     var open=vis.filter(function(t){ return !isDone(keyFor(t)); });
     var doneL=vis.filter(function(t){ return isDone(keyFor(t)); });
+    var snzL=snoozedTasks();
     var ordered=open.slice().sort(function(a,b){ return (ORDER[urg(a)]||1)-(ORDER[urg(b)]||1); });
     var next=ordered[0], nextKey=next?keyFor(next):null, html='';
     if(next){ html+='<div class="dl-kick">Next</div><div class="dl-next">'+rowHtml(next,{full:full_})+'</div>'; }
@@ -136,14 +154,19 @@
       doneL.forEach(function(t){ html+=rowHtml(t,{full:full_}); });
       html+='</div></details>';
     }
+    if(snzL.length){
+      html+='<details class="dl-donesec dl-snzsec"><summary>Snoozed ('+snzL.length+')</summary><div class="dl-done-list">';
+      snzL.forEach(function(t){ html+=rowHtml(t,{full:full_, snoozed:true}); });
+      html+='</div></details>';
+    }
     return html;
   }
 
   function renderDock(){
     var c=counts();
     if(!tasks.length){ body.innerHTML='<div class="dl-empty">Nothing on your plate today.</div>'; }
-    else if(c.total===0){ body.innerHTML='<div class="dl-empty">Everything is snoozed for later. 🌙</div>'; }
-    else if(c.open===0){ body.innerHTML='<div class="dl-clear"><div class="dl-clear-ring">✓</div>'+
+    else if(c.total===0){ body.innerHTML='<div class="dl-empty">Everything is snoozed for later.</div>'+contentHtml(false); }
+    else if(c.open===0){ body.innerHTML='<div class="dl-clear"><div class="dl-clear-ring">&#10003;</div>'+
       '<div class="dl-clear-t">All clear for today</div>'+
       '<div class="dl-clear-s">'+c.done+' completed</div>'+
       '<div class="dl-clear-list">'+contentHtml(false)+'</div></div>'; }
@@ -156,7 +179,7 @@
     var c=counts();
     fullBody.innerHTML = tasks.length ? contentHtml(true) : '<div class="dl-empty">Nothing on your plate today.</div>';
     fullMeta.innerHTML='<b>'+c.done+' of '+c.total+'</b> done today'+
-      (c.overdueOpen>0?' · <span class="dl-odflag">'+c.overdueOpen+' overdue</span>':'');
+      (c.overdueOpen>0?' &middot; <span class="dl-odflag">'+c.overdueOpen+' overdue</span>':'');
     wire(fullBody,true);
   }
 
@@ -169,23 +192,30 @@
     if(railBadge){ railBadge.textContent=c.open; railBadge.style.display=c.open>0?'inline-flex':'none'; }
   }
 
+  function rerender(){ renderDock(); if(full.classList.contains('open')) renderFull(); }
+
   function toggle(k){
     var val = !isDone(k);
     if(val) doneMap[k]=true; else delete doneMap[k];
     writeList('daily-done', doneMap);
-    renderDock();
-    if(full.classList.contains('open')) renderFull();
+    rerender();
     persistDone(k, val);
   }
 
   function snooze(k){
-    var until = nextDay(day);
     snoozeMap[k]=true;
     writeList('daily-snoozed', snoozeMap);
-    renderDock();
-    if(full.classList.contains('open')) renderFull();
-    persistSnooze(k, until);
+    rerender();
+    persistSnooze(k, nextDay(day));
     showToast('Snoozed to tomorrow');
+  }
+
+  function unsnooze(k){
+    delete snoozeMap[k];
+    writeList('daily-snoozed', snoozeMap);
+    rerender();
+    persistSnooze(k, day); // until = today -> no longer hidden
+    showToast('Back on today');
   }
 
   function wire(root, isFull){
@@ -193,7 +223,8 @@
       row.addEventListener('click', function(e){
         var k=row.getAttribute('data-key');
         if(e.target.closest('.dl-cbx')){ toggle(k); e.stopPropagation(); return; }
-        if(e.target.closest('a') || e.target.closest('.dl-snooze')) return;
+        if(e.target.closest('a') || e.target.closest('.dl-quick') ||
+           e.target.closest('.dl-snooze') || e.target.closest('.dl-unsnooze')) return;
         if(isFull){ var det=fullBody.querySelector('[data-detail="'+cssEsc(k)+'"]'); if(det){ det.classList.toggle('open'); } }
         else { openFull(); }
       });
@@ -202,6 +233,9 @@
     });
     root.querySelectorAll('.dl-snooze').forEach(function(btn){
       btn.addEventListener('click', function(e){ e.stopPropagation(); snooze(btn.getAttribute('data-snooze')); });
+    });
+    root.querySelectorAll('.dl-unsnooze').forEach(function(btn){
+      btn.addEventListener('click', function(e){ e.stopPropagation(); unsnooze(btn.getAttribute('data-unsnooze')); });
     });
   }
   function cssEsc(s){ return String(s).replace(/["\\\]]/g,'\\$&'); }
@@ -214,7 +248,7 @@
     clearTimeout(toastT); toastT=setTimeout(function(){ toastEl.classList.remove('show'); }, 2600);
   }
 
-  // --- task load: same SSE-reading logic, now with a non-destructive diff ---
+  // --- task load: same SSE-reading logic, with a non-destructive diff ---
   function extract(t){ if(!t) return null; var m=t.match(/\[[\s\S]*\]/); if(!m) return null; try { return JSON.parse(m[0]); } catch(e){ return null; } }
   function diffToast(newTasks){
     if(prevKeys===null) return; // first load — nothing to compare
@@ -245,8 +279,7 @@
         if(!parsed || !parsed.length){ body.innerHTML='<div class="dl-empty">Couldn\'t read a task list yet. Try refresh, or open the Daily agent in chat.</div>'; return; }
         diffToast(parsed);
         tasks=parsed; prevKeys=parsed.map(keyFor); loaded=true;
-        renderDock();
-        if(full.classList.contains('open')) renderFull();
+        rerender();
       })
       .catch(function(){ body.innerHTML='<div class="dl-empty">Could not load your day right now.</div>'; });
   }

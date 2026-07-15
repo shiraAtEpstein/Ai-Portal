@@ -13,13 +13,12 @@
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 
   <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="/css/today.css" />
 </head>
 
 <body>
 
-<!-- ══════════════════════════════════════════════════════════
-     LOGIN SCREEN
-══════════════════════════════════════════════════════════ -->
+<!-- LOGIN SCREEN -->
 <div id="boot-loading" style="position:fixed;inset:0;z-index:9999;background:#ffffff;display:flex;align-items:center;justify-content:center;color:#9aa0a8;font-family:Arial,Helvetica,sans-serif;font-size:14px;">Loading…</div>
 <div id="login-screen" style="display:none">
   <div class="login-header">
@@ -28,20 +27,9 @@
   </div>
   <div class="login-body">
     <label for="email-input">Email</label>
-    <input
-      type="email"
-      id="email-input"
-      placeholder="your.name@epsteinlaw.co.il"
-      autocomplete="email"
-      spellcheck="false"
-    />
+    <input type="email" id="email-input" placeholder="your.name@epsteinlaw.co.il" autocomplete="email" spellcheck="false" />
     <label for="password-input" style="margin-top:16px">Password</label>
-    <input
-      type="password"
-      id="password-input"
-      placeholder="Enter your password"
-      autocomplete="current-password"
-    />
+    <input type="password" id="password-input" placeholder="Enter your password" autocomplete="current-password" />
     <button class="login-btn" id="login-btn">Sign In →</button>
     <div class="login-error" id="login-error"></div>
 
@@ -56,14 +44,10 @@
       Sign in with Google
     </button>
   </div>
-  <div class="login-footer">
-    Access issues? Contact your system administrator.
-  </div>
+  <div class="login-footer">Access issues? Contact your system administrator.</div>
 </div>
 
-<!-- ══════════════════════════════════════════════════════════
-     PORTAL (shown after login)
-══════════════════════════════════════════════════════════ -->
+<!-- PORTAL (shown after login) -->
 <div id="portal">
 
   <!-- Sidebar -->
@@ -77,6 +61,10 @@
         </div>
       </div>
       <div class="sidebar-subtitle" style="margin-top:8px;" data-i18n="subtitle">Your everyday legal assistant</div>
+      <div class="lang-toggle" role="group" aria-label="Language">
+        <button type="button" class="lang-btn" data-lang="en">EN</button>
+        <button type="button" class="lang-btn" data-lang="he">עברית</button>
+      </div>
     </div>
 
     <div class="sidebar-user">
@@ -91,16 +79,13 @@
       <button id="new-chat-btn" style="width:100%;padding:10px 14px;border:1px solid var(--gold);border-radius:8px;background:transparent;color:var(--gold);font-size:13px;font-weight:600;cursor:pointer;" data-i18n="newChatBtn">+ New chat</button>
     </div>
     <div class="agents-label" data-i18n="recentChats">Recent chats</div>
-    <div class="agent-list" id="conversation-list">
-      <!-- Populated dynamically -->
-    </div>
+    <div class="agent-list" id="conversation-list"></div>
 
     <div class="sidebar-bottom">
       <button class="admin-btn gmail-btn" id="gmail-connect-btn">🔗 Connect Gmail</button>
       <button class="admin-btn" id="activity-open-btn" data-i18n="activityLog">📋 Activity Log</button>
       <button class="admin-btn" id="marketing-open-btn">📣 Marketing</button>
       <button class="admin-btn" id="admin-open-btn" data-i18n="manageUsers">⚙ Manage Users</button>
-      <button class="admin-btn" id="settings-open-btn" style="display:block;" onclick="location.href='/settings.html'">🛠 Settings</button>
       <button class="logout-btn" id="logout-btn" data-i18n="signOut">Sign Out</button>
     </div>
   </div>
@@ -133,12 +118,7 @@
           <select id="agent-select" title="Choose an agent" style="align-self:center;padding:6px 8px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;background:#fff;color:var(--navy);max-width:160px;flex-shrink:0;">
             <option value="" data-i18n="chooseAgent">Choose agent…</option>
           </select>
-          <textarea
-            id="message-input"
-            placeholder="Choose an agent to begin…"
-            data-i18n-ph="messagePlaceholder"
-            rows="1"
-          ></textarea>
+          <textarea id="message-input" placeholder="Choose an agent to begin…" data-i18n-ph="messagePlaceholder" rows="1"></textarea>
           <button id="send-btn" title="Send">➤</button>
         </div>
         <div class="input-hint" data-i18n="inputHint">Press Enter to send · Shift+Enter for new line</div>
@@ -146,14 +126,49 @@
     </div>
 
   </div>
+
+  <!-- Today — docked panel (right of chat). Populated by /js/daily.js. -->
+  <aside id="daily-dock" aria-label="Today">
+    <div class="dl-head">
+      <div class="dl-ring" id="daily-ring"><i id="daily-ring-txt">–</i></div>
+      <div class="dl-head-info">
+        <div class="dl-head-title" data-i18n="dailyTitle">Today</div>
+        <div class="dl-head-date" id="daily-date"></div>
+      </div>
+      <div class="dl-head-actions">
+        <button class="dl-ico" id="daily-refresh" title="Refresh" aria-label="Refresh">⟳</button>
+        <button class="dl-ico" id="daily-open-full" title="Full view" aria-label="Open full view">⤢</button>
+        <button class="dl-ico" id="daily-collapse" title="Collapse" aria-label="Collapse panel">–</button>
+      </div>
+    </div>
+    <div class="dl-prog"><span id="daily-prog"></span> <span class="dl-od" id="daily-od" style="display:none"></span></div>
+    <div class="dl-body" id="daily-body"><div class="dl-loading">Loading your day…</div></div>
+  </aside>
+
 </div>
 
-<!-- ══════════════════════════════════════════════════════════
-     ADMIN SCREEN (admins only)
-══════════════════════════════════════════════════════════ -->
+<!-- Collapsed rail — click to reopen the Today panel -->
+<div id="daily-rail" role="button" tabindex="0" title="Open Today" aria-label="Open Today">
+  <span class="dl-rail-txt">✓ Today</span><span class="dl-rail-badge" id="daily-rail-badge"></span>
+</div>
+
+<!-- Today — full-view overlay -->
+<div id="daily-full" role="dialog" aria-modal="true" aria-label="Today — full view">
+  <div class="dl-full-card">
+    <div class="dl-full-head">
+      <div>
+        <div class="dl-full-title" data-i18n="dailyTitle">Today</div>
+        <div class="dl-full-meta" id="daily-full-meta"></div>
+      </div>
+      <button class="dl-full-x" id="daily-full-close" title="Close" aria-label="Close">×</button>
+    </div>
+    <div class="dl-full-body" id="daily-full-body"></div>
+  </div>
+</div>
+
+<!-- ADMIN SCREEN (admins only) -->
 <div id="admin-screen">
   <div class="admin-wrap">
-
     <div class="admin-topbar">
       <div>
         <h1 data-i18n="mu_title">⚙ Manage Users</h1>
@@ -164,8 +179,6 @@
         <button class="admin-back" id="admin-close-btn" data-i18n="backPortal">← Back to portal</button>
       </div>
     </div>
-
-    <!-- Users list -->
     <div class="admin-card">
       <h2 data-i18n="mu_allUsers">All users</h2>
       <div class="admin-note" id="users-note"></div>
@@ -184,16 +197,10 @@
         </tbody>
       </table>
     </div>
-
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════════════
-     INVITE MODAL (opens from the "Invite new user" button)
-══════════════════════════════════════════════════════════ -->
-<!-- ══════════════════════════════════════════════════════════
-     HISTORY / AUDIT LOG (admins only)
-══════════════════════════════════════════════════════════ -->
+<!-- HISTORY / AUDIT LOG (admins only) -->
 <div id="audit-screen">
   <div class="admin-wrap">
     <div class="admin-topbar">
@@ -229,9 +236,7 @@
   </div>
 </div>
 
-<!-- ==============================================================
-     MARKETING (admins only) - read-only dashboard
-=============================================================== -->
+<!-- MARKETING (admins only) - read-only dashboard -->
 <div id="marketing-screen">
   <div class="admin-wrap">
     <div class="admin-topbar">
@@ -265,7 +270,7 @@
     </div>
     <div class="admin-field">
       <label data-i18n="im_roles">Roles</label>
-      <div class="dropdown" id="invite-roles"><!-- populated --></div>
+      <div class="dropdown" id="invite-roles"></div>
     </div>
     <button class="admin-primary" id="invite-btn" data-i18n="im_send">Send invite</button>
     <div class="admin-note" id="invite-note"></div>
@@ -275,24 +280,7 @@
 <!-- Gmail connect toast -->
 <div id="gmail-toast"></div>
 
-<!-- My Daily floating button + panel -->
-<button id="daily-fab" title="My Daily" aria-label="My Daily">✓<span class="daily-badge" id="daily-badge"></span></button>
-<div id="daily-panel" role="dialog" aria-label="My Daily">
-  <div class="d-head">
-    <div><div class="d-title">My Daily</div><div class="d-date" id="daily-date"></div></div>
-    <div style="flex:1"></div>
-    <button id="daily-refresh" title="Refresh">⟳</button>
-    <button id="daily-close" title="Close">×</button>
-  </div>
-  <div class="d-body" id="daily-body"><div class="d-loading">Open to load your day…</div></div>
-</div>
-
-<!-- ══════════════════════════════════════════════════════════
-     Scripts — load order matters.
-     core → feature modules → boot (boot runs last so every
-     function it calls is already defined). All classic scripts
-     share one global scope, exactly as the old inline code did.
-══════════════════════════════════════════════════════════ -->
+<!-- Scripts — load order matters. core → feature modules → boot (last). -->
 <script src="/js/core.js"></script>
 <script src="/js/auth.js"></script>
 <script src="/js/agents.js"></script>

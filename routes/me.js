@@ -9,6 +9,7 @@
 //   GET  /api/me/memory            -> { preferences, facts }
 //   POST /api/me/memory/forget     -> { kind:'preference'|'fact', text, agentId? }
 //   GET  /api/me/settings          -> { name, settings }
+//   GET  /api/me/core              -> { text, files }  (User Framework Layer 2)
 //   PUT  /api/me/settings          -> { name?, profile?, notifications? } -> { name, settings }
 // ============================================================
 const express = require('express');
@@ -17,6 +18,7 @@ const { authenticate } = require('../lib/sessions');
 const memory = require('../lib/memory');
 const settings = require('../lib/user-settings');
 const store = require('../lib/settings-store');
+const userFramework = require('../lib/user-framework');
 
 module.exports = function createMeRouter() {
   const router = express.Router();
@@ -32,6 +34,20 @@ module.exports = function createMeRouter() {
       // Case-insensitive: roles may be stored capitalized (e.g. "Admin").
       isAdmin: roles.some((r) => String(r).toLowerCase() === 'admin'),
     });
+  });
+
+  // The signed-in user's AI Profile (CORE): their User Framework (Layer 2) text,
+  // read-only from Dropbox via lib/user-framework. Empty text means no personal
+  // profile yet (pure Firm Core). Scoped to the signed-in user's own email.
+  router.get('/api/me/core', authenticate, async (req, res) => {
+    try {
+      const email = (req.session && req.session.email) || '';
+      const fw = await userFramework.loadForEmail(email);
+      res.json({ text: (fw && fw.text) || '', files: (fw && fw.files) || [] });
+    } catch (e) {
+      console.error('[ME] core load failed:', e.message);
+      res.status(500).json({ error: 'Could not load your AI profile.' });
+    }
   });
 
   // Everything a user has stored about themselves (active items only).

@@ -22,6 +22,7 @@ const createMemoryAdminRouter = require('./routes/memory-admin');
 const createMeRouter = require('./routes/me');
 const createFirmRulesRouter = require('./routes/firm-rules');
 const createMarketingRouter = require('./routes/marketing');
+const createDailyRouter = require('./routes/daily');
 
 // Dropbox-backed agents: load framework .md files from the connected Dropbox
 // folder at boot and on a timer (roles stay in config/agents.json). Falls back
@@ -84,6 +85,8 @@ app.use(createMeRouter());
 // Phase 2: pass the mail transporter so a firm-rule proposal can email opted-in admins.
 app.use(createFirmRulesRouter({ transporter }));
 app.use(createMarketingRouter());
+// 'Today' panel: per-user daily task completions (server-side persistence).
+app.use(createDailyRouter());
 
 // Health check — also reports whether the database is reachable.
 app.get('/healthz', async (req, res) => {

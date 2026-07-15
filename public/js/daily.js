@@ -1,15 +1,19 @@
 // daily.js — 'Today' docked panel + full-view overlay.
-// Redesign: the old floating FAB/panel is replaced by a docked column beside
-// the chat ("Today"), collapsible to a slim rail, with an expandable full view.
-// Data pipeline is UNCHANGED — same /api/chat 'daily' agent, same JSON task
-// shape {task, deal, why, url, urgency}, same localStorage completion keyed by
-// deal|task so items already ticked today stay ticked. Everything the agent
-// returns is escaped before it touches innerHTML (content originates from an
-// LLM reading email, so treat it as untrusted).
+// The old floating FAB/panel is a docked column beside the chat, collapsible to
+// a rail, with an expandable full view. Data pipeline (task list) is the same
+// /api/chat 'daily' agent returning {task, deal, why, url, urgency}.
+//
+// Completion is now SERVER-SIDE: /api/daily/completions (GET) and
+// /api/daily/complete (POST), scoped to the signed-in user, so a ticked task
+// survives refresh, another device, and a cache clear. localStorage is kept as
+// a fast local cache / offline fallback: we render from it instantly, then the
+// server's truth (once fetched) overrides it. Task identity is a NORMALIZED
+// deal|task key so trivial whitespace/case drift from the agent doesn't lose a
+// tick. Everything the agent returns is escaped before it touches innerHTML.
 (function () {
   var portal = document.getElementById('portal');
   var dock = document.getElementById('daily-dock');
-  if (!dock) return; // markup not present — nothing to do
+  if (!dock) return;
 
   var body     = document.getElementById('daily-body');
   var ring     = document.getElementById('daily-ring');
@@ -24,15 +28,36 @@
 
   var tasks = [];
   var loaded = false;
+  var day = new Date().toISOString().slice(0,10);
+  var doneMap = {};        // in-memory truth: { normalizedKey: true }
+  var serverSynced = false;
 
-  function todayKey(){ return new Date().toISOString().slice(0,10); }
-  function done(){ try { return JSON.parse(localStorage.getItem('daily-done-'+todayKey())||'[]'); } catch(e){ return []; } }
-  function saveDone(a){ try { localStorage.setItem('daily-done-'+todayKey(), JSON.stringify(a)); } catch(e){} }
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-  // Only allow http(s) links from the agent — never javascript:/data: etc.
   function safeUrl(u){ u=String(u||'').trim(); return /^https?:\/\//i.test(u) ? u : ''; }
-  function keyFor(t){ return (t.deal||'')+'|'+(t.task||''); }
+  function norm(s){ return String(s==null?'':s).trim().toLowerCase().replace(/\s+/g,' '); }
+  function keyFor(t){ return norm(t.deal)+'|'+norm(t.task); }
+  function isDone(k){ return doneMap[k]===true; }
   function urg(t){ var u=(t.urgency||'today').toLowerCase(); return (u==='overdue'||u==='soon')?u:'today'; }
+
+  // --- local cache (fallback / instant paint) ---
+  function cacheKey(){ return 'daily-done-'+day; }
+  function readCache(){ try { var a=JSON.parse(localStorage.getItem(cacheKey())||'[]'); var m={}; a.forEach(function(k){ m[k]=true; }); return m; } catch(e){ return {}; } }
+  function writeCache(){ try { localStorage.setItem(cacheKey(), JSON.stringify(Object.keys(doneMap).filter(function(k){ return doneMap[k]; }))); } catch(e){} }
+
+  // --- server sync ---
+  function loadCompletions(){
+    fetch('/api/daily/completions?day='+encodeURIComponent(day), { credentials:'same-origin' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){
+        if(j && j.keys){ doneMap={}; j.keys.forEach(function(k){ doneMap[k]=true; }); serverSynced=true; writeCache();
+          renderDock(); if(full.classList.contains('open')) renderFull(); }
+      })
+      .catch(function(){ /* keep local cache */ });
+  }
+  function persist(k, val){
+    fetch('/api/daily/complete', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ day:day, key:k, done:val }) }).catch(function(){ /* stays in local cache; reconciles next load */ });
+  }
 
   var GROUPS = [
     { id:'overdue', label:'Overdue', urgent:true },
@@ -40,21 +65,19 @@
     { id:'soon',    label:'Soon',    urgent:false }
   ];
 
-  // dot color per matter, derived deterministically so the same deal keeps its color
   var DOTS = ['#15161a','#7a6f5a','#4a6b8a','#8a5a6b','#5a7a6b','#8a7a4a','#6b5a8a'];
   function dotFor(deal){ var s=String(deal||''); var h=0; for(var i=0;i<s.length;i++){ h=(h*31+s.charCodeAt(i))>>>0; } return DOTS[h%DOTS.length]; }
 
   function counts(){
-    var d=done(), total=tasks.length, doneN=0;
-    tasks.forEach(function(t){ if(d.indexOf(keyFor(t))!==-1) doneN++; });
-    var overdueOpen=tasks.filter(function(t){ return urg(t)==='overdue' && d.indexOf(keyFor(t))===-1; }).length;
+    var total=tasks.length, doneN=0;
+    tasks.forEach(function(t){ if(isDone(keyFor(t))) doneN++; });
+    var overdueOpen=tasks.filter(function(t){ return urg(t)==='overdue' && !isDone(keyFor(t)); }).length;
     return { total:total, done:doneN, open:total-doneN, overdueOpen:overdueOpen };
   }
 
-  // ordered list of OPEN tasks by priority; used to pick the single "Next" item
   function openOrdered(){
-    var d=done(), order={overdue:0,today:1,soon:2}, out=[];
-    tasks.forEach(function(t){ if(d.indexOf(keyFor(t))===-1) out.push(t); });
+    var order={overdue:0,today:1,soon:2}, out=[];
+    tasks.forEach(function(t){ if(!isDone(keyFor(t))) out.push(t); });
     out.sort(function(a,b){ return (order[urg(a)]||1)-(order[urg(b)]||1); });
     return out;
   }
@@ -70,9 +93,9 @@
 
   function rowHtml(t, opts){
     opts=opts||{};
-    var k=keyFor(t), isDone=done().indexOf(k)!==-1;
-    var cls='dl-row'+(isDone?' done':'')+(opts.full?' dl-frow':'');
-    var check='<span class="dl-cbx" role="checkbox" aria-checked="'+(isDone?'true':'false')+'" tabindex="0">'+
+    var k=keyFor(t), d=isDone(k);
+    var cls='dl-row'+(d?' done':'')+(opts.full?' dl-frow':'');
+    var check='<span class="dl-cbx" role="checkbox" aria-checked="'+(d?'true':'false')+'" tabindex="0">'+
       '<svg viewBox="0 0 12 12" aria-hidden="true"><path fill="#fff" d="M10 2.5 4.5 9 1.5 6l1-1 2 2 4.5-5.5z"/></svg></span>';
     var html='<div class="'+cls+'" data-key="'+esc(k)+'">'+check+
       '<div class="dl-main"><div class="dl-title">'+esc(t.task||'(task)')+'</div>'+
@@ -81,56 +104,39 @@
       var why = t.why ? '<b>Why:</b> '+esc(t.why) : 'No extra detail.';
       var url = safeUrl(t.url);
       var open = url ? '<a href="'+esc(url)+'" target="_blank" rel="noopener">Open ↗</a>' : '';
-      html += '<div class="dl-detail" data-detail="'+esc(k)+'">'+why+
-        '<div class="dl-acts">'+open+'</div></div>';
+      html += '<div class="dl-detail" data-detail="'+esc(k)+'">'+why+'<div class="dl-acts">'+open+'</div></div>';
     }
+    return html;
+  }
+
+  function groupsHtml(full_){
+    var next=openOrdered()[0], nextKey=next?keyFor(next):null, html='';
+    if(next){ html+='<div class="dl-kick">Next</div><div class="dl-next">'+rowHtml(next,{full:full_})+'</div>'; }
+    GROUPS.forEach(function(g){
+      var list=tasks.filter(function(t){ return urg(t)===g.id && keyFor(t)!==nextKey; });
+      var openL=list.filter(function(t){ return !isDone(keyFor(t)); });
+      var doneL=list.filter(function(t){ return isDone(keyFor(t)); });
+      var ordered=openL.concat(doneL);
+      if(!ordered.length) return;
+      html+='<div class="dl-kick'+(g.urgent?' od':'')+'">'+esc(g.label)+' <span class="dl-cnt">'+openL.length+'</span></div>';
+      ordered.forEach(function(t){ html+=rowHtml(t,{full:full_}); });
+    });
     return html;
   }
 
   function renderDock(){
     var c=counts();
-    if(!tasks.length){
-      body.innerHTML='<div class="dl-empty">Nothing on your plate today.</div>';
-    } else if(c.open===0){
-      body.innerHTML='<div class="dl-clear"><div class="dl-clear-ring">✓</div>'+
-        '<div class="dl-clear-t">All clear for today</div>'+
-        '<div class="dl-clear-s">'+c.done+' completed</div></div>';
-    } else {
-      var d=done(), open=openOrdered(), next=open[0], nextKey=next?keyFor(next):null, html='';
-      if(next){ html+='<div class="dl-kick">Next</div><div class="dl-next">'+rowHtml(next)+'</div>'; }
-      GROUPS.forEach(function(g){
-        var list=tasks.filter(function(t){ return urg(t)===g.id && keyFor(t)!==nextKey; });
-        var openL=list.filter(function(t){ return d.indexOf(keyFor(t))===-1; });
-        var doneL=list.filter(function(t){ return d.indexOf(keyFor(t))!==-1; });
-        var ordered=openL.concat(doneL);
-        if(!ordered.length) return;
-        html+='<div class="dl-kick'+(g.urgent?' od':'')+'">'+esc(g.label)+' <span class="dl-cnt">'+openL.length+'</span></div>';
-        ordered.forEach(function(t){ html+=rowHtml(t); });
-      });
-      body.innerHTML=html;
-    }
+    if(!tasks.length){ body.innerHTML='<div class="dl-empty">Nothing on your plate today.</div>'; }
+    else if(c.open===0){ body.innerHTML='<div class="dl-clear"><div class="dl-clear-ring">✓</div>'+
+      '<div class="dl-clear-t">All clear for today</div><div class="dl-clear-s">'+c.done+' completed</div></div>'; }
+    else { body.innerHTML=groupsHtml(false); }
     updateMeta(c);
     wire(body,false);
   }
 
   function renderFull(){
-    var c=counts(), d=done(), html='';
-    var open=openOrdered(), next=open[0], nextKey=next?keyFor(next):null;
-    if(!tasks.length){
-      html='<div class="dl-empty">Nothing on your plate today.</div>';
-    } else {
-      if(next){ html+='<div class="dl-kick">Next</div><div class="dl-next">'+rowHtml(next,{full:true})+'</div>'; }
-      GROUPS.forEach(function(g){
-        var list=tasks.filter(function(t){ return urg(t)===g.id && keyFor(t)!==nextKey; });
-        var openL=list.filter(function(t){ return d.indexOf(keyFor(t))===-1; });
-        var doneL=list.filter(function(t){ return d.indexOf(keyFor(t))!==-1; });
-        var ordered=openL.concat(doneL);
-        if(!ordered.length) return;
-        html+='<div class="dl-kick'+(g.urgent?' od':'')+'">'+esc(g.label)+' <span class="dl-cnt">'+openL.length+'</span></div>';
-        ordered.forEach(function(t){ html+=rowHtml(t,{full:true}); });
-      });
-    }
-    fullBody.innerHTML=html;
+    var c=counts();
+    fullBody.innerHTML = tasks.length ? groupsHtml(true) : '<div class="dl-empty">Nothing on your plate today.</div>';
     fullMeta.innerHTML='<b>'+c.done+' of '+c.total+'</b> done today'+
       (c.overdueOpen>0?' · <span class="dl-odflag">'+c.overdueOpen+' overdue</span>':'');
     wire(fullBody,true);
@@ -141,33 +147,27 @@
     if(ring) ring.style.setProperty('--p', pct);
     if(ringTxt) ringTxt.textContent = c.done+'/'+c.total;
     if(progTxt) progTxt.innerHTML = '<b>'+c.done+' of '+c.total+'</b> done';
-    if(odTxt) odTxt.style.display = c.overdueOpen>0 ? 'inline' : 'none';
-    if(odTxt) odTxt.textContent = c.overdueOpen+' overdue';
+    if(odTxt){ odTxt.style.display = c.overdueOpen>0 ? 'inline' : 'none'; odTxt.textContent = c.overdueOpen+' overdue'; }
     if(railBadge){ railBadge.textContent=c.open; railBadge.style.display=c.open>0?'inline-flex':'none'; }
   }
 
-  // toggle completion for a key, persist, and refresh both views' counts/state
   function toggle(k){
-    var a=done(), i=a.indexOf(k);
-    if(i===-1) a.push(k); else a.splice(i,1);
-    saveDone(a);
+    var val = !isDone(k);
+    if(val) doneMap[k]=true; else delete doneMap[k];
+    writeCache();
     renderDock();
     if(full.classList.contains('open')) renderFull();
+    persist(k, val);
   }
 
   function wire(root, isFull){
-    root.querySelectorAll('.dl-row, .dl-frow').forEach(function(el){
-      var row = el; // the row div
+    root.querySelectorAll('.dl-row, .dl-frow').forEach(function(row){
       row.addEventListener('click', function(e){
         var k=row.getAttribute('data-key');
         if(e.target.closest('.dl-cbx')){ toggle(k); e.stopPropagation(); return; }
         if(e.target.closest('a')) return;
-        if(isFull){
-          var det=fullBody.querySelector('[data-detail="'+cssEsc(k)+'"]');
-          if(det){ det.classList.toggle('open'); }
-        } else {
-          openFull(); // compact rows open the full view for detail
-        }
+        if(isFull){ var det=fullBody.querySelector('[data-detail="'+cssEsc(k)+'"]'); if(det){ det.classList.toggle('open'); } }
+        else { openFull(); }
       });
       var cbx=row.querySelector('.dl-cbx');
       if(cbx){ cbx.addEventListener('keydown', function(e){ if(e.key===' '||e.key==='Enter'){ e.preventDefault(); toggle(row.getAttribute('data-key')); } }); }
@@ -175,11 +175,11 @@
   }
   function cssEsc(s){ return String(s).replace(/["\\\]]/g,'\\$&'); }
 
-  // --- data load: same SSE-reading logic as before -------------------------
+  // --- task load: same SSE-reading logic as before -------------------------
   function extract(t){ if(!t) return null; var m=t.match(/\[[\s\S]*\]/); if(!m) return null; try { return JSON.parse(m[0]); } catch(e){ return null; } }
-  function setLoading(msg){ body.innerHTML='<div class="dl-loading">'+esc(msg)+'</div>'; }
   function load(){
-    setLoading('Reading your day…');
+    body.innerHTML='<div class="dl-loading">Reading your day…</div>';
+    loadCompletions(); // refresh completion truth in parallel
     fetch('/api/chat',{ method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ agentId:'daily', message:'Give me my tasks for today. Respond with ONLY a JSON array (no prose, no code fence). Each element: {"task": string, "deal": string, "why": string, "url": string, "urgency": "overdue"|"today"|"soon"}.' }) })
       .then(async function(r){
@@ -220,11 +220,12 @@
   full.addEventListener('click', function(e){ if(e.target===full) closeFull(); });
   document.addEventListener('keydown', function(e){ if(e.key==='Escape' && full.classList.contains('open')) closeFull(); });
 
-  // date label
   var dateEl=document.getElementById('daily-date');
   if(dateEl) dateEl.textContent = new Date().toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'});
 
-  // Show the dock only while the portal is visible (after login); auto-load once.
+  // seed from local cache so the panel paints instantly, then server overrides
+  doneMap = readCache();
+
   function sync(){
     var on = portal && getComputedStyle(portal).display !== 'none';
     dock.style.display = on ? '' : 'none';

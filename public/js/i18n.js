@@ -55,6 +55,7 @@
     } catch(e){}
   }
   function apply(lang){
+    if(lang!=='he' && lang!=='en') lang='en';
     currentLang = lang;
     var dict = lang==='he'?HE:EN;
     document.querySelectorAll('[data-i18n]').forEach(function(el){var k=el.getAttribute('data-i18n');if(dict[k]!=null)el.textContent=dict[k];});
@@ -65,6 +66,9 @@
     translateAgents(lang);
     try{localStorage.setItem('portalLang',lang);}catch(e){}
   }
+  // Let other scripts (e.g. boot.js, after reading the saved Settings preference)
+  // drive the portal language. Applies immediately and persists the choice.
+  window.setPortalLang = apply;
   function init(){
     captureEnglish();
     var saved='en'; try{saved=localStorage.getItem('portalLang')||'en';}catch(e){}

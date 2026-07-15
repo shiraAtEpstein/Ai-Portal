@@ -952,8 +952,8 @@
     .lang-btn { color:#6b665d; }
     .lang-btn.active { background:#15161a; color:#fff; }
 
-    /* hide Marketing from the sidebar */
-    #marketing-open-btn { display: none !important; }
+    /* Gmail lives in Settings > Connections; Marketing is admin-only (shown for admins by auth.js) */
+    #gmail-connect-btn { display: none !important; }
 
     /* refined, on-theme scrollbar for the chat history list */
     .agent-list { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,0.18) transparent; }

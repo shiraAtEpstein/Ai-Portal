@@ -76,3 +76,47 @@ test('slugForEmail strips path-traversal characters', () => {
   assert.strictEqual(uf.slugForEmail('../../etc/passwd@x'), '....etcpasswd@x');
   assert.ok(!uf.slugForEmail('a/../../b@x.com').includes('/'));
 });
+
+// ── failure vs. empty-state (a real Dropbox outage must not look like "no profile") ──
+function throwingReader(err) {
+  return { readFile: async () => { throw err; } };
+}
+
+test('a Dropbox outage is reported, not disguised as an empty profile', async () => {
+  const r = await uf.loadForEmail('shira@epsteinlaw.co.il', {
+    reader: throwingReader(new Error('Dropbox is not connected.')),
+  });
+  assert.strictEqual(r.error, 'unavailable');
+  assert.strictEqual(r.text, '');
+});
+
+test('a genuinely missing file stays a normal empty-state, with no error', async () => {
+  const r = await uf.loadForEmail('nobody@epsteinlaw.co.il', { reader: fakeReader({}) });
+  assert.strictEqual(r.error, null);
+  assert.strictEqual(r.text, '');
+});
+
+test('an error flagged notFound is treated as a missing file', async () => {
+  const e = Object.assign(new Error('dropbox download error'), { notFound: true });
+  const r = await uf.loadForEmail('x@epsteinlaw.co.il', { reader: throwingReader(e) });
+  assert.strictEqual(r.error, null);
+  assert.strictEqual(r.text, '');
+});
+
+test('a partial auth failure is not passed off as a partial profile', async () => {
+  const r = await uf.loadForEmail('mix@epsteinlaw.co.il', {
+    reader: { readFile: async (p) => {
+      if (p.endsWith('profile.md')) return 'Role: partner.';
+      throw new Error('invalid_access_token');
+    } },
+  });
+  assert.strictEqual(r.error, 'unavailable');
+  assert.strictEqual(r.text, '');
+});
+
+test('render() adds nothing when the framework is unavailable', async () => {
+  const r = await uf.loadForEmail('x@epsteinlaw.co.il', {
+    reader: throwingReader(new Error('dropbox token error: 401')),
+  });
+  assert.strictEqual(uf.render(r, 'X'), '');
+});

@@ -275,7 +275,7 @@ textarea.tin{resize:vertical;min-height:80px;line-height:1.55}
       {id:'connections',ic:IC.link,label:'Connections'}
     ]},
     {group:'Firm workspace',admin:true,note:'Visible to admins only. These control the whole firm.',items:[
-      {id:'people',ic:IC.people,label:'People &amp; roles'},
+      {id:'people',ic:IC.people,label:'Users'},
       {id:'rules',ic:IC.doc,label:'Firm House Rules'},
       {id:'approvals',ic:IC.check,label:'Approvals',badge:true},
       {id:'activity',ic:IC.activity,label:'Activity log'},
@@ -381,7 +381,7 @@ textarea.tin{resize:vertical;min-height:80px;line-height:1.55}
       '<div id="mem-matter" style="display:none"><div class="info" style="background:#eae7f4;border-color:#d9cfec;color:#4a3a72"><span class="si">🔐</span><div><b>Walled to one agent.</b> Matter notes stay private to the agent you saved them with and never reach client-facing or marketing agents.</div></div><div id="mem-matter-list">Loading…</div></div>';
   };
   PAGES.people=function(){
-    return head('Firm workspace · Admin','People &amp; roles','Everyone with access to the portal. Invite staff, set what they can do, and manage licenses.')+
+    return head('Firm workspace · Admin','Users','Everyone with access to the portal. Invite staff, set what they can do, and manage licenses.')+
       '<div class="card"><h2>Licenses</h2><div class="lic"><div class="lbox"><div class="lnum" id="lic-active">–</div><div class="llbl">Active</div></div><div class="lbox"><div class="lnum" id="lic-pending">–</div><div class="llbl">Pending invites</div></div><div class="lbox"><div class="lnum" id="lic-total">–</div><div class="llbl">Total accounts</div></div></div></div>'+
       '<div class="card"><div class="card-head-row"><div><h2>Members</h2><div class="csub" id="people-sub">Loading…</div></div><button class="btn sm primary" id="people-invite">+ Invite user</button></div>'+
         '<table class="tbl"><thead><tr><th>Name</th><th>Roles</th><th>Status</th><th></th></tr></thead><tbody id="users-tbody"><tr><td colspan="4" style="color:var(--gray-400)">Loading…</td></tr></tbody></table></div>';

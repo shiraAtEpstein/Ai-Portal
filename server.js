@@ -81,7 +81,8 @@ app.use(createGmailRouter());
 app.use(createAdminRouter({ loadUsers }));
 app.use(createMemoryAdminRouter());
 app.use(createMeRouter());
-app.use(createFirmRulesRouter());
+// Phase 2: pass the mail transporter so a firm-rule proposal can email opted-in admins.
+app.use(createFirmRulesRouter({ transporter }));
 app.use(createMarketingRouter());
 
 // Health check — also reports whether the database is reachable.

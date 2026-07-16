@@ -124,19 +124,22 @@
           <div class="chat-header-name" id="header-name" data-i18n="headerName">New chat</div>
           <div class="chat-header-desc" id="header-desc" data-i18n="headerDesc">Pick an agent to begin</div>
         </div>
-        <div class="status-dot" title="Online"></div>
+        <span class="chat-status-pill"><span class="dot"></span>Online</span>
       </div>
 
       <div class="messages" id="messages"></div>
 
       <div class="input-area">
-        <div class="input-row" id="input-row">
-          <select id="agent-select" title="Choose an agent" style="align-self:center;padding:6px 8px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;background:#fff;color:var(--navy);max-width:160px;flex-shrink:0;">
+        <div class="chat-agentbar">
+          <select id="agent-select" class="agent-pill" title="Choose an agent">
             <option value="" data-i18n="chooseAgent">Choose agent…</option>
           </select>
+          <span class="agent-hint" data-i18n="agentHint">Replies use the selected agent — switch anytime.</span>
+        </div>
+        <div class="input-row" id="input-row">
           <textarea
             id="message-input"
-            placeholder="Choose an agent to begin…"
+            placeholder="Message Lawly…"
             data-i18n-ph="messagePlaceholder"
             rows="1"
           ></textarea>

@@ -1,7 +1,7 @@
 // chat.js — sending messages, the 'thinking' card, message rendering.
-// ══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 //  SEND MESSAGE
-// ══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 document.getElementById('send-btn').addEventListener('click', sendMessage);
 document.getElementById('message-input').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) {
@@ -235,9 +235,9 @@ async function sendMessage() {
   document.getElementById('send-btn').disabled = false;
   input.focus();
 }
-// ══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 //  RENDER MESSAGES
-// ══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 function appendMessage(role, text) {
   const msgs      = document.getElementById('messages');
   var __hero = msgs.querySelector('.lawly-hero'); if (__hero) __hero.remove();
@@ -249,7 +249,16 @@ function appendMessage(role, text) {
 
   const avatar = document.createElement('div');
   avatar.className = 'msg-avatar';
-  avatar.textContent = isUser ? userName.charAt(0).toUpperCase() : '⚖️';
+  if (isUser) {
+    avatar.textContent = (userName || '?').charAt(0).toUpperCase();
+  } else if (typeof agentSvg === 'function') {
+    // Show the icon of the agent this reply is from (currentAgent tracks the
+    // active/opened conversation's agent), matching the chat header.
+    avatar.classList.add('icon-svg');
+    avatar.innerHTML = agentSvg(currentAgent);
+  } else {
+    avatar.textContent = '⚖️';
+  }
 
   // Sender label above the bubble. User → their name; assistant → the current agent's name.
   const body = document.createElement('div');

@@ -33,6 +33,8 @@ const agentRegistry = require('./lib/agents');
 const dropbox = require('./lib/dropbox');
 
 const app = express();
+const whatsappWebhook = require('./whatsapp/webhook');
+app.use('/whatsapp', whatsappWebhook); 
 app.use(express.json());
 
 // Serve the SPA shell with the Marketing Console loader injected. The loader

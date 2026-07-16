@@ -10,6 +10,7 @@ let agentsById = {};
 let isLoading      = false;
 
 const agentIcons = {
+  lawly:           '⚖️',
   copywriter:      '✍️',
   researcher:      '🔍',
   paralegal:       '📋',

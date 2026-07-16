@@ -1,18 +1,28 @@
 // daily.js — 'Today' docked panel + full-view overlay.
-// Docked column beside the chat (collapsible to a rail) + expandable full view.
-// Task list still comes from the /api/chat 'daily' agent {task, deal, why, url, urgency}.
 //
-// Server-backed per-user state (with localStorage as fast cache / offline fallback):
-//   • completion  — GET /api/daily/completions, POST /api/daily/complete
-//   • snooze      — POST /api/daily/snooze ; GET returns keys still hidden today
-// Task identity is a NORMALIZED deal|task key so trivial wording drift doesn't
-// lose a tick or a snooze. All agent-supplied text is escaped before innerHTML;
-// agent URLs pass an http(s) allowlist.
+// COST MODEL: generating the list runs the 'daily' agent across the user's
+// email, calendar and monday boards — slow and expensive. It NEVER runs
+// automatically. Opening the panel reads the cached list from /api/daily/tasks
+// (a cheap DB read). The agent only runs on an explicit "Load my day" / ⟳
+// click, and the server caps it at 3 runs per user per day (claimed BEFORE the
+// call, so the cap actually bites).
 //
-// Dates: `day` is the LOCAL calendar date and nextDay() does UTC-based calendar
-// math. (Parsing 'YYYY-MM-DDT00:00:00' as local and re-serialising with
-// toISOString() shifts backwards across midnight in UTC+ zones such as
-// Asia/Jerusalem, which made "tomorrow" resolve to today.)
+// TASK IDENTITY: keyed on the task's URL when it has one — the deep link to the
+// monday item or the email thread. The agent rewords tasks between runs, so a
+// text-based key ("deal|task") silently changed identity on every regeneration
+// and lost every tick. The URL is stable across rewording. Text is only the
+// fallback for tasks with no link.
+//
+// HANDLED IS PERMANENT, BUT TODAY'S WORK STAYS VISIBLE: ticking a task means
+// "taken care of" and it never comes back — no need to also delete the email or
+// move the monday item. Tasks handled TODAY remain on screen in the "Done"
+// section so the day's work is visible until tomorrow; tasks handled on an
+// EARLIER day are filtered out entirely. Un-ticking is the undo.
+//
+// All agent-supplied text is escaped before innerHTML; agent URLs pass an
+// http(s) allowlist. `day` is the LOCAL calendar date; nextDay() does UTC-based
+// calendar math (a local parse + toISOString() round-trip shifts backwards
+// across midnight in UTC+ zones such as Asia/Jerusalem).
 (function () {
   var portal = document.getElementById('portal');
   var dock = document.getElementById('daily-dock');
@@ -28,46 +38,53 @@
   var fullMeta = document.getElementById('daily-full-meta');
   var rail     = document.getElementById('daily-rail');
   var railBadge= document.getElementById('daily-rail-badge');
+  var dateEl   = document.getElementById('daily-date');
 
   var tasks = [];
   var loaded = false;
-  var prevKeys = null;                     // for the refresh diff
+  var opened = false;
+  var prevKeys = null;
+  var remaining = null;
+  var generatedAt = null;
+
   function localDay(){ var d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10); }
   function nextDay(d){ var t=new Date(d+'T00:00:00Z'); t.setUTCDate(t.getUTCDate()+1); return t.toISOString().slice(0,10); }
   var day = localDay();
-  var doneMap = {};                        // { normalizedKey: true }
-  var snoozeMap = {};                      // { normalizedKey: true } — hidden today
+
+  var doneMap = {};    // key -> true : handled (ever)
+  var todayMap = {};   // key -> true : handled TODAY (still shown, under "Done")
+  var snoozeMap = {};  // key -> true : hidden until a later day
+  var hiddenDone = {}; // handled on an EARLIER day -> never rendered again
 
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function safeUrl(u){ u=String(u||'').trim(); return /^https?:\/\//i.test(u) ? u : ''; }
   function norm(s){ return String(s==null?'':s).trim().toLowerCase().replace(/\s+/g,' '); }
-  function keyFor(t){ return norm(t.deal)+'|'+norm(t.task); }
+  function keyFor(t){
+    var u = safeUrl(t && t.url);
+    if(u) return 'u:' + u.toLowerCase().replace(/#.*$/,'').replace(/\/+$/,'');
+    return 't:' + norm(t && t.deal) + '|' + norm(t && t.task);
+  }
   function isDone(k){ return doneMap[k]===true; }
   function isSnoozed(k){ return snoozeMap[k]===true; }
+  function isHandled(k){ return hiddenDone[k]===true; }
   function urg(t){ var u=(t.urgency||'today').toLowerCase(); return (u==='overdue'||u==='soon')?u:'today'; }
-  function visibleTasks(){ return tasks.filter(function(t){ return !isSnoozed(keyFor(t)); }); }
-  function snoozedTasks(){ return tasks.filter(function(t){ return isSnoozed(keyFor(t)); }); }
+  function visibleTasks(){ return tasks.filter(function(t){ var k=keyFor(t); return !isSnoozed(k) && !isHandled(k); }); }
+  function snoozedTasks(){ return tasks.filter(function(t){ var k=keyFor(t); return isSnoozed(k) && !isHandled(k); }); }
 
-  // --- local cache (fallback / instant paint) ---
-  function readList(name){ try { return JSON.parse(localStorage.getItem(name+'-'+day)||'[]'); } catch(e){ return []; } }
-  function writeList(name, map){ try { localStorage.setItem(name+'-'+day, JSON.stringify(Object.keys(map).filter(function(k){ return map[k]; }))); } catch(e){} }
+  function readJson(k, dflt){ try { return JSON.parse(localStorage.getItem(k)||JSON.stringify(dflt)); } catch(e){ return dflt; } }
+  function writeArr(k, map){ try { localStorage.setItem(k, JSON.stringify(Object.keys(map).filter(function(x){ return map[x]; }))); } catch(e){} }
   function toMap(arr){ var m={}; (arr||[]).forEach(function(k){ m[k]=true; }); return m; }
+  var LS_HANDLED='daily-handled', LS_TODAY='daily-handled-'+day, LS_SNOOZED='daily-snoozed-'+day;
 
-  // --- server sync ---
-  function loadState(){
-    fetch('/api/daily/completions?day='+encodeURIComponent(day), { credentials:'same-origin' })
-      .then(function(r){ return r.ok ? r.json() : null; })
-      .then(function(j){
-        if(!j) return;
-        if(j.keys){ doneMap = toMap(j.keys); writeList('daily-done', doneMap); }
-        if(j.snoozed){ snoozeMap = toMap(j.snoozed); writeList('daily-snoozed', snoozeMap); }
-        rerender();
-      })
-      .catch(function(){ /* keep local cache */ });
+  // Everything handled on an earlier day is hidden; today's stays on screen.
+  function recomputeHidden(){
+    hiddenDone = {};
+    Object.keys(doneMap).forEach(function(k){ if(doneMap[k] && !todayMap[k]) hiddenDone[k]=true; });
   }
+
   function persistDone(k, val){
     fetch('/api/daily/complete', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ day:day, key:k, done:val }) }).catch(function(){});
+      body: JSON.stringify({ key:k, done:val }) }).catch(function(){});
   }
   function persistSnooze(k, until){
     fetch('/api/daily/snooze', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
@@ -80,10 +97,8 @@
     { id:'soon',    label:'Soon',    urgent:false }
   ];
   var ORDER = { overdue:0, today:1, soon:2 };
-
   var DOTS = ['#15161a','#7a6f5a','#4a6b8a','#8a5a6b','#5a7a6b','#8a7a4a','#6b5a8a'];
   function dotFor(deal){ var s=String(deal||''); var h=0; for(var i=0;i<s.length;i++){ h=(h*31+s.charCodeAt(i))>>>0; } return DOTS[h%DOTS.length]; }
-
   var CLOCK_SVG='<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.6V8l2.4 1.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
 
   function counts(){
@@ -102,7 +117,6 @@
     return bits.join('');
   }
 
-  // Row-level quick actions, revealed on hover/focus (always shown on touch).
   function quickHtml(t, k, opts){
     var url=safeUrl(t.url), bits='';
     if(url) bits+='<a class="dl-q" href="'+esc(url)+'" target="_blank" rel="noopener" title="Open" aria-label="Open">&#8599;</a>';
@@ -150,7 +164,7 @@
       list.forEach(function(t){ html+=rowHtml(t,{full:full_}); });
     });
     if(doneL.length){
-      html+='<details class="dl-donesec"'+(open.length?'':' open')+'><summary>Done ('+doneL.length+')</summary><div class="dl-done-list">';
+      html+='<details class="dl-donesec"'+(open.length?'':' open')+'><summary>Done today ('+doneL.length+')</summary><div class="dl-done-list">';
       doneL.forEach(function(t){ html+=rowHtml(t,{full:full_}); });
       html+='</div></details>';
     }
@@ -162,10 +176,23 @@
     return html;
   }
 
+  function ctaHtml(){
+    if(remaining===0){
+      return '<div class="dl-cta"><div class="dl-cta-t">Daily limit reached</div>'+
+        '<div class="dl-cta-s">Your day has already been generated 3 times today. It resets tomorrow.</div></div>';
+    }
+    return '<div class="dl-cta">'+
+      '<div class="dl-cta-t">Your day isn\'t prepared yet</div>'+
+      '<button type="button" class="dl-cta-btn" id="daily-load-btn">Load my day</button>'+
+      '<div class="dl-cta-s">Reads your email, calendar and monday deals. Runs once, then it\'s saved for today.</div>'+
+      '</div>';
+  }
+
   function renderDock(){
     var c=counts();
+    if(!loaded){ body.innerHTML=ctaHtml(); wireCta(); updateMeta(c); return; }
     if(!tasks.length){ body.innerHTML='<div class="dl-empty">Nothing on your plate today.</div>'; }
-    else if(c.total===0){ body.innerHTML='<div class="dl-empty">Everything is snoozed for later.</div>'+contentHtml(false); }
+    else if(c.total===0){ body.innerHTML='<div class="dl-empty">Nothing left for today.</div>'+contentHtml(false); }
     else if(c.open===0){ body.innerHTML='<div class="dl-clear"><div class="dl-clear-ring">&#10003;</div>'+
       '<div class="dl-clear-t">All clear for today</div>'+
       '<div class="dl-clear-s">'+c.done+' completed</div>'+
@@ -177,45 +204,57 @@
 
   function renderFull(){
     var c=counts();
-    fullBody.innerHTML = tasks.length ? contentHtml(true) : '<div class="dl-empty">Nothing on your plate today.</div>';
-    fullMeta.innerHTML='<b>'+c.done+' of '+c.total+'</b> done today'+
-      (c.overdueOpen>0?' &middot; <span class="dl-odflag">'+c.overdueOpen+' overdue</span>':'');
-    wire(fullBody,true);
+    fullBody.innerHTML = loaded ? (tasks.length ? contentHtml(true) : '<div class="dl-empty">Nothing on your plate today.</div>') : ctaHtml();
+    fullMeta.innerHTML = loaded ? ('<b>'+c.done+' of '+c.total+'</b> done today'+
+      (c.overdueOpen>0?' &middot; <span class="dl-odflag">'+c.overdueOpen+' overdue</span>':'')) : '';
+    if(loaded) wire(fullBody,true); else wireCta();
+  }
+
+  function stamp(){
+    if(!dateEl) return;
+    var base = new Date().toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'});
+    if(generatedAt){
+      var t = new Date(generatedAt);
+      if(!isNaN(t)) base += ' · as of ' + t.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});
+    }
+    dateEl.textContent = base;
   }
 
   function updateMeta(c){
     var pct = c.total? Math.round(c.done/c.total*100) : 0;
-    if(ring) ring.style.setProperty('--p', pct);
-    if(ringTxt) ringTxt.textContent = c.done+'/'+c.total;
-    if(progTxt) progTxt.innerHTML = '<b>'+c.done+' of '+c.total+'</b> done';
-    if(odTxt){ odTxt.style.display = c.overdueOpen>0 ? 'inline' : 'none'; odTxt.textContent = c.overdueOpen+' overdue'; }
-    if(railBadge){ railBadge.textContent=c.open; railBadge.style.display=c.open>0?'inline-flex':'none'; }
+    if(ring) ring.style.setProperty('--p', loaded?pct:0);
+    if(ringTxt) ringTxt.textContent = loaded ? (c.done+'/'+c.total) : '–';
+    if(progTxt) progTxt.innerHTML = loaded ? ('<b>'+c.done+' of '+c.total+'</b> done') : '';
+    if(odTxt){ odTxt.style.display = (loaded && c.overdueOpen>0) ? 'inline' : 'none'; odTxt.textContent = c.overdueOpen+' overdue'; }
+    if(railBadge){ var o=loaded?c.open:0; railBadge.textContent=o; railBadge.style.display=o>0?'inline-flex':'none'; }
+    var rb=document.getElementById('daily-refresh');
+    if(rb && remaining!==null) rb.title = remaining>0 ? ('Refresh ('+remaining+' left today)') : 'Daily limit reached';
+    stamp();
   }
 
   function rerender(){ renderDock(); if(full.classList.contains('open')) renderFull(); }
 
   function toggle(k){
     var val = !isDone(k);
-    if(val) doneMap[k]=true; else delete doneMap[k];
-    writeList('daily-done', doneMap);
+    if(val){ doneMap[k]=true; todayMap[k]=true; }
+    else { delete doneMap[k]; delete todayMap[k]; }
+    writeArr(LS_HANDLED, doneMap); writeArr(LS_TODAY, todayMap);
+    recomputeHidden();
     rerender();
     persistDone(k, val);
   }
-
   function snooze(k){
-    snoozeMap[k]=true;
-    writeList('daily-snoozed', snoozeMap);
-    rerender();
-    persistSnooze(k, nextDay(day));
-    showToast('Snoozed to tomorrow');
+    snoozeMap[k]=true; writeArr(LS_SNOOZED, snoozeMap);
+    rerender(); persistSnooze(k, nextDay(day)); showToast('Snoozed to tomorrow');
+  }
+  function unsnooze(k){
+    delete snoozeMap[k]; writeArr(LS_SNOOZED, snoozeMap);
+    rerender(); persistSnooze(k, day); showToast('Back on today');
   }
 
-  function unsnooze(k){
-    delete snoozeMap[k];
-    writeList('daily-snoozed', snoozeMap);
-    rerender();
-    persistSnooze(k, day); // until = today -> no longer hidden
-    showToast('Back on today');
+  function wireCta(){
+    var b=document.getElementById('daily-load-btn');
+    if(b) b.addEventListener('click', function(){ runAgent(); });
   }
 
   function wire(root, isFull){
@@ -240,7 +279,6 @@
   }
   function cssEsc(s){ return String(s).replace(/["\\\]]/g,'\\$&'); }
 
-  // --- transient toast in the dock ---
   var toastEl=null, toastT=null;
   function showToast(msg){
     if(!toastEl){ toastEl=document.createElement('div'); toastEl.className='dl-toast'; dock.appendChild(toastEl); }
@@ -248,23 +286,75 @@
     clearTimeout(toastT); toastT=setTimeout(function(){ toastEl.classList.remove('show'); }, 2600);
   }
 
-  // --- task load: same SSE-reading logic, with a non-destructive diff ---
+  // --- open: cheap reads only, NO agent call -------------------------------
+  function openDay(){
+    if(opened) return; opened = true;
+    body.innerHTML='<div class="dl-loading">Loading…</div>';
+    Promise.all([
+      fetch('/api/daily/completions?day='+encodeURIComponent(day), { credentials:'same-origin' })
+        .then(function(r){ return r.ok?r.json():null; }).catch(function(){ return null; }),
+      fetch('/api/daily/tasks?day='+encodeURIComponent(day), { credentials:'same-origin' })
+        .then(function(r){ return r.ok?r.json():null; }).catch(function(){ return null; })
+    ]).then(function(res){
+      var state=res[0], cached=res[1];
+      if(state){
+        doneMap  = toMap(state.handled || []);
+        todayMap = toMap(state.keys || []);      // handled today -> still shown
+        snoozeMap= toMap(state.snoozed || []);
+      } else {
+        doneMap  = toMap(readJson(LS_HANDLED, []));
+        todayMap = toMap(readJson(LS_TODAY, []));
+        snoozeMap= toMap(readJson(LS_SNOOZED, []));
+      }
+      writeArr(LS_HANDLED, doneMap); writeArr(LS_TODAY, todayMap); writeArr(LS_SNOOZED, snoozeMap);
+      recomputeHidden();
+
+      if(cached){
+        remaining = (typeof cached.remaining==='number') ? cached.remaining : null;
+        generatedAt = cached.generatedAt || null;
+        if(cached.tasks && cached.tasks.length){ tasks = cached.tasks; prevKeys = tasks.map(keyFor); loaded = true; }
+      }
+      rerender();
+    });
+  }
+
+  // --- run the agent: only on an explicit click ---------------------------
   function extract(t){ if(!t) return null; var m=t.match(/\[[\s\S]*\]/); if(!m) return null; try { return JSON.parse(m[0]); } catch(e){ return null; } }
   function diffToast(newTasks){
-    if(prevKeys===null) return; // first load — nothing to compare
+    if(prevKeys===null) return;
     var nk=newTasks.map(keyFor);
     var added=nk.filter(function(k){ return prevKeys.indexOf(k)===-1; }).length;
     var gone =prevKeys.filter(function(k){ return nk.indexOf(k)===-1; }).length;
-    if(added||gone){ showToast(added+' new · '+gone+' resolved'); }
-    else { showToast('Up to date'); }
+    if(added||gone) showToast(added+' new · '+gone+' resolved'); else showToast('Up to date');
   }
-  function load(){
-    body.innerHTML='<div class="dl-loading">Reading your day…</div>';
-    loadState(); // refresh completion + snooze truth in parallel
-    fetch('/api/chat',{ method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ agentId:'daily', message:'Give me my tasks for today. Respond with ONLY a JSON array (no prose, no code fence). Each element: {"task": string, "deal": string, "why": string, "url": string, "urgency": "overdue"|"today"|"soon"}.' }) })
+  var running=false;
+  function runAgent(){
+    if(running) return; running=true;
+    var rb=document.getElementById('daily-refresh'); if(rb) rb.classList.add('spinning');
+    body.innerHTML='<div class="dl-loading">Reading your day…<br><span class="dl-loading-s">email · calendar · monday</span></div>';
+    fetch('/api/daily/tasks/claim', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ day:day }) })
+      .then(function(r){ return r.json().then(function(j){ return { status:r.status, j:j }; }); })
+      .then(function(c){
+        if(c.status===429){ remaining=0; running=false; if(rb) rb.classList.remove('spinning'); rerender(); showToast('Daily limit reached (3/day)'); return null; }
+        if(c.status!==200){ throw new Error((c.j&&c.j.error)||'claim failed'); }
+        if(typeof c.j.remaining==='number') remaining=c.j.remaining;
+        return callAgent();
+      })
+      .catch(function(){
+        running=false; if(rb) rb.classList.remove('spinning');
+        body.innerHTML='<div class="dl-empty">Could not load your day right now.</div>';
+      });
+  }
+
+  function callAgent(){
+    return fetch('/api/chat',{ method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ agentId:'daily', message:'Give me my tasks for today. Respond with ONLY a JSON array (no prose, no code fence). Each element: {"task": string, "deal": string, "why": string, "url": string, "urgency": "overdue"|"today"|"soon"}. The "url" must be a stable deep link to the monday item or the email thread — it is used to identify the task across runs, so keep it identical for the same underlying item.' }) })
       .then(async function(r){
-        if(!r.ok){ var e={}; try{ e=await r.json(); }catch(_){} body.innerHTML='<div class="dl-empty">'+esc((e&&e.error)||'Could not load your day right now.')+'</div>'; return; }
+        var rb=document.getElementById('daily-refresh');
+        if(!r.ok){ var e={}; try{ e=await r.json(); }catch(_){}
+          running=false; if(rb) rb.classList.remove('spinning');
+          body.innerHTML='<div class="dl-empty">'+esc((e&&e.error)||'Could not load your day right now.')+'</div>'; return; }
         var reader=r.body.getReader(), dec=new TextDecoder(), buf='', answer='', finalResp=null;
         while(true){ var chunk=await reader.read(); if(chunk.done) break; buf+=dec.decode(chunk.value,{stream:true});
           var nl; while((nl=buf.indexOf('\n\n'))>=0){ var frame=buf.slice(0,nl); buf=buf.slice(nl+2);
@@ -272,23 +362,33 @@
             var evt; try{ evt=JSON.parse(line.slice(5).trim()); }catch(_){ continue; }
             if(evt.type==='token') answer+=evt.text;
             else if(evt.type==='done') finalResp=(evt.response||answer);
-            else if(evt.type==='error'){ body.innerHTML='<div class="dl-empty">'+esc(evt.error||'Something went wrong.')+'</div>'; return; }
+            else if(evt.type==='error'){ running=false; if(rb) rb.classList.remove('spinning');
+              body.innerHTML='<div class="dl-empty">'+esc(evt.error||'Something went wrong.')+'</div>'; return; }
           }
         }
+        running=false; if(rb) rb.classList.remove('spinning');
         var parsed=extract(finalResp||answer);
         if(!parsed || !parsed.length){ body.innerHTML='<div class="dl-empty">Couldn\'t read a task list yet. Try refresh, or open the Daily agent in chat.</div>'; return; }
         diffToast(parsed);
-        tasks=parsed; prevKeys=parsed.map(keyFor); loaded=true;
+        tasks=parsed; prevKeys=parsed.map(keyFor); loaded=true; generatedAt=new Date().toISOString();
         rerender();
-      })
-      .catch(function(){ body.innerHTML='<div class="dl-empty">Could not load your day right now.</div>'; });
+        fetch('/api/daily/tasks', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ day:day, tasks:parsed }) })
+          .then(function(r){ return r.ok?r.json():null; })
+          .then(function(j){ if(j){ if(j.generatedAt) generatedAt=j.generatedAt;
+            if(typeof j.remaining==='number') remaining=j.remaining; stamp(); } })
+          .catch(function(){});
+      });
   }
 
   // --- open/close full view + collapse rail --------------------------------
+  // The rail lives OUTSIDE #portal (it is position:fixed), so it cannot be
+  // shown with a `#portal.daily-collapsed #daily-rail` descendant selector —
+  // that never matches. Toggle a class on the rail itself instead.
   function openFull(){ renderFull(); full.classList.add('open'); }
   function closeFull(){ full.classList.remove('open'); }
-  function collapse(){ portal.classList.add('daily-collapsed'); }
-  function expand(){ portal.classList.remove('daily-collapsed'); if(!loaded) load(); }
+  function collapse(){ portal.classList.add('daily-collapsed'); if(rail) rail.classList.add('show'); }
+  function expand(){ portal.classList.remove('daily-collapsed'); if(rail) rail.classList.remove('show'); openDay(); }
 
   var elFull=document.getElementById('daily-open-full');
   var elClose=document.getElementById('daily-full-close');
@@ -296,24 +396,27 @@
   var elCollapse=document.getElementById('daily-collapse');
   if(elFull) elFull.addEventListener('click', openFull);
   if(elClose) elClose.addEventListener('click', closeFull);
-  if(elRefresh) elRefresh.addEventListener('click', function(){ load(); });
+  if(elRefresh) elRefresh.addEventListener('click', function(){ runAgent(); });
   if(elCollapse) elCollapse.addEventListener('click', collapse);
-  if(rail) rail.addEventListener('click', expand);
+  if(rail){
+    rail.addEventListener('click', expand);
+    rail.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); expand(); } });
+  }
   full.addEventListener('click', function(e){ if(e.target===full) closeFull(); });
   document.addEventListener('keydown', function(e){ if(e.key==='Escape' && full.classList.contains('open')) closeFull(); });
 
-  var dateEl=document.getElementById('daily-date');
-  if(dateEl) dateEl.textContent = new Date().toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'});
-
-  // seed from local cache so the panel paints instantly, then server overrides
-  doneMap = toMap(readList('daily-done'));
-  snoozeMap = toMap(readList('daily-snoozed'));
+  stamp();
+  doneMap  = toMap(readJson(LS_HANDLED, []));
+  todayMap = toMap(readJson(LS_TODAY, []));
+  snoozeMap= toMap(readJson(LS_SNOOZED, []));
+  recomputeHidden();
 
   function sync(){
     var on = portal && getComputedStyle(portal).display !== 'none';
     dock.style.display = on ? '' : 'none';
+    // hide the rail entirely while logged out; otherwise let the .show class decide
     if(rail) rail.style.display = on ? '' : 'none';
-    if(on && !loaded && !portal.classList.contains('daily-collapsed')) load();
+    if(on && !portal.classList.contains('daily-collapsed')) openDay();
   }
   if (portal) { new MutationObserver(sync).observe(portal, { attributes:true, attributeFilter:['style'] }); }
   sync();

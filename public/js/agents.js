@@ -45,23 +45,32 @@ function setWelcomeGreeting() {
 function newChat() {
   conversationId = null;
   conversationHistory = [];
-  currentAgent = null;
+  // Default a fresh chat to the general Lawly agent so the user can type immediately.
+  // Guard in case agents haven't loaded yet (boot calls newChat after loadAgents, so
+  // normally they have); the agent pill still lets them switch to a specialist.
+  const hasLawly = (typeof agentsById !== 'undefined' && agentsById && agentsById['lawly']);
+  currentAgent = hasLawly ? 'lawly' : null;
+  var he = false; try { he = (localStorage.getItem('portalLang') === 'he'); } catch (e) {}
   try { history.replaceState(null, '', location.pathname); } catch (e) {}
   document.querySelectorAll('#conversation-list .agent-btn.active').forEach(function (b) { b.classList.remove('active'); });
   const sel = document.getElementById('agent-select');
-  sel.disabled = false; sel.value = '';
+  sel.disabled = false; sel.value = currentAgent || '';
   const nrow = document.getElementById('input-row'); if (nrow) nrow.style.borderColor = '';
-  document.getElementById('message-input').placeholder = 'Choose an agent to begin…';
-  document.getElementById('header-icon').textContent = '🤖';
+  document.getElementById('message-input').placeholder = currentAgent
+    ? (he ? 'כתבו הודעה ל‑Lawly…' : 'Message Lawly…')
+    : (he ? 'בחרו סוכן כדי להתחיל…' : 'Choose an agent to begin…');
+  document.getElementById('header-icon').textContent = (agentIcons['lawly'] || agentIcons.default);
   document.getElementById('header-name').textContent = 'Lawly';
-  document.getElementById('header-desc').textContent = 'Your everyday legal assistant';
+  document.getElementById('header-desc').textContent = he ? 'שאלו אותי כל דבר בעבודה' : 'Ask me anything about your work';
   document.getElementById('no-agent').style.display = 'none';
   document.getElementById('chat-view').style.display = 'flex';
   document.getElementById('messages').innerHTML =
     '<div class="lawly-hero">' +
     '<img class="lh-mascot" src="/LAWLY%20-%20are%20new%20best%20worker.png" alt="Lawly" />' +
     '<h2 class="lh-greeting" id="welcome-greeting">Welcome</h2>' +
-    '<p class="lh-sub">How can I help today? Pick an agent below and ask anything.</p>' +
+    '<p class="lh-sub">' + (he
+      ? 'איך אפשר לעזור היום? שאלו אותי כל דבר, או החליפו סוכן למטה.'
+      : 'How can I help today? Ask me anything, or switch agents below.') + '</p>' +
     '</div>';
   setWelcomeGreeting();
   const inp = document.getElementById('message-input'); if (inp) inp.focus();

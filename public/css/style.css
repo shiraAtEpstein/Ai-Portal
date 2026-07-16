@@ -952,7 +952,10 @@
     .lang-btn { color:#6b665d; }
     .lang-btn.active { background:#15161a; color:#fff; }
 
-    /* hide Marketing from the sidebar */
+    /* Gmail lives in Settings > Connections — hide the sidebar button. */
+    #gmail-connect-btn { display: none !important; }
+    /* Keep the STATIC Marketing button hidden: marketing.js (server-injected, admin-gated)
+       adds the #mkt-open-btn "Marketing Console" button instead. Showing both = duplicate. */
     #marketing-open-btn { display: none !important; }
 
     /* refined, on-theme scrollbar for the chat history list */
@@ -999,3 +1002,82 @@
   #daily-panel .d-meta { font-size: 12px; color: #646b75; margin-top: 2px; }
   #daily-panel .d-meta a { color: #2f333a; }
   #daily-panel .d-empty, #daily-panel .d-loading { text-align: center; color: #646b75; font-size: 13px; padding: 22px 10px; }
+
+/* ══════════════════════════════════════════════════════════
+   CHAT-VIEW REDESIGN (2026-07)
+   Appended last so these override the earlier chat rules above.
+   Does NOT touch the sidebar or the #gmail-connect-btn /
+   #marketing-open-btn display:none rules. This stylesheet has no
+   --cream/--green/--ink/--muted vars, so those are inlined as hex.
+══════════════════════════════════════════════════════════ */
+    /* Header — cream icon tile + green "Online" status pill */
+    .chat-header { padding: 15px 26px; gap: 13px; }
+    .chat-header-icon {
+      width: 40px; height: 40px; border-radius: 10px;
+      background: #f6f3ec; display: flex; align-items: center;
+      justify-content: center; font-size: 19px; flex-shrink: 0;
+    }
+    .chat-status-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11.5px; font-weight: 600; color: #1c7a42;
+      background: #e7f6ec; padding: 5px 11px; border-radius: 999px; flex-shrink: 0;
+    }
+    .chat-status-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: #28a745; }
+
+    /* Messages — one centered column; avatar + sender label + bubble, start-aligned */
+    .messages { padding: 26px 0; gap: 22px; }
+    .message {
+      display: flex; gap: 13px; max-width: 760px; width: 100%;
+      margin: 0 auto; padding: 0 32px; align-items: flex-start;
+    }
+    /* override the old right-float / row-reverse: everyone shares the column */
+    .message.user { flex-direction: row; align-self: auto; }
+    .message.assistant { align-self: auto; }
+    .msg-avatar { width: 32px; height: 32px; border-radius: 9px; font-size: 15px; margin-top: 0; }
+    .message.user .msg-avatar { background: #15161a; color: #fff; font-weight: 700; font-size: 12px; }
+    .message.assistant .msg-avatar { background: #f6f3ec; color: #15161a; }
+    .msg-body { min-width: 0; flex: 1; }
+    .msg-role { font-size: 12px; font-weight: 700; color: #17181c; margin-bottom: 5px; }
+    .msg-bubble {
+      display: inline-block; max-width: 100%;
+      padding: 12px 16px; border-radius: 12px; font-size: 14px; line-height: 1.65;
+    }
+    /* uniform corners (override the old 4px "tail" radii) */
+    .message.user .msg-bubble { background: #15161a; color: #fff; border-bottom-right-radius: 12px; }
+    .message.assistant .msg-bubble {
+      background: #fff; border: 1px solid var(--gray-200); color: var(--gray-800);
+      border-bottom-left-radius: 12px;
+    }
+
+    /* Agent bar — the native #agent-select restyled as a pill, above the composer */
+    .chat-agentbar { display: flex; align-items: center; gap: 10px; max-width: 760px; margin: 0 auto 10px; }
+    .agent-pill {
+      appearance: none; -webkit-appearance: none;
+      padding: 7px 30px 7px 13px; border: 1px solid var(--gray-200); border-radius: 999px;
+      background: #fff url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23adb5bd' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>") no-repeat right 11px center;
+      font-size: 12.5px; font-weight: 600; color: #17181c; cursor: pointer;
+      font-family: var(--font); max-width: 230px;
+    }
+    .agent-pill:focus { outline: none; border-color: var(--navy); }
+    .agent-hint { font-size: 11.5px; color: #8f897e; }
+
+    /* Composer — rounded card holding just the textarea + send button */
+    .input-area { padding: 14px 28px 20px; }
+    .input-row {
+      background: #fff; border: 1.5px solid var(--gray-200); border-radius: 14px;
+      padding: 10px 10px 10px 16px; box-shadow: 0 2px 10px rgba(0,0,0,.03);
+      max-width: 760px; margin: 0 auto;
+    }
+    #send-btn { width: 38px; height: 38px; border-radius: 10px; }
+    .input-hint { max-width: 760px; margin-left: auto; margin-right: auto; }
+
+    /* RTL — flip the pill chevron and its padding */
+    #portal[dir="rtl"] .agent-pill { padding: 7px 13px 7px 30px; background-position: left 11px center; }
+
+    /* Mobile — tighten the column gutters and composer padding */
+    @media (max-width: 640px) {
+      .messages { padding: 18px 0; }
+      .message { padding: 0 16px; }
+      .chat-agentbar, .input-row, .input-hint { max-width: 100%; }
+      .input-area { padding: 12px 16px 16px; }
+    }

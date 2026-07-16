@@ -20,6 +20,7 @@ const createDropboxRouter = require('./routes/dropbox');
 const createAdminRouter = require('./routes/admin');
 const createMemoryAdminRouter = require('./routes/memory-admin');
 const createMeRouter = require('./routes/me');
+const createAccountRouter = require('./routes/account');
 const createFirmRulesRouter = require('./routes/firm-rules');
 const createMarketingRouter = require('./routes/marketing');
 const createDailyRouter = require('./routes/daily');
@@ -82,6 +83,7 @@ app.use(createGmailRouter());
 app.use(createAdminRouter({ loadUsers }));
 app.use(createMemoryAdminRouter());
 app.use(createMeRouter());
+app.use(createAccountRouter());
 // Phase 2: pass the mail transporter so a firm-rule proposal can email opted-in admins.
 app.use(createFirmRulesRouter({ transporter }));
 app.use(createMarketingRouter());

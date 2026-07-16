@@ -1,8 +1,9 @@
 // ============================================================
 // routes/daily.js — server-side state for the 'Today' panel.
-// Per-user, per-day: the generated task list (cached), which tasks are ticked,
-// and which are snoozed. Everything is scoped strictly to the signed-in user
-// (req.session.userId). Tables are created lazily on first use (idempotent).
+//
+// Per-user: the generated task list (cached per day), which tasks have been
+// HANDLED (permanent), and which are snoozed. Scoped strictly to the signed-in
+// user (req.session.userId). Tables are created lazily (idempotent).
 //
 //   GET  /api/daily/tasks?day=YYYY-MM-DD
 //        -> { day, tasks: [...]|null, generatedAt, runs, remaining }
@@ -10,16 +11,20 @@
 //   POST /api/daily/tasks { day, tasks }  -> { ok, generatedAt }
 //
 //   GET  /api/daily/completions?day=YYYY-MM-DD
-//        -> { day, keys: [doneKey,...], snoozed: [hiddenKey,...] }
-//   POST /api/daily/complete  { day, key, done }  -> { ok:true }
-//   POST /api/daily/snooze    { key, until }      -> { ok:true }
+//        -> { day, keys: [done today], handled: [ever handled], snoozed: [...] }
+//   POST /api/daily/complete  { key, done }   -> { ok:true }
+//   POST /api/daily/snooze    { key, until }  -> { ok:true }
+//
+// HANDLED IS PERMANENT. Ticking a task means "I've taken care of this" — it must
+// never come back, without the user having to also delete the email or move the
+// monday item. So daily_handled is keyed by (user_id, task_key) with NO day
+// column: once handled, always hidden. Un-ticking deletes the row, which is the
+// undo. `keys` (handled today) drives the progress ring; `handled` drives
+// suppression.
 //
 // Why the cache: generating the list runs the 'daily' agent across the user's
-// email, calendar and monday boards — slow and expensive. It must run at most
-// MAX_RUNS times per user per day, so the client reads the cache on open and
-// only regenerates on an explicit click. The run is CLAIMED before the agent
-// call (claim endpoint) — checking afterwards would be too late, the tokens
-// would already be spent.
+// email, calendar and monday boards — slow and expensive. It runs at most
+// MAX_RUNS times per user per day, claimed BEFORE the call so the cap bites.
 // ============================================================
 const express = require('express');
 const db = require('../db');
@@ -27,8 +32,8 @@ const { authenticate } = require('../lib/sessions');
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_KEY = 500;
-const MAX_RUNS = 3;                 // agent generations per user per day
-const MAX_PAYLOAD = 100000;         // serialized task list size guard
+const MAX_RUNS = 3;
+const MAX_PAYLOAD = 100000;
 
 let _ready = null;
 function ensureTables() {
@@ -36,12 +41,12 @@ function ensureTables() {
   if (!p) return Promise.resolve(false);
   if (_ready) return _ready;
   _ready = p.query(
-    'CREATE TABLE IF NOT EXISTS daily_completions (' +
-    '  user_id  uuid        NOT NULL,' +
-    '  day      date        NOT NULL,' +
-    '  task_key text        NOT NULL,' +
-    '  done_at  timestamptz NOT NULL DEFAULT now(),' +
-    '  PRIMARY KEY (user_id, day, task_key)' +
+    // Permanent "I've handled this" marker. No day column on purpose.
+    'CREATE TABLE IF NOT EXISTS daily_handled (' +
+    '  user_id    uuid        NOT NULL,' +
+    '  task_key   text        NOT NULL,' +
+    '  handled_at timestamptz NOT NULL DEFAULT now(),' +
+    '  PRIMARY KEY (user_id, task_key)' +
     ')'
   ).then(function () {
     return p.query(
@@ -72,7 +77,6 @@ module.exports = function createDailyRouter() {
 
   // --- cached task list -------------------------------------------------
 
-  // Today's generated list, if it has been generated. No agent call here.
   router.get('/api/daily/tasks', authenticate, async function (req, res) {
     const day = String((req.query && req.query.day) || '').trim();
     if (!DAY_RE.test(day)) return res.status(400).json({ error: 'day must be YYYY-MM-DD' });
@@ -98,8 +102,7 @@ module.exports = function createDailyRouter() {
   });
 
   // Claim one agent run BEFORE the expensive call. 429 when the cap is hit.
-  // The conditional upsert makes the check-and-increment atomic, so two tabs
-  // racing cannot both slip past the limit.
+  // Conditional upsert => check-and-increment is atomic across racing tabs.
   router.post('/api/daily/tasks/claim', authenticate, async function (req, res) {
     const b = (req.body && typeof req.body === 'object') ? req.body : {};
     const day = String(b.day || '').trim();
@@ -125,7 +128,6 @@ module.exports = function createDailyRouter() {
     }
   });
 
-  // Store the list the agent just produced (run was already claimed).
   router.post('/api/daily/tasks', authenticate, async function (req, res) {
     const b = (req.body && typeof req.body === 'object') ? req.body : {};
     const day = String(b.day || '').trim();
@@ -153,38 +155,45 @@ module.exports = function createDailyRouter() {
     }
   });
 
-  // --- completions + snoozes -------------------------------------------
+  // --- handled (permanent) + snoozes ------------------------------------
 
+  // `handled` = every key this user has ever ticked -> suppressed for good.
+  // `keys`    = the subset handled today -> drives today's progress ring.
   router.get('/api/daily/completions', authenticate, async function (req, res) {
     const day = String((req.query && req.query.day) || '').trim();
     if (!DAY_RE.test(day)) return res.status(400).json({ error: 'day must be YYYY-MM-DD' });
     try {
       const ok = await ensureTables();
-      if (!ok) return res.json({ day: day, keys: [], snoozed: [] });
+      if (!ok) return res.json({ day: day, keys: [], handled: [], snoozed: [] });
       const p = db.getPool();
-      const doneR = await p.query(
-        'SELECT task_key FROM daily_completions WHERE user_id = $1 AND day = $2',
-        [req.session.userId, day]);
+      const allR = await p.query(
+        'SELECT task_key, handled_at FROM daily_handled WHERE user_id = $1',
+        [req.session.userId]);
       const snzR = await p.query(
         'SELECT task_key FROM daily_snoozes WHERE user_id = $1 AND until > $2',
         [req.session.userId, day]);
-      res.json({
-        day: day,
-        keys: doneR.rows.map(function (r) { return r.task_key; }),
-        snoozed: snzR.rows.map(function (r) { return r.task_key; }),
+      const handled = [], today = [];
+      allR.rows.forEach(function (r) {
+        handled.push(r.task_key);
+        try {
+          const d = new Date(r.handled_at);
+          const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+          if (local === day) today.push(r.task_key);
+        } catch (_) { /* ignore */ }
       });
+      res.json({ day: day, keys: today, handled: handled,
+        snoozed: snzR.rows.map(function (r) { return r.task_key; }) });
     } catch (e) {
       console.error('[DAILY] load failed:', e.message);
       res.status(500).json({ error: 'Could not load your day.' });
     }
   });
 
+  // Tick = handled forever. Un-tick deletes the row (the undo).
   router.post('/api/daily/complete', authenticate, async function (req, res) {
     const b = (req.body && typeof req.body === 'object') ? req.body : {};
-    const day = String(b.day || '').trim();
     const key = String(b.key || '').trim();
     const done = (b.done === true || b.done === 'true');
-    if (!DAY_RE.test(day)) return res.status(400).json({ error: 'day must be YYYY-MM-DD' });
     if (!key || key.length > MAX_KEY) return res.status(400).json({ error: 'invalid task key' });
     try {
       const ok = await ensureTables();
@@ -192,13 +201,13 @@ module.exports = function createDailyRouter() {
       const p = db.getPool();
       if (done) {
         await p.query(
-          'INSERT INTO daily_completions (user_id, day, task_key) VALUES ($1, $2, $3) ' +
-          'ON CONFLICT (user_id, day, task_key) DO NOTHING',
-          [req.session.userId, day, key]);
+          'INSERT INTO daily_handled (user_id, task_key) VALUES ($1, $2) ' +
+          'ON CONFLICT (user_id, task_key) DO NOTHING',
+          [req.session.userId, key]);
       } else {
         await p.query(
-          'DELETE FROM daily_completions WHERE user_id = $1 AND day = $2 AND task_key = $3',
-          [req.session.userId, day, key]);
+          'DELETE FROM daily_handled WHERE user_id = $1 AND task_key = $2',
+          [req.session.userId, key]);
       }
       res.json({ ok: true });
     } catch (e) {

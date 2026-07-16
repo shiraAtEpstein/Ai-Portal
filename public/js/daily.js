@@ -1,25 +1,26 @@
 // daily.js — 'Today' docked panel + full-view overlay.
 //
-// COST MODEL (important): generating the list runs the 'daily' agent across the
-// user's email, calendar and monday boards — slow and expensive. It therefore
-// NEVER runs automatically. Opening the panel reads the cached list from
-// /api/daily/tasks (a cheap DB read). The agent only runs when the user clicks
-// "Load my day" or ⟳ Refresh, and the server caps it at 3 runs per user per day
-// (the run is claimed server-side BEFORE the call, so the cap actually bites).
+// COST MODEL: generating the list runs the 'daily' agent across the user's
+// email, calendar and monday boards — slow and expensive. It NEVER runs
+// automatically. Opening the panel reads the cached list from /api/daily/tasks
+// (a cheap DB read). The agent only runs on an explicit "Load my day" / ⟳
+// click, and the server caps it at 3 runs per user per day (claimed BEFORE the
+// call, so the cap actually bites).
 //
-// Server-backed per-user state:
-//   • task list   — GET /api/daily/tasks, POST /api/daily/tasks/claim, POST /api/daily/tasks
-//   • completion  — GET /api/daily/completions, POST /api/daily/complete
-//   • snooze      — POST /api/daily/snooze
+// TASK IDENTITY: keyed on the task's URL when it has one — the deep link to the
+// monday item or the email thread. The agent rewords tasks between runs, so a
+// text-based key ("deal|task") silently changed identity on every regeneration
+// and lost every tick. The URL is stable across rewording. Text is only the
+// fallback for tasks with no link.
 //
-// Task identity is a NORMALIZED deal|task key so trivial wording drift doesn't
-// lose a tick or a snooze. All agent-supplied text is escaped before innerHTML;
-// agent URLs pass an http(s) allowlist.
+// HANDLED IS PERMANENT: ticking a task means "taken care of" — it is suppressed
+// for good (server-side, /api/daily/complete), with no need to also delete the
+// email or move the monday item. Un-ticking it in the Done list is the undo.
 //
-// Dates: `day` is the LOCAL calendar date and nextDay() does UTC-based calendar
-// math. (Parsing 'YYYY-MM-DDT00:00:00' as local and re-serialising with
-// toISOString() shifts backwards across midnight in UTC+ zones such as
-// Asia/Jerusalem, which made "tomorrow" resolve to today.)
+// All agent-supplied text is escaped before innerHTML; agent URLs pass an
+// http(s) allowlist. `day` is the LOCAL calendar date; nextDay() does UTC-based
+// calendar math (a local parse + toISOString() round-trip shifts backwards
+// across midnight in UTC+ zones such as Asia/Jerusalem).
 (function () {
   var portal = document.getElementById('portal');
   var dock = document.getElementById('daily-dock');
@@ -38,43 +39,45 @@
   var dateEl   = document.getElementById('daily-date');
 
   var tasks = [];
-  var loaded = false;          // true once a real list is in hand
-  var opened = false;          // true once we've done the cheap open fetch
-  var prevKeys = null;         // for the refresh diff
-  var remaining = null;        // agent runs left today (from server)
+  var loaded = false;
+  var opened = false;
+  var prevKeys = null;
+  var remaining = null;
   var generatedAt = null;
 
   function localDay(){ var d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10); }
   function nextDay(d){ var t=new Date(d+'T00:00:00Z'); t.setUTCDate(t.getUTCDate()+1); return t.toISOString().slice(0,10); }
   var day = localDay();
 
-  var doneMap = {};            // { key: true } — ticked
-  var snoozeMap = {};          // { key: true } — hidden until a later day
-  // Keys that were ALREADY done when this panel opened. These are treated as
-  // handled and never rendered again — that is what "don't show it to me on the
-  // next reload" means. Ticking during this session does NOT hide the row
-  // immediately; it moves into "Done" so the check still feels like something.
-  var hiddenDone = {};
+  var doneMap = {};    // key -> true : handled (ticked)
+  var snoozeMap = {};  // key -> true : hidden until a later day
+  var hiddenDone = {}; // handled BEFORE this open -> never rendered again
 
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function safeUrl(u){ u=String(u||'').trim(); return /^https?:\/\//i.test(u) ? u : ''; }
   function norm(s){ return String(s==null?'':s).trim().toLowerCase().replace(/\s+/g,' '); }
-  function keyFor(t){ return norm(t.deal)+'|'+norm(t.task); }
+  // Stable identity: prefer the deep link, fall back to text.
+  function keyFor(t){
+    var u = safeUrl(t && t.url);
+    if(u) return 'u:' + u.toLowerCase().replace(/#.*$/,'').replace(/\/+$/,'');
+    return 't:' + norm(t && t.deal) + '|' + norm(t && t.task);
+  }
   function isDone(k){ return doneMap[k]===true; }
   function isSnoozed(k){ return snoozeMap[k]===true; }
   function isHandled(k){ return hiddenDone[k]===true; }
   function urg(t){ var u=(t.urgency||'today').toLowerCase(); return (u==='overdue'||u==='soon')?u:'today'; }
-  // what the panel shows: not snoozed, and not already-handled before we opened
   function visibleTasks(){ return tasks.filter(function(t){ var k=keyFor(t); return !isSnoozed(k) && !isHandled(k); }); }
   function snoozedTasks(){ return tasks.filter(function(t){ var k=keyFor(t); return isSnoozed(k) && !isHandled(k); }); }
 
-  function readList(name){ try { return JSON.parse(localStorage.getItem(name+'-'+day)||'[]'); } catch(e){ return []; } }
-  function writeList(name, map){ try { localStorage.setItem(name+'-'+day, JSON.stringify(Object.keys(map).filter(function(k){ return map[k]; }))); } catch(e){} }
+  // local caches (fallback only). handled is NOT day-scoped — it's permanent.
+  function readJson(k, dflt){ try { return JSON.parse(localStorage.getItem(k)||JSON.stringify(dflt)); } catch(e){ return dflt; } }
+  function writeArr(k, map){ try { localStorage.setItem(k, JSON.stringify(Object.keys(map).filter(function(x){ return map[x]; }))); } catch(e){} }
   function toMap(arr){ var m={}; (arr||[]).forEach(function(k){ m[k]=true; }); return m; }
+  var LS_HANDLED='daily-handled', LS_SNOOZED='daily-snoozed-'+day;
 
   function persistDone(k, val){
     fetch('/api/daily/complete', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ day:day, key:k, done:val }) }).catch(function(){});
+      body: JSON.stringify({ key:k, done:val }) }).catch(function(){});
   }
   function persistSnooze(k, until){
     fetch('/api/daily/snooze', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
@@ -166,8 +169,6 @@
     return html;
   }
 
-  // The panel has no list yet today — offer to generate one. Nothing runs
-  // until this is clicked.
   function ctaHtml(){
     if(remaining===0){
       return '<div class="dl-cta"><div class="dl-cta-t">Daily limit reached</div>'+
@@ -229,16 +230,16 @@
   function toggle(k){
     var val = !isDone(k);
     if(val) doneMap[k]=true; else delete doneMap[k];
-    writeList('daily-done', doneMap);
+    writeArr(LS_HANDLED, doneMap);
     rerender();
     persistDone(k, val);
   }
   function snooze(k){
-    snoozeMap[k]=true; writeList('daily-snoozed', snoozeMap);
+    snoozeMap[k]=true; writeArr(LS_SNOOZED, snoozeMap);
     rerender(); persistSnooze(k, nextDay(day)); showToast('Snoozed to tomorrow');
   }
   function unsnooze(k){
-    delete snoozeMap[k]; writeList('daily-snoozed', snoozeMap);
+    delete snoozeMap[k]; writeArr(LS_SNOOZED, snoozeMap);
     rerender(); persistSnooze(k, day); showToast('Back on today');
   }
 
@@ -288,14 +289,14 @@
     ]).then(function(res){
       var state=res[0], cached=res[1];
       if(state){
-        if(state.keys) doneMap = toMap(state.keys);
-        if(state.snoozed) snoozeMap = toMap(state.snoozed);
+        doneMap = toMap(state.handled || state.keys || []);
+        snoozeMap = toMap(state.snoozed || []);
       } else {
-        doneMap = toMap(readList('daily-done'));
-        snoozeMap = toMap(readList('daily-snoozed'));
+        doneMap = toMap(readJson(LS_HANDLED, []));
+        snoozeMap = toMap(readJson(LS_SNOOZED, []));
       }
-      writeList('daily-done', doneMap); writeList('daily-snoozed', snoozeMap);
-      // Anything already ticked before this open is handled — hide it for good.
+      writeArr(LS_HANDLED, doneMap); writeArr(LS_SNOOZED, snoozeMap);
+      // Everything already handled before this open is hidden for good.
       hiddenDone = {};
       Object.keys(doneMap).forEach(function(k){ if(doneMap[k]) hiddenDone[k]=true; });
 
@@ -322,8 +323,6 @@
     if(running) return; running=true;
     var rb=document.getElementById('daily-refresh'); if(rb) rb.classList.add('spinning');
     body.innerHTML='<div class="dl-loading">Reading your day…<br><span class="dl-loading-s">email · calendar · monday</span></div>';
-    // Claim a run first — the server enforces the daily cap here, BEFORE the
-    // expensive call, so a rejected claim costs nothing.
     fetch('/api/daily/tasks/claim', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ day:day }) })
       .then(function(r){ return r.json().then(function(j){ return { status:r.status, j:j }; }); })
@@ -341,7 +340,7 @@
 
   function callAgent(){
     return fetch('/api/chat',{ method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ agentId:'daily', message:'Give me my tasks for today. Respond with ONLY a JSON array (no prose, no code fence). Each element: {"task": string, "deal": string, "why": string, "url": string, "urgency": "overdue"|"today"|"soon"}.' }) })
+      body: JSON.stringify({ agentId:'daily', message:'Give me my tasks for today. Respond with ONLY a JSON array (no prose, no code fence). Each element: {"task": string, "deal": string, "why": string, "url": string, "urgency": "overdue"|"today"|"soon"}. The "url" must be a stable deep link to the monday item or the email thread — it is used to identify the task across runs, so keep it identical for the same underlying item.' }) })
       .then(async function(r){
         var rb=document.getElementById('daily-refresh');
         if(!r.ok){ var e={}; try{ e=await r.json(); }catch(_){}
@@ -364,7 +363,6 @@
         diffToast(parsed);
         tasks=parsed; prevKeys=parsed.map(keyFor); loaded=true; generatedAt=new Date().toISOString();
         rerender();
-        // cache it so no one pays for this again today
         fetch('/api/daily/tasks', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ day:day, tasks:parsed }) })
           .then(function(r){ return r.ok?r.json():null; })
@@ -393,8 +391,8 @@
   document.addEventListener('keydown', function(e){ if(e.key==='Escape' && full.classList.contains('open')) closeFull(); });
 
   stamp();
-  doneMap = toMap(readList('daily-done'));
-  snoozeMap = toMap(readList('daily-snoozed'));
+  doneMap = toMap(readJson(LS_HANDLED, []));
+  snoozeMap = toMap(readJson(LS_SNOOZED, []));
 
   function sync(){
     var on = portal && getComputedStyle(portal).display !== 'none';

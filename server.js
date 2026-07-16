@@ -16,6 +16,7 @@ const createGoogleAuthRouter = require('./google-auth');
 const createAuthRouter = require('./routes/auth');
 const createChatRouter = require('./routes/chat');
 const createGmailRouter = require('./routes/gmail');
+const createCalendarRouter = require('./routes/calendar');
 const createDropboxRouter = require('./routes/dropbox');
 const createAdminRouter = require('./routes/admin');
 const createMemoryAdminRouter = require('./routes/memory-admin');
@@ -79,6 +80,7 @@ app.use(createGoogleAuthRouter({ createSession: createDbSession, findUserByEmail
 app.use(createAuthRouter({ loadUsers, saveUsers, transporter }));
 app.use(createChatRouter());
 app.use(createGmailRouter());
+app.use(createCalendarRouter());
   app.use(createDropboxRouter());
 app.use(createAdminRouter({ loadUsers }));
 app.use(createMemoryAdminRouter());

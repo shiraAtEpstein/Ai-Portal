@@ -17,6 +17,7 @@ const { capabilitiesFor } = require('../lib/permissions');
 const { rateLimit } = require('../lib/rate-limit');
 const db = require('../db');
 const gmail = require('../lib/gmail');
+const calendar = require('../lib/calendar');
 const { agents: agentRegistry } = require('../lib/agents');
 const dropbox = require('../lib/dropbox');
 const monday = require('../lib/monday');
@@ -39,10 +40,10 @@ const MAX_TOKENS = 16000;  // must be big enough for a build_document call whose
 const MAX_STEPS = 8;
 // Tools whose (possibly large) output we cache so build_document can reuse it
 // server-side instead of the model retyping it into the tool call.
-const DATA_TOOLS = new Set(['monday_read_board', 'monday_query', 'monday_my_tasks', 'gmail_search', 'dropbox_read']);
+const DATA_TOOLS = new Set(['monday_read_board', 'monday_query', 'monday_my_tasks', 'gmail_search', 'calendar_list', 'dropbox_read']);
 // Firm house rules live in Dropbox (single source of truth), not the DB.
 const FIRM_RULES_PATH = process.env.FIRM_RULES_PATH || '/shared-claude/framework/CLAUDE.md';
-const SUPPORTED_TOOLS = new Set(['gmail_search', 'gmail_draft', 'dropbox_list', 'dropbox_read', 'dropbox_write', 'dropbox_append', 'monday_my_tasks', 'monday_list_columns', 'monday_read_board']);
+const SUPPORTED_TOOLS = new Set(['gmail_search', 'gmail_draft', 'calendar_list', 'calendar_create', 'dropbox_list', 'dropbox_read', 'dropbox_write', 'dropbox_append', 'monday_my_tasks', 'monday_list_columns', 'monday_read_board']);
 
 const STAGE_LABELS = {
   received: 'Got your question',
@@ -51,6 +52,8 @@ const STAGE_LABELS = {
   load_skill: 'Choosing the right skill…',
   gmail_search: 'Reading your email…',
   gmail_draft: 'Drafting an email…',
+  calendar_list: 'Checking your calendar…',
+  calendar_create: 'Adding to your calendar…',
   monday_my_tasks: 'Checking your monday deals…',
   monday_list_columns: 'Checking the board columns…',
   monday_read_board: 'Reading the monday board…',
@@ -82,6 +85,8 @@ function toolAllowFromCaps(caps) {
   const s = new Set();
   if (caps.gmail.has('read')) s.add('gmail_search');
   if (caps.gmail.has('draft')) s.add('gmail_draft');
+  if (caps.calendar.has('read')) s.add('calendar_list');
+  if (caps.calendar.has('write')) s.add('calendar_create');
   if (caps.dropbox.has('read')) { s.add('dropbox_list'); s.add('dropbox_read'); }
   if (caps.dropbox.has('write')) { s.add('dropbox_write'); s.add('dropbox_append'); }
   if (caps.monday.has('read_own')) s.add('monday_my_tasks');
@@ -141,6 +146,45 @@ function buildScopedTools({ session, toolAllow, getScope }) {
       },
     });
   }
+  if (toolAllow.has('calendar_list')) {
+    tools.push({
+      name: 'calendar_list',
+      description: "Read the SIGNED-IN user's OWN Google Calendar, read-only. Returns upcoming events (title, start, end, location, attendees, notes). Cannot change anything. By default lists events from now forward; pass timeMin/timeMax (ISO 8601) to bound the range, or query to keyword-search.",
+      input_schema: { type: 'object', properties: {
+        timeMin: { type: 'string', description: 'ISO 8601 lower bound, e.g. "2026-07-16T00:00:00Z". Default: now.' },
+        timeMax: { type: 'string', description: 'ISO 8601 upper bound, e.g. "2026-07-17T00:00:00Z". Optional.' },
+        query: { type: 'string', description: 'Optional keyword to search event text.' },
+        maxResults: { type: 'integer', minimum: 1, maximum: 25, description: 'How many events to fetch (default 10).' },
+      }, required: [] },
+      run: async (args) => {
+        const r = await calendar.listEvents(session.userId, { timeMin: args.timeMin, timeMax: args.timeMax, query: args.query || '', maxResults: args.maxResults || 10 });
+        return r.text;
+      },
+    });
+  }
+  if (toolAllow.has('calendar_create')) {
+    tools.push({
+      name: 'calendar_create',
+      description: "Create a real event on the signed-in user's OWN Google Calendar. This WRITES to their calendar, so you MUST confirm the exact title, date, and times with the user BEFORE calling this — never create an event they have not explicitly approved. Times are ISO 8601. For a timed event pass start/end as full datetimes (e.g. '2026-07-20T14:00:00'); for an all-day event pass dates ('2026-07-20', with end the next day). Default time zone is Asia/Jerusalem.",
+      input_schema: { type: 'object', properties: {
+        summary: { type: 'string', description: 'Event title.' },
+        start: { type: 'string', description: 'Start time, ISO 8601 datetime or date.' },
+        end: { type: 'string', description: 'End time, ISO 8601 datetime or date.' },
+        location: { type: 'string', description: 'Optional location.' },
+        description: { type: 'string', description: 'Optional notes/agenda.' },
+        attendees: { type: 'array', items: { type: 'string' }, description: 'Optional attendee email addresses.' },
+        timeZone: { type: 'string', description: 'IANA time zone (default Asia/Jerusalem).' },
+      }, required: ['summary', 'start', 'end'] },
+      run: async (args) => {
+        try {
+          const r = await calendar.createEvent(session.userId, { summary: args.summary, start: args.start, end: args.end, location: args.location, description: args.description, attendees: args.attendees, timeZone: args.timeZone });
+          if (!r.ok) return r.scope ? 'Could not create the event: the Calendar create permission is missing. Tell the user to reconnect Calendar (Connect Calendar) to grant event-creation access.' : ('Could not create the event: ' + r.error);
+          return 'Event created on the user\'s calendar: "' + String(args.summary || '') + '" (' + String(args.start || '') + ' to ' + String(args.end || '') + ').' + (r.htmlLink ? ' Link: ' + r.htmlLink : '');
+        } catch (e) { return 'Calendar create error: ' + e.message; }
+      },
+    });
+  }
+
   if (toolAllow.has('monday_my_tasks')) {
     tools.push({
       name: 'monday_my_tasks',

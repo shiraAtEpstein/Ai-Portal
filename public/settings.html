@@ -415,8 +415,23 @@ textarea.tin{resize:vertical;min-height:80px;line-height:1.55}
       host.innerHTML=row;
       var c=$('[data-gm="conn"]',host); if(c)c.onclick=function(){location.href='/api/gmail/connect';};
       var d=$('[data-gm="disc"]',host); if(d)d.onclick=function(){ if(!confirm('Disconnect your Gmail? The Email Assistant will no longer read your mail until you reconnect.'))return; jpost('/api/gmail/disconnect').then(function(){toast('Gmail disconnected');initConnections();}).catch(function(){toast('Could not disconnect.');}); };
+      loadUserCalendar(host);
     }).catch(function(){ host.innerHTML=connRow({ic:IC.link,name:'Gmail',state:'na',meta:'Could not load Gmail status.'}); });
   }
+  function loadUserCalendar(host){
+    if(!host)return;
+    jget('/api/calendar/status').then(function(r){
+      var g=(r.ok&&r.j)?r.j:null; var row;
+      if(!g){ row=connRow({ic:IC.link,name:'Google Calendar',state:'na',meta:'Could not load Calendar status.'}); }
+      else if(g.configured===false){ row=connRow({ic:IC.link,name:'Google Calendar',state:'na',meta:'Calendar is not configured for this firm yet.'}); }
+      else if(g.connected){ row=connRow({ic:IC.link,name:'Google Calendar',state:'connected',meta:esc(g.email||'your calendar')+(g.canWrite?' &middot; read &amp; add events':' &middot; read-only'),perms:'Read your calendar; add events only after you confirm (never deletes or moves anything)',actions:'<button class="btn sm danger" data-cal="disc">Disconnect</button>'}); }
+      else { row=connRow({ic:IC.link,name:'Google Calendar',state:'na',meta:'Let the Calendar Assistant read your schedule and add events you approve.',actions:'<button class="btn sm primary" data-cal="conn">Connect</button>'}); }
+      host.insertAdjacentHTML('beforeend',row);
+      var c=$('[data-cal="conn"]',host); if(c)c.onclick=function(){location.href='/api/calendar/connect';};
+      var d=$('[data-cal="disc"]',host); if(d)d.onclick=function(){ if(!confirm('Disconnect your Google Calendar? The Calendar Assistant will no longer see or add events until you reconnect.'))return; jpost('/api/calendar/disconnect').then(function(){toast('Calendar disconnected');initConnections();}).catch(function(){toast('Could not disconnect.');}); };
+    }).catch(function(){});
+  }
+
   function loadFirmConnections(){
     var host=$('#conn-firm'); if(!host)return;
     function paint(dbx){

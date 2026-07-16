@@ -1,7 +1,20 @@
 // agents.js — agent list, conversations, agent selection, new chat.
-// ══════════════════════════════════════════════════════════
+
+// Render an agent's Lawly SVG icon into the chat header tile.
+function setHeaderIcon(id) {
+  var el = document.getElementById('header-icon');
+  if (!el) return;
+  if (typeof agentSvg === 'function') {
+    el.classList.add('icon-svg');
+    el.innerHTML = agentSvg(id);
+  } else {
+    el.textContent = (agentIcons[id] || agentIcons.default);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
 //  LOAD AGENTS
-// ══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 async function loadAgents() {
   try {
     const res  = await fetch('/api/agents', { headers: authHeader() });
@@ -55,11 +68,12 @@ function newChat() {
   document.querySelectorAll('#conversation-list .agent-btn.active').forEach(function (b) { b.classList.remove('active'); });
   const sel = document.getElementById('agent-select');
   sel.disabled = false; sel.value = currentAgent || '';
+  if (window.AgentPicker) AgentPicker.sync();
   const nrow = document.getElementById('input-row'); if (nrow) nrow.style.borderColor = '';
   document.getElementById('message-input').placeholder = currentAgent
     ? (he ? 'כתבו הודעה ל‑Lawly…' : 'Message Lawly…')
     : (he ? 'בחרו סוכן כדי להתחיל…' : 'Choose an agent to begin…');
-  document.getElementById('header-icon').textContent = (agentIcons['lawly'] || agentIcons.default);
+  setHeaderIcon('lawly');
   document.getElementById('header-name').textContent = 'Lawly';
   document.getElementById('header-desc').textContent = he ? 'שאלו אותי כל דבר בעבודה' : 'Ask me anything about your work';
   document.getElementById('no-agent').style.display = 'none';
@@ -84,7 +98,7 @@ async function loadConversations() {
     const list = document.getElementById('conversation-list');
     list.innerHTML = '';
     (data.conversations || []).forEach(function (c) {
-      const icon = agentIcons[c.agentId] || agentIcons.default;
+      const icon = (typeof agentSvg === 'function') ? agentSvg(c.agentId) : (agentIcons[c.agentId] || agentIcons.default);
       const item = document.createElement('div');
       item.className = 'agent-btn';
       item.dataset.id = c.id;
@@ -125,9 +139,10 @@ async function openConversation(id, btn) {
     const agent = agentsById[conv.agentId];
     const sel = document.getElementById('agent-select');
     sel.value = conv.agentId; sel.disabled = true;
+    if (window.AgentPicker) AgentPicker.sync();
     const row = document.getElementById('input-row'); if (row) row.style.borderColor = agentColors[conv.agentId] || agentColors.default;
     document.getElementById('message-input').placeholder = agent ? ('Message ' + agent.name + '…') : 'Type your message…';
-    document.getElementById('header-icon').textContent = agentIcons[conv.agentId] || agentIcons.default;
+    setHeaderIcon(conv.agentId);
     document.getElementById('header-name').textContent = agent ? agent.name : (conv.title || 'Chat');
     document.getElementById('header-desc').textContent = agent ? agent.description : '';
     document.getElementById('no-agent').style.display = 'none';
@@ -148,7 +163,7 @@ function applyAgentChoice(id) {
   const agent = agentsById[id];
   const inp = document.getElementById('message-input');
   const row = document.getElementById('input-row');
-  document.getElementById('header-icon').textContent = agentIcons[id] || '🤖';
+  setHeaderIcon(id);
   document.getElementById('header-name').textContent = agent ? agent.name : 'New chat';
   document.getElementById('header-desc').textContent = agent ? agent.description : 'Pick an agent to begin';
   if (agent) { inp.placeholder = 'Message ' + agent.name + '…'; if (row) row.style.borderColor = agentColors[id] || agentColors.default; }
@@ -156,9 +171,9 @@ function applyAgentChoice(id) {
 }
 document.getElementById('agent-select').addEventListener('change', function () { applyAgentChoice(this.value); });
 
-// ══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 //  SELECT AGENT
-// ══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 function selectAgent(agent, icon, btn) {
   // Update active button
   document.querySelectorAll('.agent-btn').forEach(b => b.classList.remove('active'));
@@ -169,7 +184,7 @@ function selectAgent(agent, icon, btn) {
   conversationHistory = [];
 
   // Update header
-  document.getElementById('header-icon').textContent = icon;
+  setHeaderIcon(agent.id);
   document.getElementById('header-name').textContent = agent.name;
   document.getElementById('header-desc').textContent = agent.description;
 

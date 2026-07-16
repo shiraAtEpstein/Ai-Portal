@@ -76,13 +76,13 @@ async function listAllUsers() {
   const p = getPool();
   if (!p) return [];
   const r = await p.query(
-    `SELECT u.id, u.email, u.display_name AS name, u.status,
+    `SELECT u.id, u.email, u.display_name AS name, u.status, u.invite_token,
         u.invited_at, u.invite_accepted_at, u.last_login_at,
         COALESCE(array_agg(r.name ORDER BY r.id) FILTER (WHERE r.name IS NOT NULL), ARRAY[]::text[]) AS roles
      FROM users u
      LEFT JOIN role_assignments ra ON ra.user_id = u.id
      LEFT JOIN roles r ON r.id = ra.role_id
-     GROUP BY u.id, u.email, u.display_name, u.status, u.invited_at, u.invite_accepted_at, u.last_login_at
+     GROUP BY u.id, u.email, u.display_name, u.status, u.invite_token, u.invited_at, u.invite_accepted_at, u.last_login_at
      ORDER BY
        CASE u.status WHEN 'active' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
        lower(u.email);`);
@@ -91,6 +91,7 @@ async function listAllUsers() {
     email: row.email,
     name: row.name,
     status: row.status,
+    inviteToken: row.invite_token,
     roles: row.roles || [],
     invitedAt: row.invited_at,
     inviteAcceptedAt: row.invite_accepted_at,

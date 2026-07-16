@@ -122,7 +122,15 @@ module.exports = function createAdminRouter({ loadUsers }) {
   // list of role names an admin can assign. This is what the admin screen uses.
   router.get('/api/admin/all-users', authenticate, requireAdmin, async (req, res) => {
     try {
-      const users = await db.listAllUsers();
+      const users = (await db.listAllUsers()).map((u) => {
+        const { inviteToken, ...rest } = u;
+        // Surface a ready-to-share invite link for pending users only. The raw
+        // token is never returned to the client — only the /accept link.
+        if (u.status === 'pending' && inviteToken) {
+          rest.inviteLink = BASE_URL + '/accept?token=' + inviteToken;
+        }
+        return rest;
+      });
       res.json({ users, roles: assignableRoles() });
     } catch (e) {
       console.error('[ADMIN] list users failed:', e.message);

@@ -449,7 +449,7 @@ textarea.tin{resize:vertical;min-height:80px;line-height:1.55}
     return head('Firm workspace · Admin','Users','Everyone with access to the portal. Invite staff, set what they can do, and manage licenses.')+
       '<div class="card"><h2>Licenses</h2><div class="lic"><div class="lbox"><div class="lnum" id="lic-active">–</div><div class="llbl">Active</div></div><div class="lbox"><div class="lnum" id="lic-pending">–</div><div class="llbl">Pending invites</div></div><div class="lbox"><div class="lnum" id="lic-total">–</div><div class="llbl">Total accounts</div></div></div></div>'+
       '<div class="card"><div class="card-head-row"><div><h2>Members</h2><div class="csub" id="people-sub">Loading…</div></div><button class="btn sm primary" id="people-invite">+ Invite user</button></div>'+
-        '<table class="tbl"><thead><tr><th>Name</th><th>Roles</th><th>Status</th><th></th></tr></thead><tbody id="users-tbody"><tr><td colspan="4" style="color:var(--gray-400)">Loading…</td></tr></tbody></table></div>';
+        '<table class="tbl"><thead><tr><th>Name</th><th>Roles</th><th>Status</th><th>Invite link</th><th></th></tr></thead><tbody id="users-tbody"><tr><td colspan="5" style="color:var(--gray-400)">Loading…</td></tr></tbody></table></div>';
   };
   PAGES.rules=function(){
     return head('Firm workspace · Admin','Firm House Rules','The rules every AI agent follows in every conversation, firm-wide. Changes never happen automatically — every one is proposed, reviewed, and approved by an administrator.')+
@@ -597,22 +597,23 @@ textarea.tin{resize:vertical;min-height:80px;line-height:1.55}
   function loadPeople(){
     var tb=$('#users-tbody'); if(!tb)return;
     jget('/api/admin/all-users').then(function(r){
-      if(r.status===403){ tb.innerHTML='<tr><td colspan="4" style="color:var(--gray-600)">Admins only.</td></tr>'; return; }
+      if(r.status===403){ tb.innerHTML='<tr><td colspan="5" style="color:var(--gray-600)">Admins only.</td></tr>'; return; }
       if(!r.ok) throw new Error((r.j&&r.j.error)||'Could not load users.');
       adminRoles=r.j.roles||[]; renderUsers(r.j.users||[]);
-    }).catch(function(e){ tb.innerHTML='<tr><td colspan="4" style="color:#dc3545">'+esc(e.message||'Error')+'</td></tr>'; });
+    }).catch(function(e){ tb.innerHTML='<tr><td colspan="5" style="color:#dc3545">'+esc(e.message||'Error')+'</td></tr>'; });
   }
   function roleChips(roles){return (roles&&roles.length)?roles.map(function(r){return '<span class="chip" style="padding:3px 9px;font-size:11px">'+esc(r)+'</span>';}).join(' '):'<span style="color:var(--gray-400)">none</span>';}
   function renderUsers(users){
     var tb=$('#users-tbody'); var active=0,pending=0;
-    if(!users.length){ tb.innerHTML='<tr><td colspan="4" style="color:var(--gray-400)">No users yet.</td></tr>'; }
+    if(!users.length){ tb.innerHTML='<tr><td colspan="5" style="color:var(--gray-400)">No users yet.</td></tr>'; }
     else{
       tb.innerHTML=users.map(function(u){
         if(u.status==='pending')pending++;else active++;
         var badge=u.status==='pending'?'<span class="badge-st b-pending">Pending</span>':(u.status==='disabled'?'<span class="badge-st b-off">Disabled</span>':'<span class="badge-st b-active">Active</span>');
         var actions=u.status==='pending'?'<button class="btn sm" data-act="resend" data-email="'+esc(u.email)+'">Resend</button>':(u.status==='disabled'?'<button class="btn sm" data-act="enable" data-email="'+esc(u.email)+'">Enable</button>':'<button class="btn sm" data-act="edit" data-email="'+esc(u.email)+'">Edit roles</button><button class="btn sm" data-act="disable" data-email="'+esc(u.email)+'">Suspend</button>');
         actions+='<button class="btn sm danger" data-act="delete" data-email="'+esc(u.email)+'">Delete</button>';
-        return '<tr><td><div class="uname">'+(esc(u.name)||'—')+'</div><div class="uemail">'+esc(u.email)+'</div></td><td><div class="chips" style="margin-top:0" data-roles>'+roleChips(u.roles)+'</div></td><td>'+badge+'</td><td class="row-actions">'+actions+'</td></tr>';
+        var invite=(u.status==='pending'&&u.inviteLink)?'<div style="display:flex;gap:6px;align-items:center"><input class="tin" readonly value="'+esc(u.inviteLink)+'" onclick="this.select()" style="font-size:11px;width:150px;padding:4px 6px" title="Invite link — send this to the user to activate their account"><button class="btn sm" data-act="copylink" data-email="'+esc(u.email)+'" data-link="'+esc(u.inviteLink)+'">Copy</button></div>':'<span style="color:var(--gray-400)">—</span>';
+        return '<tr><td><div class="uname">'+(esc(u.name)||'—')+'</div><div class="uemail">'+esc(u.email)+'</div></td><td><div class="chips" style="margin-top:0" data-roles>'+roleChips(u.roles)+'</div></td><td>'+badge+'</td><td>'+invite+'</td><td class="row-actions">'+actions+'</td></tr>';
       }).join('');
     }
     if($('#people-sub'))$('#people-sub').textContent=active+' active · '+pending+' pending';
@@ -622,6 +623,7 @@ textarea.tin{resize:vertical;min-height:80px;line-height:1.55}
     $$('#users-tbody button[data-act]').forEach(function(b){b.onclick=function(){userAction(b.getAttribute('data-act'),b.getAttribute('data-email'),b);};});
   }
   function userAction(act,email,btn){
+    if(act==='copylink'){ var _l=btn.getAttribute('data-link')||''; if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(_l).then(function(){toast('Invite link copied');}).catch(function(){toast('Select the link and copy manually');}); } else { toast('Select the link and copy manually'); } return; }
     if(act==='edit'){ openRoleEditor(email,btn); return; }
     if(act==='disable' && !confirm('Suspend '+email+'? They will be signed out immediately.')) return;
     if(act==='delete' && !confirm('Permanently delete '+email+'? This cannot be undone.')) return;

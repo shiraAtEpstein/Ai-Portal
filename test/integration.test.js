@@ -81,7 +81,7 @@ test('HTTP: /api/agents returns only the agents the role is allowed', async () =
   const r = await call('/api/agents', { token: PARA });
   assert.equal(r.status, 200);
   const ids = (await r.json()).agents.map((a) => a.id).sort();
-  assert.deepEqual(ids, ['document_review', 'paralegal']);
+  assert.deepEqual(ids, ['calendar', 'daily', 'document_review', 'general', 'lawly', 'paralegal']);
 });
 test('HTTP BOUNDARY: a paralegal POSTing to a lawyer-only agent is refused (403) — no browser bypass', async () => {
   const r = await call('/api/chat', { method: 'POST', token: PARA, body: { agentId: 'legal_research', message: 'hi' } });

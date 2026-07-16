@@ -192,7 +192,17 @@
     if(railBadge){ railBadge.textContent=c.open; railBadge.style.display=c.open>0?'inline-flex':'none'; }
   }
 
-  function rerender(){ renderDock(); if(full.classList.contains('open')) renderFull(); }
+  // Nothing is painted until the agent has actually returned tasks. loadState()
+  // resolves in milliseconds while /api/chat takes seconds, so rendering an
+  // empty `tasks` here would replace "Reading your day..." with "Nothing on
+  // your plate today." (and could wipe an error message moments after it
+  // appeared). toggle()/snooze()/unsnooze() only run post-load, so the guard
+  // never blocks them.
+  function rerender(){
+    if(!loaded) return;
+    renderDock();
+    if(full.classList.contains('open')) renderFull();
+  }
 
   function toggle(k){
     var val = !isDone(k);

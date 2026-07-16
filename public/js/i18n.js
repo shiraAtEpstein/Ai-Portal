@@ -12,7 +12,7 @@
     mu_invite:'+ הזמנת משתמש חדש', backPortal:'← חזרה לפורטל', mu_allUsers:'כל המשתמשים',
     th_name:'שם', th_email:'אימייל', th_status:'סטטוס', th_roles:'הרשאות', th_actions:'פעולות',
     al_title:'יומן פעילות', al_sub:'תיעוד של מי עשה מה, ומתי.', al_refresh:'רענון',
-    al_allActions:'כל הפעולות', al_clear:'ניקוי', al_export:'יצוא CSV',
+    al_allActions:'כל הפעולות', al_clear:'ניקוי', al_export:'ייצוא CSV',
     aw_when:'מתי', aw_who:'מי', aw_action:'פעולה', aw_on:'על', aw_details:'פרטים',
     im_title:'הזמנת משתמש חדש', im_email:'אימייל (חייב להיות @epsteinlaw.co.il)',
     im_name:'שם', im_roles:'הרשאות', im_send:'שליחת הזמנה'

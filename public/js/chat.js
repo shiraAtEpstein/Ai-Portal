@@ -251,13 +251,29 @@ function appendMessage(role, text) {
   avatar.className = 'msg-avatar';
   avatar.textContent = isUser ? userName.charAt(0).toUpperCase() : '⚖️';
 
+  // Sender label above the bubble. User → their name; assistant → the current agent's name.
+  const body = document.createElement('div');
+  body.className = 'msg-body';
+
+  const roleLabel = document.createElement('div');
+  roleLabel.className = 'msg-role';
+  roleLabel.setAttribute('dir', 'auto');
+  const agentName = (typeof agentsById !== 'undefined' && agentsById && agentsById[currentAgent])
+    ? agentsById[currentAgent].name : null;
+  roleLabel.textContent = isUser ? (userName || 'You') : (agentName || 'Assistant');
+
   const bubble = document.createElement('div');
   bubble.className = 'msg-bubble';
   bubble.setAttribute('dir', 'auto');   // per-message bidi: align Hebrew/English independently per message
   bubble.innerHTML = formatText(text);
 
+  // .msg-bubble lives inside .msg-body, so wrapper.querySelector('.msg-bubble'),
+  // bubble.parentNode.insertBefore(thinkingCard, bubble) and
+  // bubble.parentNode.appendChild(fileLink) all stay valid.
+  body.appendChild(roleLabel);
+  body.appendChild(bubble);
   wrapper.appendChild(avatar);
-  wrapper.appendChild(bubble);
+  wrapper.appendChild(body);
   msgs.appendChild(wrapper);
   msgs.scrollTop = msgs.scrollHeight;
   return wrapper;

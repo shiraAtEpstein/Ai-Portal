@@ -107,7 +107,7 @@
 .dl-clear-s{ font-size:12px; color:var(--dl-muted); margin-top:3px; margin-bottom:6px; }
 .dl-clear-list{ text-align:left; }
 
-/* Done (recently completed) — collapsible */
+/* Done today / Snoozed — collapsible */
 .dl-donesec{ margin-top:16px; border-top:1px solid var(--dl-line); padding-top:8px; }
 .dl-donesec > summary{ list-style:none; cursor:pointer; font-size:11px; font-weight:700; letter-spacing:.06em;
   text-transform:uppercase; color:var(--dl-muted); padding:4px 6px; user-select:none; }
@@ -130,12 +130,16 @@
   box-shadow:0 8px 20px rgba(0,0,0,0.28); opacity:0; pointer-events:none; transition:opacity .25s, transform .25s; }
 .dl-toast.show{ opacity:1; transform:translate(-50%,0); }
 
-/* Collapsed rail (slim tab on the edge) */
+/* Collapsed rail (slim tab on the edge).
+   NOTE: #daily-rail sits OUTSIDE #portal (it is position:fixed), so it must NOT
+   be shown via a `#portal.daily-collapsed #daily-rail` descendant selector —
+   that can never match. daily.js toggles `.show` on the rail itself. */
 #daily-rail{ display:none; position:fixed; top:50%; right:0; transform:translateY(-50%); z-index:290;
   background:var(--dl-ink); color:#fff; writing-mode:vertical-rl; padding:15px 8px; border-radius:10px 0 0 10px;
   font-size:12px; letter-spacing:.05em; cursor:pointer; box-shadow:0 6px 18px rgba(0,0,0,0.18);
   align-items:center; gap:7px; }
-#portal.daily-collapsed #daily-rail{ display:flex; }
+#daily-rail.show{ display:flex; }
+#daily-rail:focus-visible{ outline:2px solid var(--dl-ink); outline-offset:2px; }
 .dl-rail-badge{ background:#fff; color:var(--dl-ink); border-radius:20px; font-size:10px; font-weight:700;
   padding:1px 6px; writing-mode:horizontal-tb; }
 
@@ -168,7 +172,6 @@
 
 /* RTL (portal sets dir="rtl") */
 #portal[dir="rtl"] #daily-dock{ border-left:0; border-right:1px solid var(--dl-line); }
-#portal[dir="rtl"] #daily-rail{ right:auto; left:0; border-radius:0 10px 10px 0; }
 #portal[dir="rtl"] .dl-detail{ margin:0 46px 10px 12px; }
 #portal[dir="rtl"] .dl-title,#portal[dir="rtl"] .dl-head-title{ text-align:right; }
 #portal[dir="rtl"] .dl-clear-list{ text-align:right; }

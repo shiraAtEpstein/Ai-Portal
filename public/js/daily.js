@@ -13,9 +13,11 @@
 // and lost every tick. The URL is stable across rewording. Text is only the
 // fallback for tasks with no link.
 //
-// HANDLED IS PERMANENT: ticking a task means "taken care of" — it is suppressed
-// for good (server-side, /api/daily/complete), with no need to also delete the
-// email or move the monday item. Un-ticking it in the Done list is the undo.
+// HANDLED IS PERMANENT, BUT TODAY'S WORK STAYS VISIBLE: ticking a task means
+// "taken care of" and it never comes back — no need to also delete the email or
+// move the monday item. Tasks handled TODAY remain on screen in the "Done"
+// section so the day's work is visible until tomorrow; tasks handled on an
+// EARLIER day are filtered out entirely. Un-ticking is the undo.
 //
 // All agent-supplied text is escaped before innerHTML; agent URLs pass an
 // http(s) allowlist. `day` is the LOCAL calendar date; nextDay() does UTC-based
@@ -49,14 +51,14 @@
   function nextDay(d){ var t=new Date(d+'T00:00:00Z'); t.setUTCDate(t.getUTCDate()+1); return t.toISOString().slice(0,10); }
   var day = localDay();
 
-  var doneMap = {};    // key -> true : handled (ticked)
+  var doneMap = {};    // key -> true : handled (ever)
+  var todayMap = {};   // key -> true : handled TODAY (still shown, under "Done")
   var snoozeMap = {};  // key -> true : hidden until a later day
-  var hiddenDone = {}; // handled BEFORE this open -> never rendered again
+  var hiddenDone = {}; // handled on an EARLIER day -> never rendered again
 
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function safeUrl(u){ u=String(u||'').trim(); return /^https?:\/\//i.test(u) ? u : ''; }
   function norm(s){ return String(s==null?'':s).trim().toLowerCase().replace(/\s+/g,' '); }
-  // Stable identity: prefer the deep link, fall back to text.
   function keyFor(t){
     var u = safeUrl(t && t.url);
     if(u) return 'u:' + u.toLowerCase().replace(/#.*$/,'').replace(/\/+$/,'');
@@ -69,11 +71,16 @@
   function visibleTasks(){ return tasks.filter(function(t){ var k=keyFor(t); return !isSnoozed(k) && !isHandled(k); }); }
   function snoozedTasks(){ return tasks.filter(function(t){ var k=keyFor(t); return isSnoozed(k) && !isHandled(k); }); }
 
-  // local caches (fallback only). handled is NOT day-scoped — it's permanent.
   function readJson(k, dflt){ try { return JSON.parse(localStorage.getItem(k)||JSON.stringify(dflt)); } catch(e){ return dflt; } }
   function writeArr(k, map){ try { localStorage.setItem(k, JSON.stringify(Object.keys(map).filter(function(x){ return map[x]; }))); } catch(e){} }
   function toMap(arr){ var m={}; (arr||[]).forEach(function(k){ m[k]=true; }); return m; }
-  var LS_HANDLED='daily-handled', LS_SNOOZED='daily-snoozed-'+day;
+  var LS_HANDLED='daily-handled', LS_TODAY='daily-handled-'+day, LS_SNOOZED='daily-snoozed-'+day;
+
+  // Everything handled on an earlier day is hidden; today's stays on screen.
+  function recomputeHidden(){
+    hiddenDone = {};
+    Object.keys(doneMap).forEach(function(k){ if(doneMap[k] && !todayMap[k]) hiddenDone[k]=true; });
+  }
 
   function persistDone(k, val){
     fetch('/api/daily/complete', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
@@ -157,7 +164,7 @@
       list.forEach(function(t){ html+=rowHtml(t,{full:full_}); });
     });
     if(doneL.length){
-      html+='<details class="dl-donesec"'+(open.length?'':' open')+'><summary>Done ('+doneL.length+')</summary><div class="dl-done-list">';
+      html+='<details class="dl-donesec"'+(open.length?'':' open')+'><summary>Done today ('+doneL.length+')</summary><div class="dl-done-list">';
       doneL.forEach(function(t){ html+=rowHtml(t,{full:full_}); });
       html+='</div></details>';
     }
@@ -229,8 +236,10 @@
 
   function toggle(k){
     var val = !isDone(k);
-    if(val) doneMap[k]=true; else delete doneMap[k];
-    writeArr(LS_HANDLED, doneMap);
+    if(val){ doneMap[k]=true; todayMap[k]=true; }
+    else { delete doneMap[k]; delete todayMap[k]; }
+    writeArr(LS_HANDLED, doneMap); writeArr(LS_TODAY, todayMap);
+    recomputeHidden();
     rerender();
     persistDone(k, val);
   }
@@ -289,16 +298,16 @@
     ]).then(function(res){
       var state=res[0], cached=res[1];
       if(state){
-        doneMap = toMap(state.handled || state.keys || []);
-        snoozeMap = toMap(state.snoozed || []);
+        doneMap  = toMap(state.handled || []);
+        todayMap = toMap(state.keys || []);      // handled today -> still shown
+        snoozeMap= toMap(state.snoozed || []);
       } else {
-        doneMap = toMap(readJson(LS_HANDLED, []));
-        snoozeMap = toMap(readJson(LS_SNOOZED, []));
+        doneMap  = toMap(readJson(LS_HANDLED, []));
+        todayMap = toMap(readJson(LS_TODAY, []));
+        snoozeMap= toMap(readJson(LS_SNOOZED, []));
       }
-      writeArr(LS_HANDLED, doneMap); writeArr(LS_SNOOZED, snoozeMap);
-      // Everything already handled before this open is hidden for good.
-      hiddenDone = {};
-      Object.keys(doneMap).forEach(function(k){ if(doneMap[k]) hiddenDone[k]=true; });
+      writeArr(LS_HANDLED, doneMap); writeArr(LS_TODAY, todayMap); writeArr(LS_SNOOZED, snoozeMap);
+      recomputeHidden();
 
       if(cached){
         remaining = (typeof cached.remaining==='number') ? cached.remaining : null;
@@ -373,10 +382,13 @@
   }
 
   // --- open/close full view + collapse rail --------------------------------
+  // The rail lives OUTSIDE #portal (it is position:fixed), so it cannot be
+  // shown with a `#portal.daily-collapsed #daily-rail` descendant selector —
+  // that never matches. Toggle a class on the rail itself instead.
   function openFull(){ renderFull(); full.classList.add('open'); }
   function closeFull(){ full.classList.remove('open'); }
-  function collapse(){ portal.classList.add('daily-collapsed'); }
-  function expand(){ portal.classList.remove('daily-collapsed'); openDay(); }
+  function collapse(){ portal.classList.add('daily-collapsed'); if(rail) rail.classList.add('show'); }
+  function expand(){ portal.classList.remove('daily-collapsed'); if(rail) rail.classList.remove('show'); openDay(); }
 
   var elFull=document.getElementById('daily-open-full');
   var elClose=document.getElementById('daily-full-close');
@@ -386,17 +398,23 @@
   if(elClose) elClose.addEventListener('click', closeFull);
   if(elRefresh) elRefresh.addEventListener('click', function(){ runAgent(); });
   if(elCollapse) elCollapse.addEventListener('click', collapse);
-  if(rail) rail.addEventListener('click', expand);
+  if(rail){
+    rail.addEventListener('click', expand);
+    rail.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); expand(); } });
+  }
   full.addEventListener('click', function(e){ if(e.target===full) closeFull(); });
   document.addEventListener('keydown', function(e){ if(e.key==='Escape' && full.classList.contains('open')) closeFull(); });
 
   stamp();
-  doneMap = toMap(readJson(LS_HANDLED, []));
-  snoozeMap = toMap(readJson(LS_SNOOZED, []));
+  doneMap  = toMap(readJson(LS_HANDLED, []));
+  todayMap = toMap(readJson(LS_TODAY, []));
+  snoozeMap= toMap(readJson(LS_SNOOZED, []));
+  recomputeHidden();
 
   function sync(){
     var on = portal && getComputedStyle(portal).display !== 'none';
     dock.style.display = on ? '' : 'none';
+    // hide the rail entirely while logged out; otherwise let the .show class decide
     if(rail) rail.style.display = on ? '' : 'none';
     if(on && !portal.classList.contains('daily-collapsed')) openDay();
   }

@@ -22,6 +22,7 @@ const {
   makeCacheableSignalKeyStore,
   DisconnectReason,
 } = require('@whiskeysockets/baileys');
+const { NodeCache } = require('@cacheable/node-cache');
 const { createAuthStore } = require('./auth-store');
 const db = require('./db');
 
@@ -36,6 +37,14 @@ class BaileysGroupsProvider extends EventEmitter {
     this.status = 'disconnected';
     this.reconnectAttempt = 0;
     this._stopped = false;
+
+    // Required by Baileys internally (retry/decrypt bookkeeping and the
+    // device list per JID) — without these, processMessage() crashes on
+    // its first real incoming message (confirmed against our own logs:
+    // TypeError in NodeCache.formatKey via process-message.js). Created
+    // once here, not per-connect, so counts survive a reconnect.
+    this.msgRetryCounterCache = new NodeCache();
+    this.userDevicesCache = new NodeCache();
   }
 
   getStatus() {
@@ -80,6 +89,8 @@ class BaileysGroupsProvider extends EventEmitter {
         keys: makeCacheableSignalKeyStore(this.authStore.auth.keys, silentLogger()),
       },
       logger: silentLogger(),
+      msgRetryCounterCache: this.msgRetryCounterCache,
+      userDevicesCache: this.userDevicesCache,
       // Read-only posture: don't announce presence, don't pull full
       // history — we only care about new messages going forward.
       markOnlineOnConnect: false,
@@ -142,7 +153,14 @@ class BaileysGroupsProvider extends EventEmitter {
     }, delayMs);
   }
 
-  async _discoverGroups() {
+  // A single unretried query right at connect time is fragile — this is
+  // the same class of query (WhatsApp account/group metadata) that
+  // produced the 'Timed Out' error we saw right after connecting, likely
+  // because WhatsApp's servers are briefly slow to respond in the first
+  // minute or two after a fresh device link. Retry a few times with
+  // backoff before giving up, rather than silently leaving groups empty.
+  async _discoverGroups(attempt) {
+    attempt = attempt || 1;
     if (!this.sock) return;
     try {
       const groups = await this.sock.groupFetchAllParticipating();
@@ -150,8 +168,13 @@ class BaileysGroupsProvider extends EventEmitter {
         const g = groups[jid];
         await this._upsertGroup(jid, g.subject, g.participants ? g.participants.length : null);
       }
+      console.log(`[whatsapp/groups] discovery found ${Object.keys(groups).length} group(s) (attempt ${attempt})`);
     } catch (e) {
-      console.error('[whatsapp/groups] group discovery failed:', e.message);
+      console.error(`[whatsapp/groups] group discovery failed (attempt ${attempt}):`, e.message);
+      if (attempt < 4 && this.sock && !this._stopped) {
+        const delayMs = attempt * 5000; // 5s, 10s, 15s
+        setTimeout(() => this._discoverGroups(attempt + 1), delayMs);
+      }
     }
   }
 

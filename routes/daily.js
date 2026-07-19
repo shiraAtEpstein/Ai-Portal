@@ -45,7 +45,7 @@ const { authenticate } = require('../lib/sessions');
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_KEY = 500;
-const MAX_RUNS = 3;
+const MAX_RUNS = 40;
 const MAX_PAYLOAD = 100000;
 const MAX_NOTE = 500;
 const MAX_DIRECTIVES = 200;

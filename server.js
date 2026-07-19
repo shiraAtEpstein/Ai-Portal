@@ -25,6 +25,8 @@ const createAccountRouter = require('./routes/account');
 const createFirmRulesRouter = require('./routes/firm-rules');
 const createMarketingRouter = require('./routes/marketing');
 const createDailyRouter = require('./routes/daily');
+const createWhatsappGroupsRouter = require('./routes/whatsapp-groups');
+const whatsappGroups = require('./whatsapp/groups/bootstrap');
 
 // Dropbox-backed agents: load framework .md files from the connected Dropbox
 // folder at boot and on a timer (roles stay in config/agents.json). Falls back
@@ -93,6 +95,8 @@ app.use(createFirmRulesRouter({ transporter }));
 app.use(createMarketingRouter());
 // 'Today' panel: per-user daily task completions (server-side persistence).
 app.use(createDailyRouter());
+// WhatsApp Groups (Baileys) — Phase 1, read-only. Admin status/QR endpoints.
+app.use(createWhatsappGroupsRouter());
 
 // Health check — also reports whether the database is reachable.
 app.get('/healthz', async (req, res) => {
@@ -121,6 +125,14 @@ async function refreshAgents(reason) {
   }
 }
 refreshAgents('boot');
+
+// Start the WhatsApp groups connector. Safe no-op if DATABASE_URL isn't
+// set; logs and continues either way so a connector issue never blocks
+// the portal from serving.
+whatsappGroups.start().catch((e) => {
+  console.error('[whatsapp/groups] failed to start:', e.message);
+});
+
 if (dropbox.configured()) {
   const REFRESH_MS = parseInt(process.env.AGENTS_REFRESH_MS || '300000', 10); // 5 min
   setInterval(function () { refreshAgents('interval'); }, REFRESH_MS).unref();

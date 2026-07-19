@@ -2,8 +2,10 @@
 // routes/daily.js — server-side state for the 'Today' panel.
 //
 // Per-user: the generated task list (cached per day), which tasks have been
-// HANDLED (permanent), and which are snoozed. Scoped strictly to the signed-in
-// user (req.session.userId). Tables are created lazily (idempotent).
+// HANDLED (permanent), which are snoozed, and the standing "remember" notes the
+// person has written on tasks (directives to the daily agent). Scoped strictly
+// to the signed-in user (req.session.userId). Tables are created lazily
+// (idempotent).
 //
 //   GET  /api/daily/tasks?day=YYYY-MM-DD
 //        -> { day, tasks: [...]|null, generatedAt, runs, remaining }
@@ -15,12 +17,23 @@
 //   POST /api/daily/complete  { key, done }   -> { ok:true }
 //   POST /api/daily/snooze    { key, until }  -> { ok:true }
 //
+//   GET  /api/daily/directives                  -> { directives: [...] }
+//   POST /api/daily/remember  { key, note, taskLabel } -> { ok, id }
+//   POST /api/daily/directive/delete { id }     -> { ok:true }
+//
 // HANDLED IS PERMANENT. Ticking a task means "I've taken care of this" — it must
 // never come back, without the user having to also delete the email or move the
 // monday item. So daily_handled is keyed by (user_id, task_key) with NO day
 // column: once handled, always hidden. Un-ticking deletes the row, which is the
 // undo. `keys` (handled today) drives the progress ring; `handled` drives
 // suppression.
+//
+// REMEMBER NOTES (daily_directives): a note the person writes on a task is a
+// standing instruction to the daily agent — "stop showing me make.com
+// scenario-stop emails", "always treat X as critical". It is per-user, applies
+// to EVERY future generation (not just the one task), and is injected into the
+// agent's prompt by the client when it regenerates the list. The user can
+// delete a note to forget it.
 //
 // Why the cache: generating the list runs the 'daily' agent across the user's
 // email, calendar and monday boards — slow and expensive. It runs at most
@@ -32,8 +45,10 @@ const { authenticate } = require('../lib/sessions');
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_KEY = 500;
-const MAX_RUNS = 30;
+const MAX_RUNS = 40;
 const MAX_PAYLOAD = 100000;
+const MAX_NOTE = 500;
+const MAX_DIRECTIVES = 200;
 
 let _ready = null;
 function ensureTables() {
@@ -67,6 +82,21 @@ function ensureTables() {
       '  generated_at timestamptz,' +
       '  PRIMARY KEY (user_id, day)' +
       ')');
+  }).then(function () {
+    // Standing "remember" notes the person wrote on a task. Per-user; applies to
+    // every future generation. task_key/task_label are provenance only.
+    return p.query(
+      'CREATE TABLE IF NOT EXISTS daily_directives (' +
+      '  id         bigserial   PRIMARY KEY,' +
+      '  user_id    uuid        NOT NULL,' +
+      '  task_key   text,' +
+      '  task_label text,' +
+      '  note       text        NOT NULL,' +
+      '  created_at timestamptz NOT NULL DEFAULT now()' +
+      ')');
+  }).then(function () {
+    return p.query(
+      'CREATE INDEX IF NOT EXISTS daily_directives_user_idx ON daily_directives (user_id, created_at DESC)');
   }).then(function () { return true; })
     .catch(function (e) { console.error('[DAILY] ensureTables failed:', e.message); _ready = null; return false; });
   return _ready;
@@ -234,6 +264,72 @@ module.exports = function createDailyRouter() {
     } catch (e) {
       console.error('[DAILY] snooze failed:', e.message);
       res.status(500).json({ error: 'Could not snooze.' });
+    }
+  });
+
+  // --- remember notes (standing instructions to the daily agent) --------
+
+  // Every note this user has written, newest first. Scoped to the signed-in
+  // user; the client injects these into the agent's prompt when it regenerates.
+  router.get('/api/daily/directives', authenticate, async function (req, res) {
+    try {
+      const ok = await ensureTables();
+      if (!ok) return res.json({ directives: [] });
+      const p = db.getPool();
+      const r = await p.query(
+        'SELECT id, task_key, task_label, note, created_at FROM daily_directives ' +
+        'WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2',
+        [req.session.userId, MAX_DIRECTIVES]);
+      res.json({ directives: r.rows.map(function (row) {
+        return { id: row.id, key: row.task_key, taskLabel: row.task_label, note: row.note, createdAt: row.created_at };
+      }) });
+    } catch (e) {
+      console.error('[DAILY] directives load failed:', e.message);
+      res.status(500).json({ error: 'Could not load your notes.' });
+    }
+  });
+
+  // Save a note written on a task. `key`/`taskLabel` are provenance only.
+  router.post('/api/daily/remember', authenticate, async function (req, res) {
+    const b = (req.body && typeof req.body === 'object') ? req.body : {};
+    const note = String(b.note || '').trim();
+    const key = (b.key != null && b.key !== '') ? String(b.key).slice(0, MAX_KEY) : null;
+    const label = (b.taskLabel != null && b.taskLabel !== '') ? String(b.taskLabel).slice(0, MAX_KEY) : null;
+    if (!note) return res.status(400).json({ error: 'note is required' });
+    if (note.length > MAX_NOTE) return res.status(400).json({ error: 'note too long' });
+    try {
+      const ok = await ensureTables();
+      if (!ok) return res.status(503).json({ error: 'Storage unavailable.' });
+      const p = db.getPool();
+      // Cap total notes per user so the prompt injection can never grow unbounded.
+      const cnt = await p.query('SELECT count(*)::int AS n FROM daily_directives WHERE user_id = $1', [req.session.userId]);
+      if (cnt.rows[0] && cnt.rows[0].n >= MAX_DIRECTIVES) {
+        return res.status(409).json({ error: 'You have reached the maximum number of saved notes. Delete a few and try again.' });
+      }
+      const r = await p.query(
+        'INSERT INTO daily_directives (user_id, task_key, task_label, note) VALUES ($1, $2, $3, $4) RETURNING id, created_at',
+        [req.session.userId, key, label, note]);
+      res.json({ ok: true, id: r.rows[0].id, createdAt: r.rows[0].created_at });
+    } catch (e) {
+      console.error('[DAILY] remember failed:', e.message);
+      res.status(500).json({ error: 'Could not save your note.' });
+    }
+  });
+
+  // Forget a note. Scoped to the owner so a user can only delete their own.
+  router.post('/api/daily/directive/delete', authenticate, async function (req, res) {
+    const b = (req.body && typeof req.body === 'object') ? req.body : {};
+    const id = parseInt(b.id, 10);
+    if (!id || isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+    try {
+      const ok = await ensureTables();
+      if (!ok) return res.status(503).json({ error: 'Storage unavailable.' });
+      const p = db.getPool();
+      await p.query('DELETE FROM daily_directives WHERE user_id = $1 AND id = $2', [req.session.userId, id]);
+      res.json({ ok: true });
+    } catch (e) {
+      console.error('[DAILY] directive delete failed:', e.message);
+      res.status(500).json({ error: 'Could not delete your note.' });
     }
   });
 

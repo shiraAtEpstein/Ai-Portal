@@ -19,6 +19,12 @@
 // section so the day's work is visible until tomorrow; tasks handled on an
 // EARLIER day are filtered out entirely. Un-ticking is the undo.
 //
+// REMEMBER NOTES: on the full-view detail of a task the person can write a
+// standing instruction to the daily agent ("stop showing me make.com
+// scenario-stop emails"). It is saved per-user via /api/daily/remember and, on
+// the next "Load my day"/refresh, every saved note is prepended to the agent's
+// prompt so it applies going forward. Notes can be deleted (forgotten).
+//
 // All agent-supplied text is escaped before innerHTML; agent URLs pass an
 // http(s) allowlist. `day` is the LOCAL calendar date; nextDay() does UTC-based
 // calendar math (a local parse + toISOString() round-trip shifts backwards
@@ -55,6 +61,7 @@
   var todayMap = {};   // key -> true : handled TODAY (still shown, under "Done")
   var snoozeMap = {};  // key -> true : hidden until a later day
   var hiddenDone = {}; // handled on an EARLIER day -> never rendered again
+  var directivesByKey = {}; // task_key -> [ {id, note} ] : saved remember notes
 
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function safeUrl(u){ u=String(u||'').trim(); return /^https?:\/\//i.test(u) ? u : ''; }
@@ -89,6 +96,29 @@
   function persistSnooze(k, until){
     fetch('/api/daily/snooze', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ key:k, until:until }) }).catch(function(){});
+  }
+
+  // --- remember notes ----------------------------------------------------
+  function indexDirectives(list){
+    directivesByKey = {};
+    (list||[]).forEach(function(d){
+      var k = d.key || '';
+      (directivesByKey[k] = directivesByKey[k] || []).push({ id:d.id, note:d.note });
+    });
+  }
+  function loadDirectives(){
+    return fetch('/api/daily/directives', { credentials:'same-origin' })
+      .then(function(r){ return r.ok?r.json():null; }).catch(function(){ return null; })
+      .then(function(j){ var list=(j&&j.directives)?j.directives:[]; indexDirectives(list); return list; });
+  }
+  function saveDirective(key, note, label){
+    return fetch('/api/daily/remember', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ key:key, note:note, taskLabel:label }) })
+      .then(function(r){ return r.ok?r.json():null; }).catch(function(){ return null; });
+  }
+  function deleteDirective(id){
+    return fetch('/api/daily/directive/delete', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ id:id }) }).catch(function(){});
   }
 
   var GROUPS = [
@@ -128,6 +158,27 @@
     return bits ? '<div class="dl-quick">'+bits+'</div>' : '';
   }
 
+  // The remember box (full view only): existing notes for this task + an input.
+  function rememberHtml(t, k){
+    var notes = directivesByKey[k] || [];
+    var listHtml = notes.map(function(d){
+      return '<div class="dl-remembered" style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12.5px;background:#f4f1ea;border-radius:6px;padding:4px 8px;margin-top:4px">'+
+        '<span>&#128221; '+esc(d.note)+'</span>'+
+        '<button type="button" class="dl-remember-del" data-remember-del="'+esc(String(d.id))+'" title="Forget this" aria-label="Forget this" style="border:none;background:transparent;cursor:pointer;color:#8a5a6b;font-size:13px">&#10005;</button>'+
+        '</div>';
+    }).join('');
+    return '<div class="dl-remember" style="margin-top:10px;border-top:1px solid #eee;padding-top:8px">'+
+      '<div class="dl-remember-lbl" style="font-size:11.5px;color:#777;margin-bottom:4px">Tell the agent to remember</div>'+
+      listHtml+
+      '<div class="dl-remember-add" style="display:flex;gap:6px;margin-top:6px">'+
+      '<input type="text" class="dl-remember-input" data-remember="'+esc(k)+'" maxlength="500" '+
+      'placeholder="e.g. stop showing me make.com scenario-stop emails" '+
+      'style="flex:1;min-width:0;padding:6px 8px;border:1px solid #ccc;border-radius:6px;font-size:13px">'+
+      '<button type="button" class="dl-remember-save" data-remember-save="'+esc(k)+'" '+
+      'style="padding:6px 12px;border:none;border-radius:6px;background:#4a6b8a;color:#fff;cursor:pointer;font-size:13px;white-space:nowrap">Remember</button>'+
+      '</div></div>';
+  }
+
   function rowHtml(t, opts){
     opts=opts||{};
     var k=keyFor(t), d=isDone(k);
@@ -144,7 +195,7 @@
       var snz = '';
       if(opts.snoozed) snz='<button type="button" class="dl-unsnooze" data-unsnooze="'+esc(k)+'">Un-snooze</button>';
       else if(!d) snz='<button type="button" class="dl-snooze" data-snooze="'+esc(k)+'">Snooze to tomorrow</button>';
-      html += '<div class="dl-detail" data-detail="'+esc(k)+'">'+why+'<div class="dl-acts">'+open+snz+'</div></div>';
+      html += '<div class="dl-detail" data-detail="'+esc(k)+'">'+why+'<div class="dl-acts">'+open+snz+'</div>'+rememberHtml(t,k)+'</div>';
     }
     return html;
   }
@@ -263,7 +314,8 @@
         var k=row.getAttribute('data-key');
         if(e.target.closest('.dl-cbx')){ toggle(k); e.stopPropagation(); return; }
         if(e.target.closest('a') || e.target.closest('.dl-quick') ||
-           e.target.closest('.dl-snooze') || e.target.closest('.dl-unsnooze')) return;
+           e.target.closest('.dl-snooze') || e.target.closest('.dl-unsnooze') ||
+           e.target.closest('.dl-remember')) return;
         if(isFull){ var det=fullBody.querySelector('[data-detail="'+cssEsc(k)+'"]'); if(det){ det.classList.toggle('open'); } }
         else { openFull(); }
       });
@@ -275,6 +327,47 @@
     });
     root.querySelectorAll('.dl-unsnooze').forEach(function(btn){
       btn.addEventListener('click', function(e){ e.stopPropagation(); unsnooze(btn.getAttribute('data-unsnooze')); });
+    });
+    // remember notes: save, submit-on-Enter, and delete. Stop propagation so a
+    // click inside the box never toggles/closes the task detail.
+    root.querySelectorAll('.dl-remember-input').forEach(function(inp){
+      inp.addEventListener('click', function(e){ e.stopPropagation(); });
+      inp.addEventListener('keydown', function(e){
+        e.stopPropagation();
+        if(e.key==='Enter'){ e.preventDefault();
+          var k=inp.getAttribute('data-remember');
+          var btn=root.querySelector('.dl-remember-save[data-remember-save="'+cssEsc(k)+'"]');
+          if(btn) btn.click();
+        }
+      });
+    });
+    root.querySelectorAll('.dl-remember-save').forEach(function(btn){
+      btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        var k=btn.getAttribute('data-remember-save');
+        var inp=root.querySelector('.dl-remember-input[data-remember="'+cssEsc(k)+'"]');
+        var val=inp?String(inp.value||'').trim():'';
+        if(!val) return;
+        var t=tasks.filter(function(x){ return keyFor(x)===k; })[0];
+        var label=t?(t.task||''):'';
+        btn.disabled=true;
+        saveDirective(k, val, label).then(function(j){
+          btn.disabled=false;
+          if(j && j.id){ (directivesByKey[k]=directivesByKey[k]||[]).push({ id:j.id, note:val }); rerender(); showToast('Saved — the agent will remember'); }
+          else { showToast('Could not save that note'); }
+        });
+      });
+    });
+    root.querySelectorAll('.dl-remember-del').forEach(function(btn){
+      btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        var id=btn.getAttribute('data-remember-del');
+        deleteDirective(id);
+        Object.keys(directivesByKey).forEach(function(k){
+          directivesByKey[k]=directivesByKey[k].filter(function(d){ return String(d.id)!==String(id); });
+        });
+        rerender(); showToast('Forgotten');
+      });
     });
   }
   function cssEsc(s){ return String(s).replace(/["\\\]]/g,'\\$&'); }
@@ -294,7 +387,8 @@
       fetch('/api/daily/completions?day='+encodeURIComponent(day), { credentials:'same-origin' })
         .then(function(r){ return r.ok?r.json():null; }).catch(function(){ return null; }),
       fetch('/api/daily/tasks?day='+encodeURIComponent(day), { credentials:'same-origin' })
-        .then(function(r){ return r.ok?r.json():null; }).catch(function(){ return null; })
+        .then(function(r){ return r.ok?r.json():null; }).catch(function(){ return null; }),
+      loadDirectives()
     ]).then(function(res){
       var state=res[0], cached=res[1];
       if(state){
@@ -347,9 +441,23 @@
       });
   }
 
+  // Build the generation message, prefixing any standing "remember" notes so the
+  // agent applies them when choosing what to include this run.
+  function buildMessage(){
+    return loadDirectives().then(function(dirs){
+      var pre='';
+      if(dirs && dirs.length){
+        pre='Standing instructions I have set for my daily brief — obey every one when deciding what to include or leave out:\n'+
+          dirs.map(function(d){ return '- '+d.note; }).join('\n')+'\n\n';
+      }
+      return pre+'Give me my tasks for today. Respond with ONLY a JSON array (no prose, no code fence). Each element: {"task": string, "deal": string, "why": string, "url": string, "urgency": "overdue"|"today"|"soon"}. The "url" must be a stable deep link to the monday item or the email thread — it is used to identify the task across runs, so keep it identical for the same underlying item.';
+    });
+  }
+
   function callAgent(){
+    return buildMessage().then(function(message){
     return fetch('/api/chat',{ method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ agentId:'daily', message:'Give me my tasks for today. Respond with ONLY a JSON array (no prose, no code fence). Each element: {"task": string, "deal": string, "why": string, "url": string, "urgency": "overdue"|"today"|"soon"}. The "url" must be a stable deep link to the monday item or the email thread — it is used to identify the task across runs, so keep it identical for the same underlying item.' }) })
+      body: JSON.stringify({ agentId:'daily', message: message }) })
       .then(async function(r){
         var rb=document.getElementById('daily-refresh');
         if(!r.ok){ var e={}; try{ e=await r.json(); }catch(_){}
@@ -379,6 +487,7 @@
             if(typeof j.remaining==='number') remaining=j.remaining; stamp(); } })
           .catch(function(){});
       });
+    });
   }
 
   // --- open/close full view + collapse rail --------------------------------

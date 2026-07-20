@@ -155,3 +155,75 @@ async function setAccountStatus(accountId, status, detail) {
      SET status = $1, status_detail = $2, updated_at = now() ${setLastConnected}
      WHERE id = $3`,
     [status, detail || null, accountId]
+  );
+}
+
+async function getAccountStatus(accountId) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return null;
+  const r = await p.query(
+    `SELECT id, label, status, status_detail, last_connected_at FROM whatsapp_group_accounts WHERE id = $1`,
+    [accountId]
+  );
+  return r.rows[0] || null;
+}
+
+// --- groups -----------------------------------------------------------
+
+async function upsertGroup(accountId, providerGroupJid, name, participantCount) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return null;
+  const r = await p.query(
+    `INSERT INTO whatsapp_groups (account_id, provider_group_jid, name, participant_count)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (account_id, provider_group_jid)
+     DO UPDATE SET name = EXCLUDED.name, participant_count = EXCLUDED.participant_count, removed_at = NULL
+     RETURNING *`,
+    [accountId, providerGroupJid, name || providerGroupJid, participantCount || null]
+  );
+  return r.rows[0];
+}
+
+// The account was removed from, or left, this group — stop showing it
+// without deleting the row outright (keeps history / avoids re-triggering
+// upsertGroup's ON CONFLICT churn if WhatsApp resends stale metadata).
+async function markGroupRemoved(accountId, providerGroupJid) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return null;
+  const r = await p.query(
+    `UPDATE whatsapp_groups SET removed_at = now()
+     WHERE account_id = $1 AND provider_group_jid = $2
+     RETURNING *`,
+    [accountId, providerGroupJid]
+  );
+  return r.rows[0] || null;
+}
+
+async function listGroups(accountId, { includeRemoved } = {}) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return [];
+  const r = await p.query(
+    includeRemoved
+      ? `SELECT * FROM whatsapp_groups WHERE account_id = $1 ORDER BY name ASC`
+      : `SELECT * FROM whatsapp_groups WHERE account_id = $1 AND removed_at IS NULL ORDER BY name ASC`,
+    [accountId]
+  );
+  return r.rows;
+}
+
+module.exports = {
+  ensureTables,
+  getOrCreateAccount,
+  saveAuthState,
+  loadAuthState,
+  resetAuthState,
+  setAccountStatus,
+  getAccountStatus,
+  upsertGroup,
+  markGroupRemoved,
+  listGroups,
+};

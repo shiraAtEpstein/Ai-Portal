@@ -22,7 +22,7 @@ const {
   makeCacheableSignalKeyStore,
   DisconnectReason,
 } = require('@whiskeysockets/baileys');
-const { NodeCache } = require('@cacheable/node-cache');
+const { SafeCache } = require('./safe-cache');
 const { createAuthStore } = require('./auth-store');
 const db = require('./db');
 

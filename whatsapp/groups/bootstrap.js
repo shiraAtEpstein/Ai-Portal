@@ -29,6 +29,7 @@ let alertedThisEpisode = false; // one email per "needs a human" episode, not pe
 
 async function start(transporter) {
   if (transporter) mailer = transporter;
+  console.log(`[whatsapp/groups] boot: mailer=${!!mailer} alertEmail=${ALERT_EMAIL}`);
   if (provider) return provider; // already started
 
   const account = await db.getOrCreateAccount('WhatsApp groups monitor');

@@ -205,7 +205,7 @@ class BaileysGroupsProvider extends EventEmitter {
       console.log(`[whatsapp/ingest] enqueued ${enqueued}, skipped/duplicate ${skipped}`);
     }
   }
-  }
+  
 
   async _handleConnectionUpdate(update) {
     const { connection, lastDisconnect, qr } = update;

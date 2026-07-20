@@ -43,8 +43,9 @@ class BaileysGroupsProvider extends EventEmitter {
     // its first real incoming message (confirmed against our own logs:
     // TypeError in NodeCache.formatKey via process-message.js). Created
     // once here, not per-connect, so counts survive a reconnect.
-    this.msgRetryCounterCache = new NodeCache();
-    this.userDevicesCache = new NodeCache();
+    this.msgRetryCounterCache = new SafeCache();
+    this.userDevicesCache = new SafeCache();
+    this.placeholderResendCache = new SafeCache();
   }
 
   getStatus() {
@@ -91,6 +92,7 @@ class BaileysGroupsProvider extends EventEmitter {
       logger: silentLogger(),
       msgRetryCounterCache: this.msgRetryCounterCache,
       userDevicesCache: this.userDevicesCache,
+      placeholderResendCache: this.placeholderResendCache,
       // Read-only posture: don't announce presence, don't pull full
       // history — we only care about new messages going forward.
       markOnlineOnConnect: false,

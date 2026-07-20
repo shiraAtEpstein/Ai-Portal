@@ -68,15 +68,30 @@ async function getOrCreateAccount(label) {
 }
 
 // authState: { creds, keys } plain object (Buffers already base64-encoded by caller).
+// authState: { creds, keys } plain object (Buffers already base64-encoded by caller).
 async function saveAuthState(accountId, authState) {
   await ensureTables();
   const p = getPool();
   if (!p) return;
+  // Buffers serialize automatically via their built-in toJSON() into
+  // { type: 'Buffer', data: [...] } — no replacer needed on this side.
   const encrypted = enc.encrypt(JSON.stringify(authState));
   await p.query(
     `UPDATE whatsapp_group_accounts SET auth_state_encrypted = $1, updated_at = now() WHERE id = $2`,
     [encrypted, accountId]
   );
+}
+
+// Reverses Buffer's own toJSON() shape. Applies everywhere in the object
+// graph (creds AND keys), not just one bucket — this was the actual bug:
+// creds (noise/identity/signed-prekey Buffers) were never revived, only
+// plain JSON.parse'd, so the noise handshake got {type:'Buffer',data:[..]}
+// objects instead of real Buffers and crashed in Buffer.concat().
+function bufferRevivingReviver(_key, value) {
+  if (value && typeof value === 'object' && value.type === 'Buffer' && Array.isArray(value.data)) {
+    return Buffer.from(value.data);
+  }
+  return value;
 }
 
 async function loadAuthState(accountId) {
@@ -90,13 +105,12 @@ async function loadAuthState(accountId) {
   const blob = r.rows[0] && r.rows[0].auth_state_encrypted;
   if (!blob) return null;
   try {
-    return JSON.parse(enc.decrypt(blob));
+    return JSON.parse(enc.decrypt(blob), bufferRevivingReviver);
   } catch (e) {
     console.error('[whatsapp/groups] failed to parse decrypted auth state:', e.message);
     return null;
   }
 }
-
 async function setAccountStatus(accountId, status, detail) {
   await ensureTables();
   const p = getPool();

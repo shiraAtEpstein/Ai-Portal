@@ -1,4 +1,4 @@
-// ===========================================================
+// ============================================================
 // whatsapp/groups/provider.js — Baileys connection lifecycle.
 //
 // Read-only, groups-only, Phase 1: no sendMessage method exists on this

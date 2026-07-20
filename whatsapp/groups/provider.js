@@ -104,7 +104,16 @@ class BaileysGroupsProvider extends EventEmitter {
     });
 
     this.sock.ev.on('connection.update', (update) => this._handleConnectionUpdate(update));
-
+// Fires when the account is added to (or creates) a group — a
+    // different event from 'groups.update', which only covers metadata
+    // changes on groups it already knew about. Without this, a newly
+    // joined group wasn't seen until the next full reconnect re-ran
+    // groupFetchAllParticipating() in _discoverGroups().
+    this.sock.ev.on('groups.upsert', async (groups) => {
+      for (const g of groups) {
+        if (g.id) await this._upsertGroup(g.id, g.subject, g.size ?? (g.participants ? g.participants.length : null));
+      }
+    });
     this.sock.ev.on('groups.update', async (updates) => {
       for (const g of updates) {
         if (g.id) await this._upsertGroup(g.id, g.subject, g.size);

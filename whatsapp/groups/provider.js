@@ -26,6 +26,9 @@ const {
 const { SafeCache } = require('./safe-cache');
 const { createAuthStore } = require('./auth-store');
 const db = require('./db');
+const ingestDb = require('../ingest/db');
+const { senderFromMessage } = require('../ingest/phone');
+const monday = require('../../lib/monday');
 
 const MAX_BACKOFF_MS = 30_000;
 
@@ -141,7 +144,67 @@ class BaileysGroupsProvider extends EventEmitter {
       }
     });
 
-    // Milestone 3 will add: this.sock.ev.on('messages.upsert', ...)
+  // Message ingestion (Phase 1): fresh messages -> pending processing_jobs.
+    // Never throws back into Baileys.
+    this.sock.ev.on('messages.upsert', async (up) => {
+      try { await this._ingest(up); } catch (e) {
+        console.error('[whatsapp/ingest] upsert handler failed:', e.message);
+      }
+    });
+  }
+
+  async _ingest({ messages, type }) {
+    if (type !== 'notify' || !Array.isArray(messages)) return;
+    let enqueued = 0;
+    let skipped = 0;
+    for (const msg of messages) {
+      try {
+        const info = senderFromMessage(msg);
+        if (!info.message_id) { skipped++; continue; }
+        if (!info.phone_normalized) { skipped++; continue; }
+
+        let contact = await ingestDb.getContactByPhone(info.phone_normalized);
+        if (!contact) {
+          let match = null;
+          try { match = await monday.findClientByPhone(info.phone_normalized); } catch (_) { match = null; }
+          if (match) {
+            contact = await ingestDb.upsertContact({
+              phone_normalized: info.phone_normalized,
+              phone_raw: info.phone_raw,
+              display_name: msg.pushName || null,
+              monday_item_id: match.monday_item_id,
+              monday_client_name: match.name,
+              resolution_status: 'resolved',
+            });
+          } else {
+            contact = await ingestDb.upsertContact({
+              phone_normalized: info.phone_normalized,
+              phone_raw: info.phone_raw,
+              display_name: msg.pushName || null,
+              resolution_status: 'unresolved',
+            });
+          }
+        }
+
+        const jobId = await ingestDb.enqueueJob({
+          source_item_id: info.message_id,
+          chat_jid: info.chat_jid,
+          is_group: info.is_group,
+          direction: info.direction,
+          sender_phone: info.phone_normalized,
+          contact_id: contact ? contact.id : null,
+          payloadObj: msg,
+        });
+        if (jobId) enqueued++; else skipped++;
+      } catch (e) {
+        skipped++;
+        console.error('[whatsapp/ingest] failed to ingest one message:', e.message);
+      }
+    }
+    if (enqueued || skipped) {
+      console.log(`[whatsapp/ingest] enqueued ${enqueued}, skipped/duplicate ${skipped}`);
+    }
+  }
   }
 
   async _handleConnectionUpdate(update) {

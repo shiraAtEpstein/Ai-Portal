@@ -46,6 +46,12 @@ async function ensureTables() {
       UNIQUE(account_id, provider_group_jid)
     );
   `);
+  // No migration runner in this repo (see header) — ALTER ... IF NOT EXISTS
+  // is the established pattern for adding a column to an already-created
+  // table. Tracks when the account was removed from / left a group, so a
+  // deleted/exited group can stop showing up instead of persisting forever
+  // (upsertGroup never deleted rows — this was the actual gap).
+  await p.query(`ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ;`);
   ensured = true;
 }
 
@@ -124,7 +130,6 @@ async function loadAuthState(accountId) {
     return null;
   }
 }
-
 // Wipes the stored session (e.g. after the "list[1]" corruption, or a
 // logged-out/unrecoverable device link) so the next connect() attempt
 // starts clean with initAuthCreds() and forces a fresh QR.
@@ -150,56 +155,3 @@ async function setAccountStatus(accountId, status, detail) {
      SET status = $1, status_detail = $2, updated_at = now() ${setLastConnected}
      WHERE id = $3`,
     [status, detail || null, accountId]
-  );
-}
-
-async function getAccountStatus(accountId) {
-  await ensureTables();
-  const p = getPool();
-  if (!p) return null;
-  const r = await p.query(
-    `SELECT id, label, status, status_detail, last_connected_at FROM whatsapp_group_accounts WHERE id = $1`,
-    [accountId]
-  );
-  return r.rows[0] || null;
-}
-
-// --- groups -----------------------------------------------------------
-
-async function upsertGroup(accountId, providerGroupJid, name, participantCount) {
-  await ensureTables();
-  const p = getPool();
-  if (!p) return null;
-  const r = await p.query(
-    `INSERT INTO whatsapp_groups (account_id, provider_group_jid, name, participant_count)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (account_id, provider_group_jid)
-     DO UPDATE SET name = EXCLUDED.name, participant_count = EXCLUDED.participant_count
-     RETURNING *`,
-    [accountId, providerGroupJid, name || providerGroupJid, participantCount || null]
-  );
-  return r.rows[0];
-}
-
-async function listGroups(accountId) {
-  await ensureTables();
-  const p = getPool();
-  if (!p) return [];
-  const r = await p.query(
-    `SELECT * FROM whatsapp_groups WHERE account_id = $1 ORDER BY name ASC`,
-    [accountId]
-  );
-  return r.rows;
-}
-
-module.exports = {
-  ensureTables,
-  getOrCreateAccount,
-  saveAuthState,
-  loadAuthState,
-  resetAuthState,
-  setAccountStatus,
-  getAccountStatus,
-  upsertGroup,
-  listGroups,
-};

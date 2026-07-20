@@ -16,6 +16,18 @@ const bootstrap = require('../whatsapp/groups/bootstrap');
 
 module.exports = function createWhatsappGroupsRouter() {
   const router = express.Router();
+  // Clears a stuck/corrupted session (e.g. the noise-handshake Buffer bug)
+  // and forces a fresh QR. Same admin tier as the initial connect, since
+  // it invalidates the current device link.
+  router.post('/api/admin/whatsapp-groups/reset', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const result = await bootstrap.reset();
+      if (!result.ok) return res.status(409).json({ error: result.error || 'Reset failed.' });
+      res.json({ ok: true, message: 'Session cleared — a new QR will be available shortly.' });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to reset connector.' });
+    }
+  });
 
   router.get('/api/admin/whatsapp-groups/status', authenticate, requireAdmin, async (req, res) => {
     try {

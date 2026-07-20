@@ -42,20 +42,17 @@ async function createAuthStore(accountId) {
     }
   }
 
-  // Baileys' key material is Buffers under the hood; JSON needs a hand
-  // getting them back on read (creds/keys are stored as base64 markers).
-  function reviveKeyBucket(type) {
-    return state.keys[type] || {};
-  }
-
+  // db.js's save/load round-trips Buffers correctly anywhere in the
+  // object graph (creds and keys alike), so keys are stored and read
+  // back as-is here — no separate marker scheme needed.
   const auth = {
     creds: state.creds,
     keys: {
       get: async (type, ids) => {
-        const bucket = reviveKeyBucket(type);
+        const bucket = state.keys[type] || {};
         const result = {};
         for (const id of ids) {
-          if (bucket[id] !== undefined) result[id] = reviveValue(bucket[id]);
+          if (bucket[id] !== undefined) result[id] = bucket[id];
         }
         return result;
       },
@@ -67,7 +64,7 @@ async function createAuthStore(accountId) {
             if (value === null || value === undefined) {
               delete state.keys[type][id];
             } else {
-              state.keys[type][id] = replaceValue(value);
+              state.keys[type][id] = value;
             }
           }
         }
@@ -83,20 +80,6 @@ async function createAuthStore(accountId) {
   }
 
   return { auth, onCredsUpdate, flush };
-}
-
-// Buffers survive JSON.stringify only if we mark them explicitly.
-function replaceValue(value) {
-  return JSON.parse(JSON.stringify(value, (_k, v) => {
-    if (v instanceof Uint8Array) return { __buffer: true, data: Buffer.from(v).toString('base64') };
-    return v;
-  }));
-}
-function reviveValue(value) {
-  return JSON.parse(JSON.stringify(value), (_k, v) => {
-    if (v && typeof v === 'object' && v.__buffer) return Buffer.from(v.data, 'base64');
-    return v;
-  });
 }
 
 module.exports = { createAuthStore };

@@ -65,4 +65,24 @@ async function getGroups() {
   return db.listGroups(accountId);
 }
 
-module.exports = { start, getStatus, getLatestQr, getGroups };
+// Clears a corrupted/stuck session and forces a fresh QR. Disconnects the
+// live socket (if any), wipes the stored auth state, then reconnects —
+// Baileys' initAuthCreds() kicks in on the next connect() since
+// loadAuthState() will now return null.
+async function reset() {
+  if (!accountId) return { ok: false, error: 'not_configured' };
+  if (provider) {
+    try {
+      await provider.disconnect();
+    } catch (e) {
+      console.warn('[whatsapp/groups] disconnect during reset failed:', e.message);
+    }
+  }
+  await db.resetAuthState(accountId);
+  latestQr = null;
+  provider = null;
+  await start();
+  return { ok: true };
+}
+
+module.exports = { start, getStatus, getLatestQr, getGroups, reset };

@@ -30,6 +30,9 @@ const userFramework = require('../lib/user-framework');
 const memory = require('../lib/memory');
 // §9 — approved firm-rule updates (DB) + chat-detected change requests.
 const firmRules = require('../lib/firm-rules');
+// Clock for the model: pins the real current date/time (firm TZ) into the
+// system prompt so every agent anchors "today", date ranges and greetings to now.
+const { nowPreamble } = require('../lib/now');
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -544,7 +547,7 @@ module.exports = function createChatRouter() {
     const caps = capabilitiesFor(roles);
     const toolAllow = toolAllowFromCaps(caps);
 
-    let system = await firmPreamble();
+    let system = nowPreamble() + await firmPreamble();
     // Layer 2 — inject the signed-in user's personal framework right after the
     // Firm Core, clearly subordinate to it. Empty for users with no framework
     // (pure Firm Core), so this can never break an existing user.

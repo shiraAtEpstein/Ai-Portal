@@ -196,16 +196,36 @@ class BaileysGroupsProvider extends EventEmitter {
     if (!this.sock) return;
     try {
       const groups = await this.sock.groupFetchAllParticipating();
+      const seenJids = new Set();
       for (const jid of Object.keys(groups)) {
         const g = groups[jid];
         await this._upsertGroup(jid, g.subject, g.participants ? g.participants.length : null);
+        seenJids.add(jid);
       }
+      await this._reconcileRemovedGroups(seenJids);
       console.log(`[whatsapp/groups] discovery found ${Object.keys(groups).length} group(s) (attempt ${attempt})`);
     } catch (e) {
       console.error(`[whatsapp/groups] group discovery failed (attempt ${attempt}):`, e.message);
       if (attempt < 4 && this.sock && !this._stopped) {
         const delayMs = attempt * 5000; // 5s, 10s, 15s
         setTimeout(() => this._discoverGroups(attempt + 1), delayMs);
+      }
+    }
+  }
+
+  // Full discovery is the source of truth for "what groups are we
+  // actually still in right now." Anything marked active in our DB but
+  // absent from this fresh list has left/been removed/deleted — whether
+  // because the live group-participants.update event fired before this
+  // listener existed, was missed during a disconnect window, or any other
+  // gap. Runs after every successful reconnect, so it self-heals rather
+  // than requiring a manual /reset each time this happens.
+  async _reconcileRemovedGroups(seenJids) {
+    const active = await db.listGroups(this.accountId);
+    for (const g of active) {
+      if (!seenJids.has(g.provider_group_jid)) {
+        await db.markGroupRemoved(this.accountId, g.provider_group_jid);
+        console.log(`[whatsapp/groups] reconciled as removed (not in current group list): ${g.name} (${g.provider_group_jid})`);
       }
     }
   }

@@ -89,6 +89,11 @@ async function saveAuthState(accountId, authState) {
   const p = getPool();
   if (!p) return;
   const encrypted = enc.encrypt(JSON.stringify(authState, typedArrayPreservingReplacer));
+  await p.query(
+    `UPDATE whatsapp_group_accounts SET auth_state_encrypted = $1, updated_at = now() WHERE id = $2`,
+    [encrypted, accountId]
+  );
+}
 
 // Reverses Buffer's own toJSON() shape. Applies everywhere in the object
 // graph (creds AND keys), not just one bucket — this was the actual bug:
@@ -119,7 +124,8 @@ async function loadAuthState(accountId) {
     return null;
   }
 }
-  // Wipes the stored session (e.g. after the "list[1]" corruption, or a
+
+// Wipes the stored session (e.g. after the "list[1]" corruption, or a
 // logged-out/unrecoverable device link) so the next connect() attempt
 // starts clean with initAuthCreds() and forces a fresh QR.
 async function resetAuthState(accountId) {
@@ -133,6 +139,7 @@ async function resetAuthState(accountId) {
     [accountId]
   );
 }
+
 async function setAccountStatus(accountId, status, detail) {
   await ensureTables();
   const p = getPool();

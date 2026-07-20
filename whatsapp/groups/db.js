@@ -68,19 +68,27 @@ async function getOrCreateAccount(label) {
 }
 
 // authState: { creds, keys } plain object (Buffers already base64-encoded by caller).
-// authState: { creds, keys } plain object (Buffers already base64-encoded by caller).
+//
+// Node's Buffer has a built-in toJSON() -> { type: 'Buffer', data: [...] },
+// which JSON.stringify uses automatically. But some fields Baileys hands us
+// (e.g. creds.routingInfo) are plain Uint8Array, not Buffer — those have no
+// toJSON(), so they'd silently serialize as {"0":.., "1":..} objects with no
+// type tag, survive JSON.parse as plain objects, and crash Buffer.concat()
+// on the next reconnect (this was the "list[1]" noise-handshake bug). This
+// replacer catches any Uint8Array (Buffer included, though toJSON already
+// handled those before the replacer sees them) and tags it explicitly.
+function typedArrayPreservingReplacer(_key, value) {
+  if (value instanceof Uint8Array) {
+    return { type: 'Buffer', data: Array.from(value) };
+  }
+  return value;
+}
+
 async function saveAuthState(accountId, authState) {
   await ensureTables();
   const p = getPool();
   if (!p) return;
-  // Buffers serialize automatically via their built-in toJSON() into
-  // { type: 'Buffer', data: [...] } — no replacer needed on this side.
-  const encrypted = enc.encrypt(JSON.stringify(authState));
-  await p.query(
-    `UPDATE whatsapp_group_accounts SET auth_state_encrypted = $1, updated_at = now() WHERE id = $2`,
-    [encrypted, accountId]
-  );
-}
+  const encrypted = enc.encrypt(JSON.stringify(authState, typedArrayPreservingReplacer));
 
 // Reverses Buffer's own toJSON() shape. Applies everywhere in the object
 // graph (creds AND keys), not just one bucket — this was the actual bug:
@@ -110,6 +118,20 @@ async function loadAuthState(accountId) {
     console.error('[whatsapp/groups] failed to parse decrypted auth state:', e.message);
     return null;
   }
+}
+  // Wipes the stored session (e.g. after the "list[1]" corruption, or a
+// logged-out/unrecoverable device link) so the next connect() attempt
+// starts clean with initAuthCreds() and forces a fresh QR.
+async function resetAuthState(accountId) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return;
+  await p.query(
+    `UPDATE whatsapp_group_accounts
+     SET auth_state_encrypted = NULL, status = 'auth_required', status_detail = 'Reset — rescan QR required', updated_at = now()
+     WHERE id = $1`,
+    [accountId]
+  );
 }
 async function setAccountStatus(accountId, status, detail) {
   await ensureTables();
@@ -168,6 +190,7 @@ module.exports = {
   getOrCreateAccount,
   saveAuthState,
   loadAuthState,
+  resetAuthState,
   setAccountStatus,
   getAccountStatus,
   upsertGroup,

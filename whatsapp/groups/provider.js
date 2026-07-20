@@ -21,6 +21,7 @@ const {
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
   DisconnectReason,
+  areJidsSameUser,
 } = require('@whiskeysockets/baileys');
 const { SafeCache } = require('./safe-cache');
 const { createAuthStore } = require('./auth-store');
@@ -104,7 +105,14 @@ class BaileysGroupsProvider extends EventEmitter {
     });
 
     this.sock.ev.on('connection.update', (update) => this._handleConnectionUpdate(update));
-// Fires when the account is added to (or creates) a group — a
+
+    this.sock.ev.on('groups.update', async (updates) => {
+      for (const g of updates) {
+        if (g.id) await this._upsertGroup(g.id, g.subject, g.size);
+      }
+    });
+
+    // Fires when the account is added to (or creates) a group — a
     // different event from 'groups.update', which only covers metadata
     // changes on groups it already knew about. Without this, a newly
     // joined group wasn't seen until the next full reconnect re-ran
@@ -114,9 +122,22 @@ class BaileysGroupsProvider extends EventEmitter {
         if (g.id) await this._upsertGroup(g.id, g.subject, g.size ?? (g.participants ? g.participants.length : null));
       }
     });
-    this.sock.ev.on('groups.update', async (updates) => {
-      for (const g of updates) {
-        if (g.id) await this._upsertGroup(g.id, g.subject, g.size);
+
+    // 'remove' fires both when someone kicks us and when we leave
+    // ourselves (Baileys doesn't distinguish at this event level — only
+    // the resulting chat message stub does). Either way, if OUR jid is in
+    // the removed list, the group is gone as far as this monitor is
+    // concerned. There is no separate "group deleted" event in Baileys;
+    // an admin deleting the group for everyone surfaces the same way,
+    // as every member (including us) being removed.
+    this.sock.ev.on('group-participants.update', async ({ id, participants, action }) => {
+      if (action !== 'remove') return;
+      const ownJid = this.sock?.user?.id || this.authStore?.auth?.creds?.me?.id;
+      if (!ownJid) return;
+      const wasRemoved = participants.some((jid) => areJidsSameUser(jid, ownJid));
+      if (wasRemoved) {
+        await db.markGroupRemoved(this.accountId, id);
+        console.log(`[whatsapp/groups] removed from group: ${id}`);
       }
     });
 

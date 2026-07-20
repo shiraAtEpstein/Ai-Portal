@@ -1,4 +1,4 @@
-// ============================================================
+// ===========================================================
 // whatsapp/groups/db.js — Postgres tables for the Baileys groups connector.
 //
 // Separate from whatsapp/schema.js + whatsapp/store.js, which are the

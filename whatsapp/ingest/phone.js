@@ -16,6 +16,23 @@ function jidUser(jid) {
   return String(jid).split('@')[0].split(':')[0];
 }
 
+// The domain part of a JID: 's.whatsapp.net' (real phone), 'g.us' (group),
+// 'lid' (WhatsApp's privacy-preserving "hidden" address), 'broadcast'
+// (status/broadcast), 'newsletter' (channels), etc.
+function jidDomain(jid) {
+  if (!jid) return '';
+  const at = String(jid).indexOf('@');
+  return at === -1 ? '' : String(jid).slice(at + 1);
+}
+
+// A @lid address is NOT a phone number — it's an opaque per-chat identifier
+// WhatsApp increasingly hands out (esp. in newer 1:1 chats and communities).
+// Treating its digits as a phone yields a garbage "number" that matches no
+// client and pollutes wa_contacts, so callers must detect and skip it.
+function isLidJid(jid) {
+  return jidDomain(jid) === 'lid';
+}
+
 function textPreview(message) {
   if (!message || typeof message !== 'object') return '';
   const m = message;
@@ -39,19 +56,36 @@ function senderFromMessage(msg) {
   const isGroup = chatJid.endsWith('@g.us');
   const fromMe = !!key.fromMe;
 
-  let phoneRaw;
+  // Which JID identifies the *sender* whose phone we want. For an outbound
+  // group message that's our own device — there is no single client to
+  // attribute it to (the "counterparty" is the whole group), so we flag it
+  // and don't try to pin it to one client's phone.
+  let senderJid;
   if (fromMe) {
-    phoneRaw = jidUser(isGroup ? key.participant : chatJid);
+    senderJid = isGroup ? key.participant : chatJid;
   } else if (isGroup) {
-    phoneRaw = jidUser(key.participant);
+    senderJid = key.participant;
   } else {
-    phoneRaw = jidUser(chatJid);
+    senderJid = chatJid;
   }
+  senderJid = senderJid || '';
+
+  const isLid = isLidJid(senderJid);
+  const selfOutboundGroup = fromMe && isGroup;
+
+  const phoneRaw = jidUser(senderJid);
+  // Only derive a phone when the sender JID is a real phone address. A @lid
+  // (opaque id) or an outbound-group self-send has no usable client phone —
+  // the message is still captured, just without a phone/contact to link.
+  const phoneNormalized = (isLid || selfOutboundGroup) ? '' : normalizePhone(phoneRaw);
 
   return {
     phone_raw: phoneRaw || '',
-    phone_normalized: normalizePhone(phoneRaw),
+    phone_normalized: phoneNormalized,
     is_group: isGroup,
+    is_lid: isLid,
+    self_outbound_group: selfOutboundGroup,
+    sender_jid: senderJid,
     chat_jid: chatJid,
     direction: fromMe ? 'out' : 'in',
     message_id: (key.id != null ? String(key.id) : ''),
@@ -59,4 +93,4 @@ function senderFromMessage(msg) {
   };
 }
 
-module.exports = { normalizePhone, senderFromMessage, jidUser, textPreview };
+module.exports = { normalizePhone, senderFromMessage, jidUser, jidDomain, isLidJid, textPreview };

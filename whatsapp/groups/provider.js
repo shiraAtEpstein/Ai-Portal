@@ -21,10 +21,14 @@ const {
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
   DisconnectReason,
+  areJidsSameUser,
 } = require('@whiskeysockets/baileys');
 const { SafeCache } = require('./safe-cache');
 const { createAuthStore } = require('./auth-store');
 const db = require('./db');
+const ingestDb = require('../ingest/db');
+const { senderFromMessage } = require('../ingest/phone');
+const monday = require('../../lib/monday');
 
 const MAX_BACKOFF_MS = 30_000;
 
@@ -104,7 +108,14 @@ class BaileysGroupsProvider extends EventEmitter {
     });
 
     this.sock.ev.on('connection.update', (update) => this._handleConnectionUpdate(update));
-// Fires when the account is added to (or creates) a group — a
+
+    this.sock.ev.on('groups.update', async (updates) => {
+      for (const g of updates) {
+        if (g.id) await this._upsertGroup(g.id, g.subject, g.size);
+      }
+    });
+
+    // Fires when the account is added to (or creates) a group — a
     // different event from 'groups.update', which only covers metadata
     // changes on groups it already knew about. Without this, a newly
     // joined group wasn't seen until the next full reconnect re-ran
@@ -114,14 +125,87 @@ class BaileysGroupsProvider extends EventEmitter {
         if (g.id) await this._upsertGroup(g.id, g.subject, g.size ?? (g.participants ? g.participants.length : null));
       }
     });
-    this.sock.ev.on('groups.update', async (updates) => {
-      for (const g of updates) {
-        if (g.id) await this._upsertGroup(g.id, g.subject, g.size);
+
+    // 'remove' fires both when someone kicks us and when we leave
+    // ourselves (Baileys doesn't distinguish at this event level — only
+    // the resulting chat message stub does). Either way, if OUR jid is in
+    // the removed list, the group is gone as far as this monitor is
+    // concerned. There is no separate "group deleted" event in Baileys;
+    // an admin deleting the group for everyone surfaces the same way,
+    // as every member (including us) being removed.
+    this.sock.ev.on('group-participants.update', async ({ id, participants, action }) => {
+      if (action !== 'remove') return;
+      const ownJid = this.sock?.user?.id || this.authStore?.auth?.creds?.me?.id;
+      if (!ownJid) return;
+      const wasRemoved = participants.some((jid) => areJidsSameUser(jid, ownJid));
+      if (wasRemoved) {
+        await db.markGroupRemoved(this.accountId, id);
+        console.log(`[whatsapp/groups] removed from group: ${id}`);
       }
     });
 
-    // Milestone 3 will add: this.sock.ev.on('messages.upsert', ...)
+  // Message ingestion (Phase 1): fresh messages -> pending processing_jobs.
+    // Never throws back into Baileys.
+    this.sock.ev.on('messages.upsert', async (up) => {
+      try { await this._ingest(up); } catch (e) {
+        console.error('[whatsapp/ingest] upsert handler failed:', e.message);
+      }
+    });
   }
+
+  async _ingest({ messages, type }) {
+    if (type !== 'notify' || !Array.isArray(messages)) return;
+    let enqueued = 0;
+    let skipped = 0;
+    for (const msg of messages) {
+      try {
+        const info = senderFromMessage(msg);
+        if (!info.message_id) { skipped++; continue; }
+        if (!info.phone_normalized) { skipped++; continue; }
+
+        let contact = await ingestDb.getContactByPhone(info.phone_normalized);
+        if (!contact) {
+          let match = null;
+          try { match = await monday.findClientByPhone(info.phone_normalized); } catch (_) { match = null; }
+          if (match) {
+            contact = await ingestDb.upsertContact({
+              phone_normalized: info.phone_normalized,
+              phone_raw: info.phone_raw,
+              display_name: msg.pushName || null,
+              monday_item_id: match.monday_item_id,
+              monday_client_name: match.name,
+              resolution_status: 'resolved',
+            });
+          } else {
+            contact = await ingestDb.upsertContact({
+              phone_normalized: info.phone_normalized,
+              phone_raw: info.phone_raw,
+              display_name: msg.pushName || null,
+              resolution_status: 'unresolved',
+            });
+          }
+        }
+
+        const jobId = await ingestDb.enqueueJob({
+          source_item_id: info.message_id,
+          chat_jid: info.chat_jid,
+          is_group: info.is_group,
+          direction: info.direction,
+          sender_phone: info.phone_normalized,
+          contact_id: contact ? contact.id : null,
+          payloadObj: msg,
+        });
+        if (jobId) enqueued++; else skipped++;
+      } catch (e) {
+        skipped++;
+        console.error('[whatsapp/ingest] failed to ingest one message:', e.message);
+      }
+    }
+    if (enqueued || skipped) {
+      console.log(`[whatsapp/ingest] enqueued ${enqueued}, skipped/duplicate ${skipped}`);
+    }
+  }
+  
 
   async _handleConnectionUpdate(update) {
     const { connection, lastDisconnect, qr } = update;
@@ -175,16 +259,36 @@ class BaileysGroupsProvider extends EventEmitter {
     if (!this.sock) return;
     try {
       const groups = await this.sock.groupFetchAllParticipating();
+      const seenJids = new Set();
       for (const jid of Object.keys(groups)) {
         const g = groups[jid];
         await this._upsertGroup(jid, g.subject, g.participants ? g.participants.length : null);
+        seenJids.add(jid);
       }
+      await this._reconcileRemovedGroups(seenJids);
       console.log(`[whatsapp/groups] discovery found ${Object.keys(groups).length} group(s) (attempt ${attempt})`);
     } catch (e) {
       console.error(`[whatsapp/groups] group discovery failed (attempt ${attempt}):`, e.message);
       if (attempt < 4 && this.sock && !this._stopped) {
         const delayMs = attempt * 5000; // 5s, 10s, 15s
         setTimeout(() => this._discoverGroups(attempt + 1), delayMs);
+      }
+    }
+  }
+
+  // Full discovery is the source of truth for "what groups are we
+  // actually still in right now." Anything marked active in our DB but
+  // absent from this fresh list has left/been removed/deleted — whether
+  // because the live group-participants.update event fired before this
+  // listener existed, was missed during a disconnect window, or any other
+  // gap. Runs after every successful reconnect, so it self-heals rather
+  // than requiring a manual /reset each time this happens.
+  async _reconcileRemovedGroups(seenJids) {
+    const active = await db.listGroups(this.accountId);
+    for (const g of active) {
+      if (!seenJids.has(g.provider_group_jid)) {
+        await db.markGroupRemoved(this.accountId, g.provider_group_jid);
+        console.log(`[whatsapp/groups] reconciled as removed (not in current group list): ${g.name} (${g.provider_group_jid})`);
       }
     }
   }

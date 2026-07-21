@@ -128,8 +128,9 @@ refreshAgents('boot');
 
 // Start the WhatsApp groups connector. Safe no-op if DATABASE_URL isn't
 // set; logs and continues either way so a connector issue never blocks
-// the portal from serving.
-whatsappGroups.start().catch((e) => {
+// the portal from serving. Passing transporter enables the "needs a
+// human to rescan" email alert (best-effort, opt-in via Settings).
+whatsappGroups.start(transporter).catch((e) => {
   console.error('[whatsapp/groups] failed to start:', e.message);
 });
 

@@ -23,6 +23,13 @@
     }
   },
   {
+    "id": 1603266147, "name": "לקוחות",
+    "columns": {
+      "name": "name",
+      "contactPhone": "contact_phone", "phone2": "phone__1", "phone3": "phone_mm33rskf"
+    }
+  },
+  {
     "id": 5096606714, "name": "צוואות (wills)",
     "columns": {
       "status": "status", "paralegal": "person", "openDate": "date_mm3fvmhb",

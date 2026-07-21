@@ -14,11 +14,22 @@
 const db = require('./db');
 const { BaileysGroupsProvider } = require('./provider');
 
+// Fixed recipient for the "needs a human" alert, per operator's explicit
+// choice — not tied to the general admin/notification-preferences system.
+// Overridable via env without a code change if it ever needs to move.
+const ALERT_EMAIL = process.env.WHATSAPP_DISCONNECT_EMAIL || 'shira@epsteinlaw.co.il';
+
 let provider = null;
 let accountId = null;
 let latestQr = null; // cleared once status leaves 'auth_required'
+let mailer = null; // nodemailer transporter, passed in from server.js
+let lastStatus = null;
+let hasEverConnected = false;
+let alertedThisEpisode = false; // one email per "needs a human" episode, not per re-emit
 
-async function start() {
+async function start(transporter) {
+  if (transporter) mailer = transporter;
+  console.log(`[whatsapp/groups] boot: mailer=${!!mailer} alertEmail=${ALERT_EMAIL}`);
   if (provider) return provider; // already started
 
   const account = await db.getOrCreateAccount('WhatsApp groups monitor');
@@ -30,9 +41,24 @@ async function start() {
 
   provider = new BaileysGroupsProvider(accountId);
 
-  provider.on('status', (status) => {
+  provider.on('status', (status, detail) => {
     console.log(`[whatsapp/groups] status: ${status}`);
     if (status !== 'auth_required') latestQr = null;
+
+    if (status === 'connected') {
+      hasEverConnected = true;
+      alertedThisEpisode = false; // recovered — arm the alert for next time
+    } else if (status === 'auth_required' && hasEverConnected && !alertedThisEpisode) {
+      // Only alert on a genuine drop from a working session, not the very
+      // first-ever setup (nobody has connected yet, so an admin is already
+      // at the screen scanning). Fires once per episode, not once per QR
+      // re-emit while it sits waiting to be scanned.
+      alertedThisEpisode = true;
+      notifyNeedsHuman(detail).catch((e) =>
+        console.warn('[whatsapp/groups] disconnect-alert email failed:', e.message)
+      );
+    }
+    lastStatus = status;
   });
   provider.on('qr', (qr) => {
     latestQr = qr;
@@ -43,6 +69,31 @@ async function start() {
 
   await provider.connect();
   return provider;
+}
+
+// Best-effort email to ALERT_EMAIL. Never throws into the caller — a
+// failed notification should not affect the connector itself.
+// Kill switch: WHATSAPP_DISCONNECT_EMAILS=0.
+async function notifyNeedsHuman(detail) {
+  if (process.env.WHATSAPP_DISCONNECT_EMAILS === '0') return;
+  if (!mailer || !process.env.EMAIL_USER) return;
+  const base = process.env.PORTAL_URL || process.env.APP_URL || process.env.BASE_URL || '';
+  const statusUrl = base ? (base.replace(/\/$/, '') + '/api/admin/whatsapp-groups/status') : '/api/admin/whatsapp-groups/status';
+  const qrUrl = base ? (base.replace(/\/$/, '') + '/api/admin/whatsapp-groups/qr') : '/api/admin/whatsapp-groups/qr';
+  const body =
+    'Hi,\n\n' +
+    'The WhatsApp groups connector has disconnected and needs a human to rescan a QR code' +
+    (detail ? (' (' + detail + ')') : '') + '. It will keep retrying on its own for ordinary ' +
+    'network blips, but this specific state does not resolve without a rescan.\n\n' +
+    'Check status: ' + statusUrl + '\n' +
+    'Get the QR code (once status shows auth_required): ' + qrUrl + '\n\n' +
+    '— Lawly · Epstein & Co.';
+  await mailer.sendMail({
+    from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+    to: ALERT_EMAIL,
+    subject: 'WhatsApp connector needs a rescan',
+    text: body,
+  }).catch((e) => console.warn('[whatsapp/groups] alert email to ' + ALERT_EMAIL + ' failed:', e.message));
 }
 
 async function getStatus() {
@@ -81,6 +132,7 @@ async function reset() {
   await db.resetAuthState(accountId);
   latestQr = null;
   provider = null;
+  alertedThisEpisode = false;
   await start();
   return { ok: true };
 }

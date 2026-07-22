@@ -327,11 +327,35 @@ class BaileysGroupsProvider extends EventEmitter {
   }
 
   async _setStatus(status, detail) {
+    const prev = this.status;
     this.status = status;
     await db.setAccountStatus(this.accountId, status, detail).catch((e) =>
       console.error('[whatsapp/groups] failed to persist status:', e.message)
     );
+    // Record offline windows so missed-message gaps are auditable. "up" is
+    // strictly 'connected'; anything else (reconnecting / auth_required /
+    // disconnected) is "down". Only act on an actual up<->down transition.
+    this._trackConnectionGap(prev, status, detail).catch((e) =>
+      console.error('[whatsapp/gap] failed to record connection gap:', e.message)
+    );
     this.emit('status', status, detail);
+  }
+
+  async _trackConnectionGap(prevStatus, newStatus, detail) {
+    const wasUp = prevStatus === 'connected';
+    const isUp = newStatus === 'connected';
+    if (wasUp && !isUp) {
+      // Just went offline — open a gap window (idempotent).
+      await db.openConnectionGap(this.accountId, detail || newStatus);
+      console.warn(`[whatsapp/gap] connection down (${detail || newStatus}) — messages arriving now may be missed until reconnect`);
+    } else if (!wasUp && isUp) {
+      // Just came back — close the open window and report how long it lasted.
+      const gap = await db.closeConnectionGap(this.accountId);
+      if (gap && gap.went_down_at) {
+        const mins = Math.max(0, Math.round((new Date(gap.came_back_at) - new Date(gap.went_down_at)) / 60000));
+        console.log(`[whatsapp/gap] reconnected after ~${mins} min offline (down ${gap.went_down_at} → back ${gap.came_back_at}) — check these chats if it was long`);
+      }
+    }
   }
 }
 

@@ -154,6 +154,10 @@ class BaileysGroupsProvider extends EventEmitter {
   // Message ingestion (Phase 1): fresh messages -> pending processing_jobs.
     // Never throws back into Baileys.
     this.sock.ev.on('messages.upsert', async (up) => {
+      // Diagnostic: logs EVERY upsert before any filtering, so we can see
+      // whether WhatsApp is delivering messages to this device at all, and
+      // with what type ('notify' = live, 'append' = history-style).
+      console.log(`[whatsapp/ingest] upsert received: type=${up && up.type} count=${up && up.messages ? up.messages.length : 0}`);
       try { await this._ingest(up); } catch (e) {
         console.error('[whatsapp/ingest] upsert handler failed:', e.message);
       }

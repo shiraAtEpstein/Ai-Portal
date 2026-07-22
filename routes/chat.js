@@ -384,11 +384,11 @@ async function firmPreamble() {
   } catch (e) {
     console.error('[FIRM] Dropbox house rules unavailable (' + FIRM_RULES_PATH + '): ' + e.message);
   }
-  // Fallback only if Dropbox is unreachable, so the portal never runs rule-less.
-  if (!rules) {
-    try { rules = String(await db.getFirmRules() || '').trim(); }
-    catch (e) { console.error('[CHAT] could not load fallback firm rules:', e.message); }
-  }
+  // No secondary copy. If Dropbox is unreachable we deliberately keep only the
+  // pinned firmCriticalFacts() above, rather than a hand-maintained DB duplicate
+  // that silently drifts from CLAUDE.md. Single source of truth for the full
+  // house rules is Dropbox (CLAUDE.md); the only DB-sourced rules are the §9
+  // approved-update deltas added below.
   if (rules) preamble += rules + '\n\n';
   // §9 — approved firm-rule updates from the DB take precedence over the file above.
   try {

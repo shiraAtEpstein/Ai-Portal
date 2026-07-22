@@ -1,8 +1,15 @@
 // ============================================================
 // whatsapp/groups/provider.js — Baileys connection lifecycle.
 //
-// Read-only, groups-only, Phase 1: no sendMessage method exists on this
-// object at all — that's the enforcement mechanism, not a flag to check.
+// Read-only, Phase 1: no sendMessage method exists on this object at all —
+// that's the enforcement mechanism, not a flag to check.
+//
+// Scope note: this module is named "groups" because it also DISCOVERS and
+// tracks group metadata (whatsapp_groups + is_monitored), but message
+// INGESTION deliberately captures ALL chats — 1:1 client DMs included — per
+// the operator's decision to monitor the whole dedicated firm line. The
+// is_monitored flag governs group listing/display, not ingestion; ingestion
+// has no whitelist.
 //
 // Emits events instead of calling into the rest of the app directly, so
 // nothing here needs to know about routes, the DB schema for messages
@@ -161,29 +168,30 @@ class BaileysGroupsProvider extends EventEmitter {
       try {
         const info = senderFromMessage(msg);
         if (!info.message_id) { skipped++; continue; }
-        if (!info.phone_normalized) { skipped++; continue; }
 
-        let contact = await ingestDb.getContactByPhone(info.phone_normalized);
-        if (!contact) {
-          let match = null;
-          try { match = await monday.findClientByPhone(info.phone_normalized); } catch (_) { match = null; }
-          if (match) {
-            contact = await ingestDb.upsertContact({
-              phone_normalized: info.phone_normalized,
-              phone_raw: info.phone_raw,
-              display_name: msg.pushName || null,
-              monday_item_id: match.monday_item_id,
-              monday_client_name: match.name,
-              resolution_status: 'resolved',
-            });
-          } else {
-            contact = await ingestDb.upsertContact({
-              phone_normalized: info.phone_normalized,
-              phone_raw: info.phone_raw,
-              display_name: msg.pushName || null,
-              resolution_status: 'unresolved',
-            });
+        // No usable client phone. Two cases we still WANT to capture (raw
+        // message archived for later resolution, no contact linked):
+        //   - @lid sender (opaque id, not a phone) — common in newer chats
+        //   - our own outbound group message (no single client to attribute)
+        // Anything else with no phone (status@broadcast, newsletters, system
+        // stubs) is noise — skip it as before.
+        let contact = null;
+        if (info.phone_normalized) {
+          contact = await ingestDb.getContactByPhone(info.phone_normalized);
+          if (!contact) {
+            const match = await this._matchClient(info.phone_normalized);
+            contact = await ingestDb.upsertContact(this._contactFields(info, msg, match));
+          } else if (contact.resolution_status === 'unresolved') {
+            // Cheap re-resolution: a client may have been added to Monday
+            // since this contact was first seen. Only reaches Monday when the
+            // index is already warm/refreshed, so it's not a per-message cost.
+            const match = await this._matchClient(info.phone_normalized);
+            if (match) {
+              contact = (await ingestDb.upsertContact(this._contactFields(info, msg, match))) || contact;
+            }
           }
+        } else if (!info.is_lid && !info.self_outbound_group) {
+          skipped++; continue;
         }
 
         const jobId = await ingestDb.enqueueJob({
@@ -191,7 +199,7 @@ class BaileysGroupsProvider extends EventEmitter {
           chat_jid: info.chat_jid,
           is_group: info.is_group,
           direction: info.direction,
-          sender_phone: info.phone_normalized,
+          sender_phone: info.phone_normalized || null,
           contact_id: contact ? contact.id : null,
           payloadObj: msg,
         });
@@ -205,7 +213,27 @@ class BaileysGroupsProvider extends EventEmitter {
       console.log(`[whatsapp/ingest] enqueued ${enqueued}, skipped/duplicate ${skipped}`);
     }
   }
-  
+
+  // Never let a Monday hiccup break ingestion — a failed lookup just means
+  // "unresolved for now", retried on a later message (see re-resolution
+  // above). Returns null on no-match, ambiguous phone, or any error.
+  async _matchClient(phoneNormalized) {
+    try { return await monday.findClientByPhone(phoneNormalized); }
+    catch (_) { return null; }
+  }
+
+  _contactFields(info, msg, match) {
+    const base = {
+      phone_normalized: info.phone_normalized,
+      phone_raw: info.phone_raw,
+      display_name: (msg && msg.pushName) || null,
+    };
+    if (match) {
+      return { ...base, monday_item_id: match.monday_item_id, monday_client_name: match.name, resolution_status: 'resolved' };
+    }
+    return { ...base, resolution_status: 'unresolved' };
+  }
+
 
   async _handleConnectionUpdate(update) {
     const { connection, lastDisconnect, qr } = update;
@@ -299,11 +327,35 @@ class BaileysGroupsProvider extends EventEmitter {
   }
 
   async _setStatus(status, detail) {
+    const prev = this.status;
     this.status = status;
     await db.setAccountStatus(this.accountId, status, detail).catch((e) =>
       console.error('[whatsapp/groups] failed to persist status:', e.message)
     );
+    // Record offline windows so missed-message gaps are auditable. "up" is
+    // strictly 'connected'; anything else (reconnecting / auth_required /
+    // disconnected) is "down". Only act on an actual up<->down transition.
+    this._trackConnectionGap(prev, status, detail).catch((e) =>
+      console.error('[whatsapp/gap] failed to record connection gap:', e.message)
+    );
     this.emit('status', status, detail);
+  }
+
+  async _trackConnectionGap(prevStatus, newStatus, detail) {
+    const wasUp = prevStatus === 'connected';
+    const isUp = newStatus === 'connected';
+    if (wasUp && !isUp) {
+      // Just went offline — open a gap window (idempotent).
+      await db.openConnectionGap(this.accountId, detail || newStatus);
+      console.warn(`[whatsapp/gap] connection down (${detail || newStatus}) — messages arriving now may be missed until reconnect`);
+    } else if (!wasUp && isUp) {
+      // Just came back — close the open window and report how long it lasted.
+      const gap = await db.closeConnectionGap(this.accountId);
+      if (gap && gap.went_down_at) {
+        const mins = Math.max(0, Math.round((new Date(gap.came_back_at) - new Date(gap.went_down_at)) / 60000));
+        console.log(`[whatsapp/gap] reconnected after ~${mins} min offline (down ${gap.went_down_at} → back ${gap.came_back_at}) — check these chats if it was long`);
+      }
+    }
   }
 }
 

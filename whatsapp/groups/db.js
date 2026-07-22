@@ -52,6 +52,26 @@ async function ensureTables() {
   // deleted/exited group can stop showing up instead of persisting forever
   // (upsertGroup never deleted rows — this was the actual gap).
   await p.query(`ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ;`);
+  // Connection gap log: one row per offline window (went_down_at .. came_back_at).
+  // WhatsApp only redelivers messages missed during SHORT gaps; a long outage
+  // may drop some for good. This table is the audit trail so a human can see
+  // "we were offline 14:00–15:30" and double-check those chats.
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS whatsapp_connection_gaps (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      account_id UUID NOT NULL REFERENCES whatsapp_group_accounts(id) ON DELETE CASCADE,
+      went_down_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      came_back_at TIMESTAMPTZ,
+      down_reason TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+  // At most one OPEN gap (came_back_at IS NULL) per account, so repeated
+  // down-transitions (reconnecting -> auth_required -> ...) don't stack up.
+  await p.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_wa_gap_open
+       ON whatsapp_connection_gaps (account_id) WHERE came_back_at IS NULL;`
+  );
   ensured = true;
 }
 
@@ -215,6 +235,59 @@ async function listGroups(accountId, { includeRemoved } = {}) {
   return r.rows;
 }
 
+// --- connection gaps (offline windows) --------------------------------
+
+// Open a gap when the connector goes offline. Idempotent: if a gap is already
+// open for this account (thanks to the partial unique index), does nothing, so
+// a chain of down-states collapses into one window. Returns the open row, or
+// null if one was already open / no pool.
+async function openConnectionGap(accountId, reason) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return null;
+  const r = await p.query(
+    `INSERT INTO whatsapp_connection_gaps (account_id, down_reason)
+     VALUES ($1, $2)
+     ON CONFLICT (account_id) WHERE came_back_at IS NULL DO NOTHING
+     RETURNING *`,
+    [accountId, reason || null]
+  );
+  return r.rows[0] || null;
+}
+
+// Close the currently-open gap when the connector reconnects. Returns the
+// closed row (with went_down_at / came_back_at) so the caller can log how long
+// it was offline, or null if there was no open gap (e.g. the very first connect).
+async function closeConnectionGap(accountId) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return null;
+  const r = await p.query(
+    `UPDATE whatsapp_connection_gaps SET came_back_at = now()
+     WHERE account_id = $1 AND came_back_at IS NULL
+     RETURNING *`,
+    [accountId]
+  );
+  return r.rows[0] || null;
+}
+
+// Recent offline windows, newest first — for the admin health view.
+async function listConnectionGaps(accountId, limit = 50) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return [];
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 500);
+  const r = await p.query(
+    `SELECT id, went_down_at, came_back_at, down_reason
+     FROM whatsapp_connection_gaps
+     WHERE account_id = $1
+     ORDER BY went_down_at DESC
+     LIMIT $2`,
+    [accountId, lim]
+  );
+  return r.rows;
+}
+
 module.exports = {
   ensureTables,
   getOrCreateAccount,
@@ -226,4 +299,7 @@ module.exports = {
   upsertGroup,
   markGroupRemoved,
   listGroups,
+  openConnectionGap,
+  closeConnectionGap,
+  listConnectionGaps,
 };

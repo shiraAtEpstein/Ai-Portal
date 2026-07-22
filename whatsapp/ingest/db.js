@@ -42,7 +42,24 @@ async function ensureTables() {
       UNIQUE (source, source_item_id)
     );
   `);
+  // The Phase 4 background processor will poll `WHERE status = 'pending'`.
+  // Add the partial index now (one line, zero risk) so that scan stays fast
+  // as the table grows, and so we don't need a migration later.
+  await p.query(
+    `CREATE INDEX IF NOT EXISTS idx_processing_jobs_pending
+       ON processing_jobs (created_at) WHERE status = 'pending';`
+  );
   ensured = true;
+}
+
+// Baileys message objects can carry protobuf Long / native BigInt values
+// (e.g. messageTimestamp). Plain JSON.stringify throws on BigInt, which used
+// to drop the whole raw payload to '{}'. Coerce BigInt to string so the raw
+// message — our audit trail and re-enrichment source — is preserved intact.
+function safeStringifyPayload(obj) {
+  return JSON.stringify(obj == null ? {} : obj, (_k, v) =>
+    typeof v === 'bigint' ? v.toString() : v
+  );
 }
 
 async function upsertContact({
@@ -108,8 +125,9 @@ async function enqueueJob({
   if (!source_item_id) return null;
   let payloadEncrypted = null;
   try {
-    payloadEncrypted = enc.encrypt(JSON.stringify(payloadObj == null ? {} : payloadObj));
-  } catch (_) {
+    payloadEncrypted = enc.encrypt(safeStringifyPayload(payloadObj));
+  } catch (e) {
+    console.warn('[whatsapp/ingest] could not serialize raw payload, storing empty:', e.message);
     payloadEncrypted = enc.encrypt('{}');
   }
   const r = await p.query(

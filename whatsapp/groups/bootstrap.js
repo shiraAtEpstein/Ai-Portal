@@ -12,6 +12,7 @@
 // directly.
 // ============================================================
 const db = require('./db');
+const ingestDb = require('../ingest/db');
 const { BaileysGroupsProvider } = require('./provider');
 
 // Fixed recipient for the "needs a human" alert, per operator's explicit
@@ -38,6 +39,19 @@ async function start(transporter) {
     return null;
   }
   accountId = account.id;
+
+  // Provision the ingestion tables (wa_contacts, processing_jobs) at boot,
+  // rather than lazily on the first message. Two reasons: (1) you can query
+  // them immediately instead of hitting "relation does not exist" before any
+  // traffic, and (2) a future background processor can safely read them even
+  // before the first message arrives. Best-effort — a failure here must not
+  // stop the connector from starting.
+  try {
+    await ingestDb.ensureTables();
+    console.log('[whatsapp/ingest] tables ensured at boot (wa_contacts, processing_jobs)');
+  } catch (e) {
+    console.error('[whatsapp/ingest] could not ensure tables at boot:', e.message);
+  }
 
   provider = new BaileysGroupsProvider(accountId);
 

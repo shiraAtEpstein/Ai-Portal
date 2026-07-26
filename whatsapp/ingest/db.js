@@ -83,8 +83,30 @@ async function ensureTables() {
   await p.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS blocking_on TEXT;`);
   await p.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS next_deadline DATE;`);
   await p.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS last_processed_at TIMESTAMPTZ;`);
+  // Phase 5 (brought forward): discrete extracted items per deal — the
+  // specifics that must not be lost to summary compression. category is a
+  // controlled label so they're easy to search/filter.
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS deal_items (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      deal_id UUID NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+      category TEXT NOT NULL,           -- task | payment | document | date | note
+      text TEXT NOT NULL,
+      party TEXT,                       -- firm | client | null
+      status TEXT NOT NULL DEFAULT 'open',  -- open | done
+      due_date DATE,
+      source_job_id UUID,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      updated_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await p.query(`CREATE INDEX IF NOT EXISTS idx_deal_items_deal ON deal_items (deal_id);`);
+  await p.query(`CREATE INDEX IF NOT EXISTS idx_deal_items_open ON deal_items (category, due_date) WHERE status = 'open';`);
   ensured = true;
 }
+
+// Allowed item categories (keep in sync with the processor prompt).
+const ITEM_CATEGORIES = ['task', 'payment', 'document', 'date', 'note'];
 
 // Baileys message objects can carry protobuf Long / native BigInt values
 // (e.g. messageTimestamp). Plain JSON.stringify throws on BigInt, which used
@@ -280,9 +302,24 @@ async function getPendingJobsForDeal(dealId, limit = 200) {
   return r.rows;
 }
 
+// The deal's current OPEN items — handed to the processor so it can carry them
+// forward, close resolved ones, and add new ones.
+async function getOpenItemsForDeal(dealId) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !dealId) return [];
+  const r = await p.query(
+    `SELECT category, text, party, due_date FROM deal_items
+     WHERE deal_id = $1 AND status = 'open' ORDER BY created_at ASC`,
+    [dealId]
+  );
+  return r.rows;
+}
+
 // Apply a validated processor result in one transaction: update the deal's
-// summary + structured fields, mark the processed jobs done, clear needs_update.
-// `fields` is already validated by the caller. Returns true on success.
+// summary + structured fields, REPLACE its open items with the fresh set, mark
+// the processed jobs done, clear needs_update. `fields` (incl. fields.items) is
+// already validated by the caller. Returns true on success.
 async function applyDealUpdate(dealId, fields, jobIds) {
   await ensureTables();
   const p = getPool();
@@ -304,6 +341,18 @@ async function applyDealUpdate(dealId, fields, jobIds) {
       [dealId, fields.summary || null, fields.status || null, fields.next_action || null,
        fields.blocking_on || null, fields.next_deadline || null]
     );
+    // Replace the deal's open items with the fresh list the processor returned.
+    // (Resolved items simply aren't in the new list; new ones are added.)
+    if (Array.isArray(fields.items)) {
+      await client.query(`DELETE FROM deal_items WHERE deal_id = $1 AND status = 'open'`, [dealId]);
+      for (const it of fields.items) {
+        await client.query(
+          `INSERT INTO deal_items (deal_id, category, text, party, status, due_date)
+           VALUES ($1, $2, $3, $4, 'open', $5)`,
+          [dealId, it.category, it.text, it.party || null, it.due_date || null]
+        );
+      }
+    }
     if (Array.isArray(jobIds) && jobIds.length) {
       await client.query(
         `UPDATE processing_jobs SET status = 'done', processed_at = now()
@@ -365,6 +414,8 @@ module.exports = {
   getDeal,
   dealHasPending,
   getPendingJobsForDeal,
+  getOpenItemsForDeal,
   applyDealUpdate,
+  ITEM_CATEGORIES,
   stats,
 };

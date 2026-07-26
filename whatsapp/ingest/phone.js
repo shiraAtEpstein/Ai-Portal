@@ -50,6 +50,20 @@ function textPreview(message) {
   return String(raw || '').slice(0, 280);
 }
 
+// WhatsApp may identify a sender by an opaque @lid (privacy id) as the main
+// address while ALSO attaching the real phone-number address in a companion
+// field on the key. Field names vary across Baileys/WhatsApp versions, so we
+// scan the known candidates and take the first that is a real phone address
+// (@s.whatsapp.net). Returns that JID, or null if only a LID is available.
+function phoneJidFromKey(key) {
+  if (!key || typeof key !== 'object') return null;
+  const candidates = [key.senderPn, key.participantPn, key.participantAlt, key.remoteJidAlt];
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.endsWith('@s.whatsapp.net')) return c;
+  }
+  return null;
+}
+
 function senderFromMessage(msg) {
   const key = (msg && msg.key) || {};
   const chatJid = key.remoteJid || '';
@@ -73,17 +87,28 @@ function senderFromMessage(msg) {
   const isLid = isLidJid(senderJid);
   const selfOutboundGroup = fromMe && isGroup;
 
-  const phoneRaw = jidUser(senderJid);
-  // Only derive a phone when the sender JID is a real phone address. A @lid
-  // (opaque id) or an outbound-group self-send has no usable client phone —
-  // the message is still captured, just without a phone/contact to link.
-  const phoneNormalized = (isLid || selfOutboundGroup) ? '' : normalizePhone(phoneRaw);
+  // Pick the address to derive a phone from. If the sender is a real phone
+  // address, use it. If it's a @lid, try to recover a companion phone-number
+  // address WhatsApp may have attached; if there's only a LID, we get null and
+  // the message is captured without a phone (still no fake contacts).
+  let phoneJid = null;
+  if (!selfOutboundGroup) {
+    if (!isLid && senderJid) phoneJid = senderJid;
+    else if (isLid) phoneJid = phoneJidFromKey(key);
+  }
+  const lidResolved = isLid && !!phoneJid;         // a LID we mapped back to a phone
+  const lidUnresolved = isLid && !phoneJid;        // a LID with no phone available
+
+  const phoneRaw = jidUser(phoneJid || senderJid);
+  const phoneNormalized = phoneJid ? normalizePhone(jidUser(phoneJid)) : '';
 
   return {
     phone_raw: phoneRaw || '',
     phone_normalized: phoneNormalized,
     is_group: isGroup,
     is_lid: isLid,
+    lid_resolved: lidResolved,
+    lid_unresolved: lidUnresolved,
     self_outbound_group: selfOutboundGroup,
     sender_jid: senderJid,
     chat_jid: chatJid,
@@ -93,4 +118,4 @@ function senderFromMessage(msg) {
   };
 }
 
-module.exports = { normalizePhone, senderFromMessage, jidUser, jidDomain, isLidJid, textPreview };
+module.exports = { normalizePhone, senderFromMessage, jidUser, jidDomain, isLidJid, phoneJidFromKey, textPreview };

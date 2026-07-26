@@ -82,8 +82,9 @@ module.exports = function createWhatsappGroupsRouter() {
 
   // Phase 4B — run the summary processor now (manual trigger for testing; the
   // batch also runs twice a day on its own). Optional ?dealId=<uuid> to process
-  // just one deal.
-  router.post('/api/admin/whatsapp-groups/process', authenticate, requireAdmin, async (req, res) => {
+  // just one deal. Accepts GET too, so it can be triggered straight from the
+  // browser like the other admin endpoints.
+  const runProcessor = async (req, res) => {
     try {
       const dealId = (req.query && req.query.dealId) || (req.body && req.body.dealId);
       const result = dealId
@@ -93,7 +94,9 @@ module.exports = function createWhatsappGroupsRouter() {
     } catch (e) {
       res.status(500).json({ error: 'Failed to run processor.', detail: e.message });
     }
-  });
+  };
+  router.get('/api/admin/whatsapp-groups/process', authenticate, requireAdmin, runProcessor);
+  router.post('/api/admin/whatsapp-groups/process', authenticate, requireAdmin, runProcessor);
 
   return router;
 };

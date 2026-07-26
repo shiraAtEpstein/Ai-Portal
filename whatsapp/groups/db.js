@@ -52,6 +52,10 @@ async function ensureTables() {
   // deleted/exited group can stop showing up instead of persisting forever
   // (upsertGroup never deleted rows — this was the actual gap).
   await p.query(`ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS removed_at TIMESTAMPTZ;`);
+  // Phase 4: the deal this group belongs to (chat -> deal), resolved once and
+  // cached here so we don't re-resolve on every message. deals.id lives in
+  // whatsapp/ingest/db.js; nullable until resolved (or if it can't be).
+  await p.query(`ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS deal_id UUID;`);
   // Connection gap log: one row per offline window (went_down_at .. came_back_at).
   // WhatsApp only redelivers messages missed during SHORT gaps; a long outage
   // may drop some for good. This table is the audit trail so a human can see
@@ -222,6 +226,30 @@ async function markGroupRemoved(accountId, providerGroupJid) {
   return r.rows[0] || null;
 }
 
+// Phase 4: read one group's row (name + cached deal_id) by its WhatsApp jid.
+async function getGroup(accountId, providerGroupJid) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return null;
+  const r = await p.query(
+    `SELECT id, name, provider_group_jid, deal_id FROM whatsapp_groups
+     WHERE account_id = $1 AND provider_group_jid = $2`,
+    [accountId, providerGroupJid]
+  );
+  return r.rows[0] || null;
+}
+
+// Cache the resolved chat -> deal mapping on the group row.
+async function setGroupDeal(accountId, providerGroupJid, dealId) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !dealId) return;
+  await p.query(
+    `UPDATE whatsapp_groups SET deal_id = $3 WHERE account_id = $1 AND provider_group_jid = $2`,
+    [accountId, providerGroupJid, dealId]
+  );
+}
+
 async function listGroups(accountId, { includeRemoved } = {}) {
   await ensureTables();
   const p = getPool();
@@ -299,6 +327,8 @@ module.exports = {
   upsertGroup,
   markGroupRemoved,
   listGroups,
+  getGroup,
+  setGroupDeal,
   openConnectionGap,
   closeConnectionGap,
   listConnectionGaps,

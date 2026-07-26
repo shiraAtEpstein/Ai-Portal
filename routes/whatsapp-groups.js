@@ -13,6 +13,7 @@ const express = require('express');
 const QRCode = require('qrcode');
 const { authenticate, requireAdmin } = require('../lib/sessions');
 const bootstrap = require('../whatsapp/groups/bootstrap');
+const processor = require('../whatsapp/ingest/processor');
 
 module.exports = function createWhatsappGroupsRouter() {
   const router = express.Router();
@@ -64,6 +65,33 @@ module.exports = function createWhatsappGroupsRouter() {
       });
     } catch (e) {
       res.status(500).json({ error: 'Failed to list groups.' });
+    }
+  });
+
+  // Ingestion health — read-only. Lets an admin verify from the browser that
+  // messages are being captured and linked, without touching the database
+  // directly. No message content is exposed (it stays encrypted at rest).
+  router.get('/api/admin/whatsapp-groups/ingest-health', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const health = await bootstrap.getIngestHealth();
+      res.json(health);
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to read ingest health.' });
+    }
+  });
+
+  // Phase 4B — run the summary processor now (manual trigger for testing; the
+  // batch also runs twice a day on its own). Optional ?dealId=<uuid> to process
+  // just one deal.
+  router.post('/api/admin/whatsapp-groups/process', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const dealId = (req.query && req.query.dealId) || (req.body && req.body.dealId);
+      const result = dealId
+        ? await processor.processDeal(String(dealId))
+        : await processor.processPendingDeals({ limit: 200 });
+      res.json({ ok: true, result });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to run processor.', detail: e.message });
     }
   });
 

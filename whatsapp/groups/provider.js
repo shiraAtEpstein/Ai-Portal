@@ -158,6 +158,14 @@ class BaileysGroupsProvider extends EventEmitter {
       // whether WhatsApp is delivering messages to this device at all, and
       // with what type ('notify' = live, 'append' = history-style).
       console.log(`[whatsapp/ingest] upsert received: type=${up && up.type} count=${up && up.messages ? up.messages.length : 0}`);
+      // Diagnostic: dump the first message key so we can see exactly which
+      // address fields WhatsApp provides (remoteJid, participant, and any
+      // phone-number companions like senderPn/participantPn) for @lid senders.
+      // Remove this line once LID→phone resolution is confirmed.
+      try {
+        const k0 = up && up.messages && up.messages[0] && up.messages[0].key;
+        if (k0) console.log('[whatsapp/ingest] first message key:', JSON.stringify(k0));
+      } catch (_) {}
       try { await this._ingest(up); } catch (e) {
         console.error('[whatsapp/ingest] upsert handler failed:', e.message);
       }

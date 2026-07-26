@@ -82,23 +82,40 @@ const SYSTEM_PROMPT =
   '  next_action: the single most important thing the FIRM must do next — only if a message makes it clear.\n' +
   '  blocking_on: what the deal is waiting on — only if a message states it.\n' +
   '  next_deadline: the nearest relevant date as YYYY-MM-DD — only if a real date is given. Else null.\n\n' +
+  'ITEMS — the specifics that must not be lost to the summary. Return the deal\'s CURRENT OPEN items: ' +
+  'carry forward the still-open ones you are given, ADD new ones from the messages, and DROP any that ' +
+  'the new messages show are now done. Each item:\n' +
+  '  category: one of exactly task | payment | document | date | note\n' +
+  '    task = an action to be done · payment = money paid/owed · document = a doc sent/needed/missing · ' +
+  'date = a meeting/signing/deadline · note = a key fact or decision.\n' +
+  '  text: the item, in the chat language. Be specific (e.g. capture a request like "send the client the ' +
+  'email she asked about"). Do NOT invent items that are not in the messages.\n' +
+  '  party: firm | client | null — who it is on.\n' +
+  '  due_date: YYYY-MM-DD or null.\n' +
+  'Only include real, message-supported items. An empty list is fine.\n\n' +
   'Also list the concrete changes you made this round (empty array if nothing substantive changed).\n\n' +
   'Reply with JSON ONLY, nothing else:\n' +
   '{"summary": "...", "status": "..."|null, "next_action": "..."|null, "blocking_on": "..."|null, ' +
-  '"next_deadline": "YYYY-MM-DD"|null, "changes": ["..."]}';
+  '"next_deadline": "YYYY-MM-DD"|null, ' +
+  '"items": [{"category": "task|payment|document|date|note", "text": "...", "party": "firm|client|null", ' +
+  '"due_date": "YYYY-MM-DD"|null}], "changes": ["..."]}';
 
-function buildUserPrompt(deal, decoded) {
+function buildUserPrompt(deal, decoded, openItems) {
   const cur = (deal.ai_summary && deal.ai_summary.trim()) || '(no summary yet)';
   const lines = decoded
     .filter((d) => d.text)
     .map((d) => `[${d.date}] ${d.who} ${d.name}: ${d.text}`.trim());
+  const itemsBlock = (openItems && openItems.length)
+    ? openItems.map((it) => `- [${it.category}${it.due_date ? ' due ' + (it.due_date instanceof Date ? it.due_date.toISOString().slice(0, 10) : it.due_date) : ''}${it.party ? ' · ' + it.party : ''}] ${it.text}`).join('\n')
+    : '(none)';
   return (
     `DEAL: ${deal.name || deal.monday_item_id}\n\n` +
     `CURRENT SUMMARY:\n${cur}\n\n` +
     `CURRENT FIELDS: status=${deal.status || 'null'}; next_action=${deal.next_action || 'null'}; ` +
     `blocking_on=${deal.blocking_on || 'null'}; next_deadline=${deal.next_deadline || 'null'}\n\n` +
+    `CURRENT OPEN ITEMS:\n${itemsBlock}\n\n` +
     `NEW MESSAGES (oldest first):\n${lines.join('\n') || '(no readable text in the new messages)'}\n\n` +
-    `Update the summary and fields to reflect these new messages. JSON only.`
+    `Update the summary, fields, and open items to reflect these new messages. JSON only.`
   );
 }
 
@@ -108,6 +125,25 @@ function clip(v, max) {
   const s = String(v).trim();
   if (!s) return null;
   return s.length > max ? s.slice(0, max) : s;
+}
+function validItemDate(d) {
+  const s = clip(d, 10);
+  return s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+function validateItems(items) {
+  if (!Array.isArray(items)) return [];
+  const out = [];
+  for (const it of items) {
+    if (!it || typeof it !== 'object') continue;
+    const category = clip(it.category, 20);
+    const text = clip(it.text, 1000);
+    if (!text || !ingestDb.ITEM_CATEGORIES.includes(category)) continue; // drop invalid
+    let party = clip(it.party, 20);
+    if (party !== 'firm' && party !== 'client') party = null;
+    out.push({ category, text, party, due_date: validItemDate(it.due_date) });
+    if (out.length >= 100) break;
+  }
+  return out;
 }
 function validate(out) {
   if (!out || typeof out !== 'object') return null;
@@ -121,6 +157,7 @@ function validate(out) {
     next_action: clip(out.next_action, 500),
     blocking_on: clip(out.blocking_on, 200),
     next_deadline: deadline,
+    items: validateItems(out.items),
     changes: Array.isArray(out.changes) ? out.changes.map((c) => clip(c, 300)).filter(Boolean).slice(0, 20) : [],
   };
 }
@@ -143,11 +180,12 @@ async function processDeal(dealId) {
   if (!claude.isConfigured()) return { ok: false, reason: 'ANTHROPIC_API_KEY not set', pending: jobs.length };
 
   const decoded = jobs.map(decodeJob);
+  const openItems = await ingestDb.getOpenItemsForDeal(dealId);
   const out = await claude.askJSON({
     system: SYSTEM_PROMPT,
-    user: buildUserPrompt(deal, decoded),
+    user: buildUserPrompt(deal, decoded, openItems),
     // default model (Sonnet) for summary quality
-    maxTokens: 1500,
+    maxTokens: 2000,
   });
   const fields = validate(out);
   if (!fields) {

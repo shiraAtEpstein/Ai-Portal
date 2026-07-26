@@ -76,6 +76,13 @@ async function ensureTables() {
   // ambiguous senders stay null and land in the review queue).
   await p.query(`ALTER TABLE processing_jobs ADD COLUMN IF NOT EXISTS deal_id UUID;`);
   await p.query(`ALTER TABLE wa_contacts ADD COLUMN IF NOT EXISTS deal_id UUID;`);
+  // Phase 4B: structured fields the processor extracts alongside the prose
+  // summary, so cross-deal questions ("most urgent", "waiting on documents",
+  // "overdue payments") are DB queries, not a scan of every summary.
+  await p.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS next_action TEXT;`);
+  await p.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS blocking_on TEXT;`);
+  await p.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS next_deadline DATE;`);
+  await p.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS last_processed_at TIMESTAMPTZ;`);
   ensured = true;
 }
 
@@ -218,6 +225,103 @@ async function markDealNeedsUpdate(dealId) {
   await p.query(`UPDATE deals SET needs_update = true, updated_at = now() WHERE id = $1`, [dealId]);
 }
 
+// --- Phase 4B: processor reads/writes -------------------------------------
+
+// Deals with new unprocessed messages, oldest-touched first.
+async function listDealsNeedingUpdate(limit = 50) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return [];
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 500);
+  const r = await p.query(
+    `SELECT id FROM deals WHERE needs_update = true ORDER BY updated_at ASC LIMIT $1`,
+    [lim]
+  );
+  return r.rows.map((row) => row.id);
+}
+
+async function getDeal(dealId) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !dealId) return null;
+  const r = await p.query(`SELECT * FROM deals WHERE id = $1`, [dealId]);
+  return r.rows[0] || null;
+}
+
+// Does this deal have any pending messages? (drives on-demand freshness)
+async function dealHasPending(dealId) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !dealId) return false;
+  const r = await p.query(
+    `SELECT 1 FROM processing_jobs WHERE deal_id = $1 AND status = 'pending' LIMIT 1`,
+    [dealId]
+  );
+  return !!r.rows[0];
+}
+
+// The pending messages for a deal, oldest first, with the sender's client name.
+// payload_encrypted is returned for the caller to decrypt (never logged).
+async function getPendingJobsForDeal(dealId, limit = 200) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !dealId) return [];
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 200, 1), 1000);
+  const r = await p.query(
+    `SELECT pj.id, pj.direction, pj.sender_phone, pj.is_group, pj.created_at, pj.payload_encrypted,
+            c.monday_client_name, c.display_name
+     FROM processing_jobs pj
+     LEFT JOIN wa_contacts c ON c.id = pj.contact_id
+     WHERE pj.deal_id = $1 AND pj.status = 'pending'
+     ORDER BY pj.created_at ASC
+     LIMIT $2`,
+    [dealId, lim]
+  );
+  return r.rows;
+}
+
+// Apply a validated processor result in one transaction: update the deal's
+// summary + structured fields, mark the processed jobs done, clear needs_update.
+// `fields` is already validated by the caller. Returns true on success.
+async function applyDealUpdate(dealId, fields, jobIds) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !dealId) return false;
+  const client = await p.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE deals SET
+         ai_summary    = $2,
+         status        = COALESCE($3, status),
+         next_action   = $4,
+         blocking_on   = $5,
+         next_deadline = $6,
+         needs_update  = false,
+         last_processed_at = now(),
+         updated_at    = now()
+       WHERE id = $1`,
+      [dealId, fields.summary || null, fields.status || null, fields.next_action || null,
+       fields.blocking_on || null, fields.next_deadline || null]
+    );
+    if (Array.isArray(jobIds) && jobIds.length) {
+      await client.query(
+        `UPDATE processing_jobs SET status = 'done', processed_at = now()
+         WHERE id = ANY($1::uuid[]) AND status = 'pending'`,
+        [jobIds]
+      );
+    }
+    await client.query('COMMIT');
+    return true;
+  } catch (e) {
+    try { await client.query('ROLLBACK'); } catch (_) {}
+    console.error('[whatsapp/processor] applyDealUpdate failed:', e.message);
+    return false;
+  } finally {
+    client.release();
+  }
+}
+
 // Read-only snapshot for the admin health endpoint: how many jobs (by status),
 // how contacts resolved, and the most recent contacts. No message content —
 // that stays encrypted in payload_encrypted.
@@ -257,5 +361,10 @@ module.exports = {
   upsertDeal,
   setContactDeal,
   markDealNeedsUpdate,
+  listDealsNeedingUpdate,
+  getDeal,
+  dealHasPending,
+  getPendingJobsForDeal,
+  applyDealUpdate,
   stats,
 };

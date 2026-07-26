@@ -49,6 +49,33 @@ async function ensureTables() {
     `CREATE INDEX IF NOT EXISTS idx_processing_jobs_pending
        ON processing_jobs (created_at) WHERE status = 'pending';`
   );
+
+  // --- Phase 4: deals (the core business object) ---
+  // One row per matter. Holds the running AI summary. `needs_update` is set
+  // true when a new message lands on the deal, and the background processor
+  // clears it after refreshing the summary.
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS deals (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      monday_board_id TEXT NOT NULL,
+      monday_item_id TEXT NOT NULL,
+      name TEXT,
+      status TEXT,
+      ai_summary TEXT,
+      needs_update BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      updated_at TIMESTAMPTZ DEFAULT now(),
+      UNIQUE (monday_board_id, monday_item_id)
+    );
+  `);
+  await p.query(
+    `CREATE INDEX IF NOT EXISTS idx_deals_needs_update
+       ON deals (updated_at) WHERE needs_update = true;`
+  );
+  // Link a message and a contact to their deal (nullable — unresolved or
+  // ambiguous senders stay null and land in the review queue).
+  await p.query(`ALTER TABLE processing_jobs ADD COLUMN IF NOT EXISTS deal_id UUID;`);
+  await p.query(`ALTER TABLE wa_contacts ADD COLUMN IF NOT EXISTS deal_id UUID;`);
   ensured = true;
 }
 
@@ -117,6 +144,7 @@ async function enqueueJob({
   direction,
   sender_phone,
   contact_id,
+  deal_id,
   payloadObj,
 } = {}) {
   await ensureTables();
@@ -132,8 +160,8 @@ async function enqueueJob({
   }
   const r = await p.query(
     `INSERT INTO processing_jobs
-       (source, source_item_id, chat_jid, is_group, direction, sender_phone, contact_id, payload_encrypted)
-     VALUES ('whatsapp', $1, $2, $3, $4, $5, $6, $7)
+       (source, source_item_id, chat_jid, is_group, direction, sender_phone, contact_id, deal_id, payload_encrypted)
+     VALUES ('whatsapp', $1, $2, $3, $4, $5, $6, $7, $8)
      ON CONFLICT (source, source_item_id) DO NOTHING
      RETURNING id`,
     [
@@ -143,10 +171,82 @@ async function enqueueJob({
       direction || null,
       sender_phone || null,
       contact_id || null,
+      deal_id || null,
       payloadEncrypted,
     ]
   );
   return (r.rows[0] && r.rows[0].id) || null;
+}
+
+// --- Phase 4: deal helpers -------------------------------------------------
+
+// Upsert a deal discovered from Monday. Keyed by (board, item) so re-seeing the
+// same deal doesn't duplicate it. Returns the row (with our internal id).
+async function upsertDeal({ monday_board_id, monday_item_id, name, status } = {}) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return null;
+  if (!monday_board_id || !monday_item_id) return null;
+  const r = await p.query(
+    `INSERT INTO deals (monday_board_id, monday_item_id, name, status)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (monday_board_id, monday_item_id) DO UPDATE SET
+       name   = COALESCE(EXCLUDED.name, deals.name),
+       status = COALESCE(EXCLUDED.status, deals.status),
+       updated_at = now()
+     RETURNING *`,
+    [String(monday_board_id), String(monday_item_id), name || null, status || null]
+  );
+  return r.rows[0] || null;
+}
+
+// Remember the deal a contact belongs to, so we resolve it once per contact
+// rather than on every message.
+async function setContactDeal(contactId, dealId) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !contactId || !dealId) return;
+  await p.query(`UPDATE wa_contacts SET deal_id = $2, updated_at = now() WHERE id = $1`, [contactId, dealId]);
+}
+
+// Flag a deal as having new unprocessed messages — the background processor
+// picks these up.
+async function markDealNeedsUpdate(dealId) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !dealId) return;
+  await p.query(`UPDATE deals SET needs_update = true, updated_at = now() WHERE id = $1`, [dealId]);
+}
+
+// Read-only snapshot for the admin health endpoint: how many jobs (by status),
+// how contacts resolved, and the most recent contacts. No message content —
+// that stays encrypted in payload_encrypted.
+async function stats({ recentLimit = 10 } = {}) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return { available: false };
+  const jobsByStatus = {};
+  const jb = await p.query(`SELECT status, count(*)::int n FROM processing_jobs GROUP BY status`);
+  for (const r of jb.rows) jobsByStatus[r.status] = r.n;
+  const totalJobs = Object.values(jobsByStatus).reduce((a, b) => a + b, 0);
+
+  const contactsByResolution = {};
+  const cb = await p.query(`SELECT resolution_status, count(*)::int n FROM wa_contacts GROUP BY resolution_status`);
+  for (const r of cb.rows) contactsByResolution[r.resolution_status] = r.n;
+
+  const recent = await p.query(
+    `SELECT phone_normalized, display_name, monday_client_name, resolution_status, created_at
+     FROM wa_contacts ORDER BY created_at DESC LIMIT $1`,
+    [Math.min(Math.max(parseInt(recentLimit, 10) || 10, 1), 100)]
+  );
+
+  return {
+    available: true,
+    totalJobs,
+    jobsByStatus,
+    contactsByResolution,
+    recentContacts: recent.rows,
+  };
 }
 
 module.exports = {
@@ -154,4 +254,8 @@ module.exports = {
   upsertContact,
   getContactByPhone,
   enqueueJob,
+  upsertDeal,
+  setContactDeal,
+  markDealNeedsUpdate,
+  stats,
 };

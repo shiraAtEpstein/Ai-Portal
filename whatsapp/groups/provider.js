@@ -234,8 +234,12 @@ class BaileysGroupsProvider extends EventEmitter {
         });
         if (jobId) {
           enqueued++;
-          // A new message landed on this deal — mark it for the processor.
-          if (dealId) { try { await ingestDb.markDealNeedsUpdate(dealId); } catch (_) {} }
+          if (dealId) {
+            // Mark for the summary processor, and update the deterministic
+            // "awaiting reply" signal (client in / firm out).
+            try { await ingestDb.markDealNeedsUpdate(dealId); } catch (_) {}
+            try { await ingestDb.noteDealActivity(dealId, info.direction, info.timestamp); } catch (_) {}
+          }
         } else skipped++;
       } catch (e) {
         skipped++;

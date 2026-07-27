@@ -1,18 +1,20 @@
 // ============================================================
-// whatsapp/ingest/processor.js — Phase 4B: the deal summary processor.
+// whatsapp/ingest/processor.js — Phase 4B: the task-extraction processor.
 //
-// Turns a deal's pending WhatsApp messages into a maintained STATE summary plus
-// a few structured fields (status / next_action / blocking_on / next_deadline)
-// so cross-deal questions are DB queries, not a scan of every summary.
+// Turns a deal's new WhatsApp messages into TASKS (deal_items), using the
+// id-based close/add model: the task agent is shown the deal's current OPEN
+// items (with ids) + the new messages, and returns which items to CLOSE (done)
+// and which to ADD. No summary, no AI-guessed status/deadlines — those come from
+// Monday live at answer time.
 //
-// Security: Claude only reasons. It receives the current summary + the new
-// messages and returns JSON. The BACKEND validates that JSON and is the only
-// thing that writes to the database. Claude never runs SQL, never sees a deal
-// it wasn't handed, never decides what to persist.
+// Security: Claude only reasons and returns JSON. The BACKEND validates and is
+// the only thing that writes to the DB. The agent's instructions live in Dropbox
+// (see task-prompt.js) so they can be taught/corrected without a redeploy.
 // ============================================================
 const enc = require('../../lib/crypto');
 const claude = require('../../lib/claude');
 const ingestDb = require('./db');
+const { loadTaskPrompt } = require('./task-prompt');
 
 // ---- message text extraction (from a decrypted Baileys message) -----------
 function messageText(msg) {
@@ -32,7 +34,6 @@ function messageText(msg) {
     (m.listResponseMessage && m.listResponseMessage.title) ||
     '';
   if (t) return String(t).trim();
-  // Media with no caption — note the type so the summary knows something came in.
   if (m.audioMessage) return m.audioMessage.ptt ? '[voice message]' : '[audio]';
   if (m.imageMessage) return '[image]';
   if (m.videoMessage) return '[video]';
@@ -45,121 +46,60 @@ function messageText(msg) {
 
 function decodeJob(job) {
   let text = '';
-  try {
-    const raw = JSON.parse(enc.decrypt(job.payload_encrypted));
-    text = messageText(raw);
-  } catch (_) { text = ''; }
+  try { text = messageText(JSON.parse(enc.decrypt(job.payload_encrypted))); } catch (_) { text = ''; }
   const who = job.direction === 'out' ? 'Firm' : 'Client';
   const name = job.monday_client_name || job.display_name || job.sender_phone || '';
   const date = job.created_at instanceof Date ? job.created_at.toISOString().slice(0, 10) : String(job.created_at || '').slice(0, 10);
   return { date, who, name, text };
 }
 
-// ---- the prompt -----------------------------------------------------------
-const SYSTEM_PROMPT =
-  'You maintain a concise, accurate STATE summary of a single real-estate legal matter (a "deal") ' +
-  'for Epstein & Co., an Israeli law firm. You are given the deal\'s CURRENT summary and ONLY the NEW ' +
-  'WhatsApp messages since it was last updated. Update the summary to reflect the current state.\n\n' +
-  'LANGUAGE (critical):\n' +
-  '- Write the summary AND every text field (status, next_action, blocking_on) in the SAME language as ' +
-  'the chat messages. If the messages are in Hebrew, write ALL of them in Hebrew. Preserve Hebrew ' +
-  'exactly — never translate or transliterate names, places, or quotes.\n\n' +
-  'DO NOT FABRICATE (critical):\n' +
-  '- Use ONLY facts explicitly present in the messages or the existing summary. Never infer, assume, or ' +
-  'guess a status, action, or date that is not clearly stated.\n' +
-  '- status, next_action and blocking_on must each be directly and explicitly supported by a message. ' +
-  'If the messages do not clearly indicate the stage, the firm\'s next action, or what the deal is ' +
-  'waiting on, return null for that field. A null field is CORRECT; a guessed one is a bug.\n' +
-  '- If the new messages contain no substantive deal information (only greetings, tests, or chatter), ' +
-  'leave the summary essentially unchanged and set the fields to null — do NOT invent progress.\n\n' +
-  'THE SUMMARY:\n' +
-  '- It is the current STATE of the deal, NOT a transcript. Keep it short. Remove outdated / superseded ' +
-  'information. Focus on what matters for a real-estate transaction: fee agreement, questionnaire, ' +
-  'signing set sent/signed, mortgage approval, payments and expenses, tax, registration, missing ' +
-  'documents, scheduled meetings, deadlines. Ignore small talk.\n\n' +
-  'STRUCTURED FIELDS (each in the chat language, or null):\n' +
-  '  status: short label of the current stage — only if clearly indicated.\n' +
-  '  next_action: the single most important thing the FIRM must do next — only if a message makes it clear.\n' +
-  '  blocking_on: what the deal is waiting on — only if a message states it.\n' +
-  '  next_deadline: the nearest relevant date as YYYY-MM-DD — only if a real date is given. Else null.\n\n' +
-  'ITEMS — the specifics that must not be lost to the summary. Return the deal\'s CURRENT OPEN items: ' +
-  'carry forward the still-open ones you are given, ADD new ones from the messages, and DROP any that ' +
-  'the new messages show are now done. Each item:\n' +
-  '  category: one of exactly task | payment | document | date | note\n' +
-  '    task = an action to be done · payment = money paid/owed · document = a doc sent/needed/missing · ' +
-  'date = a meeting/signing/deadline · note = a key fact or decision.\n' +
-  '  text: the item, in the chat language. Be specific (e.g. capture a request like "send the client the ' +
-  'email she asked about"). Do NOT invent items that are not in the messages.\n' +
-  '  party: firm | client | null — who it is on.\n' +
-  '  due_date: YYYY-MM-DD or null.\n' +
-  'Only include real, message-supported items. An empty list is fine.\n\n' +
-  'Also list the concrete changes you made this round (empty array if nothing substantive changed).\n\n' +
-  'Reply with JSON ONLY, nothing else:\n' +
-  '{"summary": "...", "status": "..."|null, "next_action": "..."|null, "blocking_on": "..."|null, ' +
-  '"next_deadline": "YYYY-MM-DD"|null, ' +
-  '"items": [{"category": "task|payment|document|date|note", "text": "...", "party": "firm|client|null", ' +
-  '"due_date": "YYYY-MM-DD"|null}], "changes": ["..."]}';
+function fmtDue(d) {
+  if (!d) return '';
+  return d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10);
+}
 
-function buildUserPrompt(deal, decoded, openItems) {
-  const cur = (deal.ai_summary && deal.ai_summary.trim()) || '(no summary yet)';
-  const lines = decoded
-    .filter((d) => d.text)
-    .map((d) => `[${d.date}] ${d.who} ${d.name}: ${d.text}`.trim());
+function buildUserPrompt(deal, openItems, decoded) {
   const itemsBlock = (openItems && openItems.length)
-    ? openItems.map((it) => `- [${it.category}${it.due_date ? ' due ' + (it.due_date instanceof Date ? it.due_date.toISOString().slice(0, 10) : it.due_date) : ''}${it.party ? ' · ' + it.party : ''}] ${it.text}`).join('\n')
+    ? openItems.map((it) => `${it.id} — [${it.category}/${it.needs || 'action'}/${it.party || '-'}${it.due_date ? ' due ' + fmtDue(it.due_date) : ''}] ${it.text}`).join('\n')
     : '(none)';
+  const lines = decoded.filter((d) => d.text).map((d) => `[${d.date}] ${d.who} ${d.name}: ${d.text}`.trim());
   return (
     `DEAL: ${deal.name || deal.monday_item_id}\n\n` +
-    `CURRENT SUMMARY:\n${cur}\n\n` +
-    `CURRENT FIELDS: status=${deal.status || 'null'}; next_action=${deal.next_action || 'null'}; ` +
-    `blocking_on=${deal.blocking_on || 'null'}; next_deadline=${deal.next_deadline || 'null'}\n\n` +
-    `CURRENT OPEN ITEMS:\n${itemsBlock}\n\n` +
-    `NEW MESSAGES (oldest first):\n${lines.join('\n') || '(no readable text in the new messages)'}\n\n` +
-    `Update the summary, fields, and open items to reflect these new messages. JSON only.`
+    `CURRENT OPEN ITEMS (id — [category/needs/party] text):\n${itemsBlock}\n\n` +
+    `NEW MESSAGES (oldest first):\n${lines.join('\n') || '(no readable text)'}\n\n` +
+    `Return JSON only: {"close": [ids of finished open items], "add": [new tasks]}.`
   );
 }
 
-// ---- validation of Claude's reply (backend owns what gets written) --------
+// ---- validation (backend owns what gets written) --------------------------
 function clip(v, max) {
   if (v == null) return null;
   const s = String(v).trim();
-  if (!s) return null;
-  return s.length > max ? s.slice(0, max) : s;
+  return s ? (s.length > max ? s.slice(0, max) : s) : null;
 }
-function validItemDate(d) {
-  const s = clip(d, 10);
-  return s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
-}
-function validateItems(items) {
-  if (!Array.isArray(items)) return [];
-  const out = [];
-  for (const it of items) {
+function validDate(d) { const s = clip(d, 10); return s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null; }
+
+// Returns { closeIds, addItems } or null (null only when the reply is unusable →
+// leave messages pending for retry). Empty arrays are a valid "no change".
+function validate(out, openItems) {
+  if (!out || typeof out !== 'object') return null;
+  const openIds = new Set((openItems || []).map((it) => String(it.id)));
+  const closeIds = (Array.isArray(out.close) ? out.close : [])
+    .map((x) => String(x)).filter((id) => openIds.has(id));   // only close ids we actually gave it
+  const addItems = [];
+  for (const it of (Array.isArray(out.add) ? out.add : [])) {
     if (!it || typeof it !== 'object') continue;
     const category = clip(it.category, 20);
     const text = clip(it.text, 1000);
-    if (!text || !ingestDb.ITEM_CATEGORIES.includes(category)) continue; // drop invalid
+    if (!text || !ingestDb.ITEM_CATEGORIES.includes(category)) continue;
+    let needs = clip(it.needs, 20);
+    if (!ingestDb.ITEM_NEEDS.includes(needs)) needs = 'action';
     let party = clip(it.party, 20);
     if (party !== 'firm' && party !== 'client') party = null;
-    out.push({ category, text, party, due_date: validItemDate(it.due_date) });
-    if (out.length >= 100) break;
+    addItems.push({ category, needs, text, party, due_date: validDate(it.due_date) });
+    if (addItems.length >= 100) break;
   }
-  return out;
-}
-function validate(out) {
-  if (!out || typeof out !== 'object') return null;
-  const summary = clip(out.summary, 6000);
-  if (!summary) return null; // a summary is required
-  let deadline = clip(out.next_deadline, 10);
-  if (deadline && !/^\d{4}-\d{2}-\d{2}$/.test(deadline)) deadline = null;
-  return {
-    summary,
-    status: clip(out.status, 200),
-    next_action: clip(out.next_action, 500),
-    blocking_on: clip(out.blocking_on, 200),
-    next_deadline: deadline,
-    items: validateItems(out.items),
-    changes: Array.isArray(out.changes) ? out.changes.map((c) => clip(c, 300)).filter(Boolean).slice(0, 20) : [],
-  };
+  return { closeIds, addItems };
 }
 
 // ---- process one deal -----------------------------------------------------
@@ -169,51 +109,49 @@ async function processDeal(dealId) {
 
   const jobs = await ingestDb.getPendingJobsForDeal(dealId);
   if (!jobs.length) {
-    // Nothing pending — just clear the flag so we don't keep re-selecting it.
-    await ingestDb.applyDealUpdate(dealId, {
-      summary: deal.ai_summary, status: deal.status, next_action: deal.next_action,
-      blocking_on: deal.blocking_on, next_deadline: deal.next_deadline,
-    }, []);
+    // Nothing new — just clear needs_update (and recompute awaiting_reply).
+    await ingestDb.applyTaskUpdate(dealId, { closeIds: [], addItems: [] }, []);
     return { ok: true, processed: 0 };
   }
-
   if (!claude.isConfigured()) return { ok: false, reason: 'ANTHROPIC_API_KEY not set', pending: jobs.length };
 
-  const decoded = jobs.map(decodeJob);
+  // Load the agent from Dropbox. NO fallback — if it can't load, surface the
+  // error and leave the messages pending, so a misconfiguration is visible.
+  let system;
+  try {
+    system = await loadTaskPrompt();
+  } catch (e) {
+    console.error('[whatsapp/processor] task agent NOT loaded — refusing to run:', e.message);
+    return { ok: false, reason: 'task agent not loaded: ' + e.message, pending: jobs.length };
+  }
+
   const openItems = await ingestDb.getOpenItemsForDeal(dealId);
-  const out = await claude.askJSON({
-    system: SYSTEM_PROMPT,
-    user: buildUserPrompt(deal, decoded, openItems),
-    // default model (Sonnet) for summary quality
-    maxTokens: 2000,
-  });
-  const fields = validate(out);
-  if (!fields) {
-    // Leave the messages pending + needs_update true so the next run retries.
-    console.warn(`[whatsapp/processor] invalid AI output for deal ${dealId} — leaving ${jobs.length} pending`);
+  const decoded = jobs.map(decodeJob);
+  const out = await claude.askJSON({ system, user: buildUserPrompt(deal, openItems, decoded), maxTokens: 2000 });
+
+  const result = validate(out, openItems);
+  if (!result) {
+    console.warn(`[whatsapp/processor] unusable AI output for deal ${dealId} — leaving ${jobs.length} pending`);
     return { ok: false, reason: 'invalid ai output', pending: jobs.length };
   }
 
-  const applied = await ingestDb.applyDealUpdate(dealId, fields, jobs.map((j) => j.id));
+  const applied = await ingestDb.applyTaskUpdate(dealId, result, jobs.map((j) => j.id));
   if (!applied) return { ok: false, reason: 'apply failed', pending: jobs.length };
-  console.log(`[whatsapp/processor] deal ${dealId}: summarized ${jobs.length} message(s); status="${fields.status || ''}"`);
-  return { ok: true, processed: jobs.length, changes: fields.changes };
+  console.log(`[whatsapp/processor] deal ${dealId}: ${jobs.length} msg(s) → +${result.addItems.length} task(s), closed ${result.closeIds.length}`);
+  return { ok: true, processed: jobs.length, added: result.addItems.length, closed: result.closeIds.length };
 }
 
-// ---- batch: process everything that needs an update -----------------------
+// ---- batch: everything that needs an update -------------------------------
 async function processPendingDeals({ limit = 100 } = {}) {
   const ids = await ingestDb.listDealsNeedingUpdate(limit);
   let ok = 0, failed = 0, messages = 0;
   for (const id of ids) {
     try {
       const r = await processDeal(id);
-      if (r.ok) { ok++; messages += r.processed || 0; } else { failed++; }
-    } catch (e) {
-      failed++;
-      console.error('[whatsapp/processor] deal failed:', e.message);
-    }
+      if (r.ok) { ok++; messages += r.processed || 0; } else failed++;
+    } catch (e) { failed++; console.error('[whatsapp/processor] deal failed:', e.message); }
   }
-  if (ids.length) console.log(`[whatsapp/processor] batch: ${ids.length} deal(s), ${ok} ok, ${failed} failed, ${messages} message(s) summarized`);
+  if (ids.length) console.log(`[whatsapp/processor] batch: ${ids.length} deal(s), ${ok} ok, ${failed} failed, ${messages} msg(s)`);
   return { deals: ids.length, ok, failed, messagesProcessed: messages };
 }
 
@@ -221,9 +159,7 @@ async function processPendingDeals({ limit = 100 } = {}) {
 async function ensureDealFresh(dealId) {
   const deal = await ingestDb.getDeal(dealId);
   if (!deal) return { ok: false, reason: 'deal not found' };
-  if (deal.needs_update || (await ingestDb.dealHasPending(dealId))) {
-    return await processDeal(dealId);
-  }
+  if (deal.needs_update || (await ingestDb.dealHasPending(dealId))) return await processDeal(dealId);
   return { ok: true, processed: 0, alreadyFresh: true };
 }
 

@@ -1,59 +1,95 @@
 // ============================================================
-// whatsapp/ingest/task-prompt.js — loads the task-extraction AGENT.
+// whatsapp/ingest/task-prompt.js — loads the task-extraction AGENT from Dropbox.
 //
-// The agent (its instructions/intelligence) lives in Dropbox so the firm can
-// teach/correct it without a redeploy. This file is only the loader.
+// The agent instructions + the firm procedures live in Dropbox so the firm can
+// teach/correct them without touching code. The paths come ONLY from env vars —
+// there is no baked-in default agent. NO silent fallback either: if the env var
+// is missing, Dropbox isn't connected, or the file can't be read, it throws a
+// clear error (never a stale or default prompt), so a misconfiguration is loud.
 //
-// NO silent fallback, by design: if the agent can't be loaded from Dropbox, we
-// throw a clear error and the processor refuses to run — so a broken connection
-// or wrong path is VISIBLE, never masked by a stale baked-in copy.
-//
-//   WHATSAPP_TASK_PROMPT_PATH  — Dropbox path to the agent instructions (wa-task-extractor.md)
-//   WHATSAPP_PROCEDURE_PATH    — Dropbox path to the firm's deal procedure (folded in as reference)
+//   agent prompt:  WHATSAPP_TASK_PROMPT_PATH  (required — path to the agent .md)
+//   procedures:    WHATSAPP_PROCEDURE_PATH    (optional — a FOLDER; every .md/.txt
+//                  inside is folded in. May also be a single file or a
+//                  comma-separated list of files/folders. If unset, no procedures.)
 // ============================================================
 const dropbox = require('../../lib/dropbox');
+
+const PROMPT_PATH = process.env.WHATSAPP_TASK_PROMPT_PATH || '';
+const PROCEDURES_PATH = process.env.WHATSAPP_PROCEDURE_PATH || '';
 
 const TTL_MS = 10 * 60 * 1000;
 let _cache = null;
 let _cacheAt = 0;
 
+function ensureDropbox(what) {
+  if (!(dropbox.configured && dropbox.configured())) {
+    throw new Error('Dropbox is not connected — cannot load ' + what);
+  }
+}
+
+// A path is a folder if it ends with '/' or its last segment has no extension.
+function isFolderPath(p) {
+  const last = String(p).split('/').pop() || '';
+  return String(p).endsWith('/') || !/\.[a-z0-9]{1,6}$/i.test(last);
+}
+
+// Read one or more procedure docs. `spec` may be a folder, a file, or a
+// comma-separated list of either. Returns the concatenated text.
+async function loadProcedures(spec) {
+  ensureDropbox('the procedures');
+  const parts = String(spec).split(',').map((s) => s.trim()).filter(Boolean);
+  const texts = [];
+  for (const part of parts) {
+    if (isFolderPath(part)) {
+      const entries = await dropbox.listFiles(part);
+      const files = (entries || [])
+        .filter((e) => e.type === 'file' && /\.(md|txt)$/i.test(e.name || ''))
+        .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      for (const f of files) {
+        const t = String((await dropbox.readFile(f.path)) || '').trim();
+        if (t) texts.push('## ' + f.name + '\n\n' + t);
+      }
+    } else {
+      const t = String((await dropbox.readFile(part)) || '').trim();
+      if (t) texts.push(t);
+    }
+  }
+  return texts.join('\n\n');
+}
+
 async function loadTaskPrompt() {
   if (_cache && (Date.now() - _cacheAt) < TTL_MS) return _cache;
 
-  const instrPath = process.env.WHATSAPP_TASK_PROMPT_PATH;
-  if (!instrPath) {
-    throw new Error('WHATSAPP_TASK_PROMPT_PATH is not set — the task agent lives in Dropbox; point this env var at wa-task-extractor.md');
-  }
-  if (!(dropbox.configured && dropbox.configured())) {
-    throw new Error('Dropbox is not connected — cannot load the task agent from ' + instrPath);
-  }
-
+  // 1) the agent instructions
+  if (!PROMPT_PATH) throw new Error('WHATSAPP_TASK_PROMPT_PATH is not set — no task agent configured');
+  ensureDropbox('the task agent');
   let prompt;
   try {
-    prompt = String((await dropbox.readFile(instrPath)) || '').trim();
+    prompt = String((await dropbox.readFile(PROMPT_PATH)) || '').trim();
   } catch (e) {
-    throw new Error('could not read the task agent from Dropbox (' + instrPath + '): ' + e.message);
+    throw new Error('could not read the task agent from Dropbox (' + PROMPT_PATH + '): ' + e.message);
   }
-  if (!prompt) throw new Error('the task agent file at ' + instrPath + ' is empty');
+  if (!prompt) throw new Error('the task agent file is empty (' + PROMPT_PATH + ')');
 
-  // Fold in the firm's procedure so tasks are grounded in the real workflow.
-  const procPath = process.env.WHATSAPP_PROCEDURE_PATH;
-  let procedureAttached = false;
-  if (procPath) {
-    let proc;
+  // 2) the firm procedure(s), folded in as reference (only if a path is set)
+  let procAttached = false;
+  let text = '';
+  if (PROCEDURES_PATH) {
     try {
-      proc = String((await dropbox.readFile(procPath)) || '').trim();
+      text = await loadProcedures(PROCEDURES_PATH);
     } catch (e) {
-      throw new Error('could not read the procedure from Dropbox (' + procPath + '): ' + e.message);
-    }
-    if (proc) {
-      prompt += '\n\n----- FIRM DEAL PROCEDURE (reference — ground tasks in this) -----\n\n' + proc;
-      procedureAttached = true;
+      throw new Error('could not read the procedure(s) from Dropbox (' + PROCEDURES_PATH + '): ' + e.message);
     }
   }
+  if (text) {
+    prompt += '\n\n----- FIRM DEAL PROCEDURES (reference — ground tasks in this) -----\n\n' + text;
+    procAttached = true;
+  }
 
-  console.log('[whatsapp/processor] task agent loaded from Dropbox: ' + instrPath +
-    ' | procedure ' + (procedureAttached ? ('attached (' + procPath + ')') : 'NOT attached (set WHATSAPP_PROCEDURE_PATH)'));
+  console.log('[whatsapp/processor] task agent loaded (dropbox ' + PROMPT_PATH + ') | procedure ' +
+    (procAttached ? ('attached (' + PROCEDURES_PATH + ')')
+      : (PROCEDURES_PATH ? 'NOT attached — is the folder empty? (' + PROCEDURES_PATH + ')'
+        : 'none (WHATSAPP_PROCEDURE_PATH not set)')));
 
   _cache = prompt;
   _cacheAt = Date.now();

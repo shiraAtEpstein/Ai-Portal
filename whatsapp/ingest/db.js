@@ -83,6 +83,13 @@ async function ensureTables() {
   await p.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS blocking_on TEXT;`);
   await p.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS next_deadline DATE;`);
   await p.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS last_processed_at TIMESTAMPTZ;`);
+  // "Awaiting reply" — deterministic (no AI): a client message that hasn't been
+  // answered by the firm. Tracked from message direction + timestamps so a
+  // client never goes silently unanswered.
+  await p.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS awaiting_reply BOOLEAN NOT NULL DEFAULT false;`);
+  await p.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS last_inbound_at TIMESTAMPTZ;`);
+  await p.query(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS last_outbound_at TIMESTAMPTZ;`);
+  await p.query(`CREATE INDEX IF NOT EXISTS idx_deals_awaiting ON deals (last_inbound_at) WHERE awaiting_reply = true;`);
   // Phase 5 (brought forward): discrete extracted items per deal — the
   // specifics that must not be lost to summary compression. category is a
   // controlled label so they're easy to search/filter.
@@ -245,6 +252,48 @@ async function markDealNeedsUpdate(dealId) {
   const p = getPool();
   if (!p || !dealId) return;
   await p.query(`UPDATE deals SET needs_update = true, updated_at = now() WHERE id = $1`, [dealId]);
+}
+
+// Record a message's direction on the deal and recompute "awaiting reply":
+// a client message that is newer than the last firm reply. tsSeconds is the
+// message send-time (falls back to now). Deterministic — no AI. Order-safe via
+// GREATEST, so a redelivered old message can't flip the flag incorrectly.
+async function noteDealActivity(dealId, direction, tsSeconds) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !dealId || (direction !== 'in' && direction !== 'out')) return;
+  const col = direction === 'in' ? 'last_inbound_at' : 'last_outbound_at';
+  await p.query(
+    `UPDATE deals SET ${col} = GREATEST(COALESCE(${col}, to_timestamp(0)),
+       to_timestamp(COALESCE($2::double precision, extract(epoch from now())))) WHERE id = $1`,
+    [dealId, tsSeconds == null ? null : Number(tsSeconds)]
+  );
+  await p.query(
+    `UPDATE deals SET awaiting_reply =
+       (last_inbound_at IS NOT NULL AND (last_outbound_at IS NULL OR last_inbound_at > last_outbound_at))
+     WHERE id = $1`,
+    [dealId]
+  );
+}
+
+// The "needs attention" set: deals awaiting a reply (with how long), and open
+// items the FIRM owes. Powers the in-portal panel and the email digest.
+async function listAttention() {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return { awaitingReply: [], openFirmItems: [] };
+  const awaiting = await p.query(
+    `SELECT id, name, monday_board_id, monday_item_id, last_inbound_at, last_outbound_at,
+            round(EXTRACT(EPOCH FROM (now() - last_inbound_at)) / 3600.0, 1) AS hours_waiting
+     FROM deals WHERE awaiting_reply = true ORDER BY last_inbound_at ASC`
+  );
+  const items = await p.query(
+    `SELECT i.id, i.category, i.text, i.party, i.due_date, d.id AS deal_id, d.name AS deal_name
+     FROM deal_items i JOIN deals d ON d.id = i.deal_id
+     WHERE i.status = 'open' AND i.party = 'firm'
+     ORDER BY i.due_date NULLS LAST, i.created_at ASC`
+  );
+  return { awaitingReply: awaiting.rows, openFirmItems: items.rows };
 }
 
 // --- Phase 4B: processor reads/writes -------------------------------------
@@ -410,6 +459,8 @@ module.exports = {
   upsertDeal,
   setContactDeal,
   markDealNeedsUpdate,
+  noteDealActivity,
+  listAttention,
   listDealsNeedingUpdate,
   getDeal,
   dealHasPending,

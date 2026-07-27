@@ -109,8 +109,13 @@ async function ensureTables() {
   `);
   await p.query(`CREATE INDEX IF NOT EXISTS idx_deal_items_deal ON deal_items (deal_id);`);
   await p.query(`CREATE INDEX IF NOT EXISTS idx_deal_items_open ON deal_items (category, due_date) WHERE status = 'open';`);
+  // `needs`: does the FIRM have to act, and how — response | action | none.
+  // Drives attention/awaiting_reply. (See lawly-status-criteria.md.)
+  await p.query(`ALTER TABLE deal_items ADD COLUMN IF NOT EXISTS needs TEXT;`);
   ensured = true;
 }
+
+const ITEM_NEEDS = ['response', 'action', 'none'];
 
 // Allowed item categories (keep in sync with the processor prompt).
 const ITEM_CATEGORIES = ['task', 'payment', 'document', 'date', 'note'];
@@ -254,10 +259,10 @@ async function markDealNeedsUpdate(dealId) {
   await p.query(`UPDATE deals SET needs_update = true, updated_at = now() WHERE id = $1`, [dealId]);
 }
 
-// Record a message's direction on the deal and recompute "awaiting reply":
-// a client message that is newer than the last firm reply. tsSeconds is the
-// message send-time (falls back to now). Deterministic — no AI. Order-safe via
-// GREATEST, so a redelivered old message can't flip the flag incorrectly.
+// Record a message's send-time on the deal (last inbound/outbound). This is now
+// just real-time METADATA ("client last wrote 3h ago"); `awaiting_reply` itself
+// is derived from an open response-needed item at processing time (see
+// applyTaskUpdate), per the revised criteria. Order-safe via GREATEST.
 async function noteDealActivity(dealId, direction, tsSeconds) {
   await ensureTables();
   const p = getPool();
@@ -267,12 +272,6 @@ async function noteDealActivity(dealId, direction, tsSeconds) {
     `UPDATE deals SET ${col} = GREATEST(COALESCE(${col}, to_timestamp(0)),
        to_timestamp(COALESCE($2::double precision, extract(epoch from now())))) WHERE id = $1`,
     [dealId, tsSeconds == null ? null : Number(tsSeconds)]
-  );
-  await p.query(
-    `UPDATE deals SET awaiting_reply =
-       (last_inbound_at IS NOT NULL AND (last_outbound_at IS NULL OR last_inbound_at > last_outbound_at))
-     WHERE id = $1`,
-    [dealId]
   );
 }
 
@@ -288,10 +287,10 @@ async function listAttention() {
      FROM deals WHERE awaiting_reply = true ORDER BY last_inbound_at ASC`
   );
   const items = await p.query(
-    `SELECT i.id, i.category, i.text, i.party, i.due_date, d.id AS deal_id, d.name AS deal_name
+    `SELECT i.id, i.category, i.needs, i.text, i.party, i.due_date, d.id AS deal_id, d.name AS deal_name
      FROM deal_items i JOIN deals d ON d.id = i.deal_id
-     WHERE i.status = 'open' AND i.party = 'firm'
-     ORDER BY i.due_date NULLS LAST, i.created_at ASC`
+     WHERE i.status = 'open' AND i.party = 'firm' AND i.needs IN ('response','action')
+     ORDER BY (i.needs = 'response') DESC, i.due_date NULLS LAST, i.created_at ASC`
   );
   return { awaitingReply: awaiting.rows, openFirmItems: items.rows };
 }
@@ -351,56 +350,47 @@ async function getPendingJobsForDeal(dealId, limit = 200) {
   return r.rows;
 }
 
-// The deal's current OPEN items — handed to the processor so it can carry them
-// forward, close resolved ones, and add new ones.
+// The deal's current OPEN items (with ids) — handed to the task agent so it can
+// see what exists, close finished ones by id, and add only genuinely new ones.
 async function getOpenItemsForDeal(dealId) {
   await ensureTables();
   const p = getPool();
   if (!p || !dealId) return [];
   const r = await p.query(
-    `SELECT category, text, party, due_date FROM deal_items
+    `SELECT id, category, needs, text, party, due_date FROM deal_items
      WHERE deal_id = $1 AND status = 'open' ORDER BY created_at ASC`,
     [dealId]
   );
   return r.rows;
 }
 
-// Apply a validated processor result in one transaction: update the deal's
-// summary + structured fields, REPLACE its open items with the fresh set, mark
-// the processed jobs done, clear needs_update. `fields` (incl. fields.items) is
-// already validated by the caller. Returns true on success.
-async function applyDealUpdate(dealId, fields, jobIds) {
+// Apply the task agent's validated result in one transaction (id-based close/add
+// model): CLOSE the named open items (mark done — kept as history), ADD the new
+// ones, mark the processed jobs done, recompute `awaiting_reply` from whether an
+// open response-needed item remains, and clear needs_update. Returns true on ok.
+// `result` = { closeIds: [uuid], addItems: [{category, needs, text, party, due_date, source_job_id}] }
+async function applyTaskUpdate(dealId, result, jobIds) {
   await ensureTables();
   const p = getPool();
   if (!p || !dealId) return false;
+  const closeIds = Array.isArray(result && result.closeIds) ? result.closeIds : [];
+  const addItems = Array.isArray(result && result.addItems) ? result.addItems : [];
   const client = await p.connect();
   try {
     await client.query('BEGIN');
-    await client.query(
-      `UPDATE deals SET
-         ai_summary    = $2,
-         status        = COALESCE($3, status),
-         next_action   = $4,
-         blocking_on   = $5,
-         next_deadline = $6,
-         needs_update  = false,
-         last_processed_at = now(),
-         updated_at    = now()
-       WHERE id = $1`,
-      [dealId, fields.summary || null, fields.status || null, fields.next_action || null,
-       fields.blocking_on || null, fields.next_deadline || null]
-    );
-    // Replace the deal's open items with the fresh list the processor returned.
-    // (Resolved items simply aren't in the new list; new ones are added.)
-    if (Array.isArray(fields.items)) {
-      await client.query(`DELETE FROM deal_items WHERE deal_id = $1 AND status = 'open'`, [dealId]);
-      for (const it of fields.items) {
-        await client.query(
-          `INSERT INTO deal_items (deal_id, category, text, party, status, due_date)
-           VALUES ($1, $2, $3, $4, 'open', $5)`,
-          [dealId, it.category, it.text, it.party || null, it.due_date || null]
-        );
-      }
+    if (closeIds.length) {
+      await client.query(
+        `UPDATE deal_items SET status = 'done', updated_at = now()
+         WHERE deal_id = $1 AND status = 'open' AND id = ANY($2::uuid[])`,
+        [dealId, closeIds]
+      );
+    }
+    for (const it of addItems) {
+      await client.query(
+        `INSERT INTO deal_items (deal_id, category, needs, text, party, status, due_date, source_job_id)
+         VALUES ($1, $2, $3, $4, $5, 'open', $6, $7)`,
+        [dealId, it.category, it.needs || null, it.text, it.party || null, it.due_date || null, it.source_job_id || null]
+      );
     }
     if (Array.isArray(jobIds) && jobIds.length) {
       await client.query(
@@ -409,11 +399,24 @@ async function applyDealUpdate(dealId, fields, jobIds) {
         [jobIds]
       );
     }
+    // awaiting_reply = the deal still has an open response-needed item on the firm.
+    await client.query(
+      `UPDATE deals SET
+         awaiting_reply = EXISTS (
+           SELECT 1 FROM deal_items
+           WHERE deal_id = $1 AND status = 'open' AND needs = 'response' AND party = 'firm'
+         ),
+         needs_update = false,
+         last_processed_at = now(),
+         updated_at = now()
+       WHERE id = $1`,
+      [dealId]
+    );
     await client.query('COMMIT');
     return true;
   } catch (e) {
     try { await client.query('ROLLBACK'); } catch (_) {}
-    console.error('[whatsapp/processor] applyDealUpdate failed:', e.message);
+    console.error('[whatsapp/processor] applyTaskUpdate failed:', e.message);
     return false;
   } finally {
     client.release();
@@ -466,7 +469,8 @@ module.exports = {
   dealHasPending,
   getPendingJobsForDeal,
   getOpenItemsForDeal,
-  applyDealUpdate,
+  applyTaskUpdate,
   ITEM_CATEGORIES,
+  ITEM_NEEDS,
   stats,
 };

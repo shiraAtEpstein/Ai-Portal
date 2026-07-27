@@ -14,6 +14,7 @@ const QRCode = require('qrcode');
 const { authenticate, requireAdmin } = require('../lib/sessions');
 const bootstrap = require('../whatsapp/groups/bootstrap');
 const processor = require('../whatsapp/ingest/processor');
+const ingestDb = require('../whatsapp/ingest/db');
 
 module.exports = function createWhatsappGroupsRouter() {
   const router = express.Router();
@@ -97,6 +98,17 @@ module.exports = function createWhatsappGroupsRouter() {
   };
   router.get('/api/admin/whatsapp-groups/process', authenticate, requireAdmin, runProcessor);
   router.post('/api/admin/whatsapp-groups/process', authenticate, requireAdmin, runProcessor);
+
+  // "Needs attention" — deals with an unanswered client message, and open items
+  // the firm owes. Read-only; the in-portal panel and email digest read this.
+  router.get('/api/admin/whatsapp-groups/attention', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const data = await ingestDb.listAttention();
+      res.json(data);
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to read attention list.', detail: e.message });
+    }
+  });
 
   return router;
 };

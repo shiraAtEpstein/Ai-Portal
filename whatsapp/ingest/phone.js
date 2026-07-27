@@ -114,8 +114,21 @@ function senderFromMessage(msg) {
     chat_jid: chatJid,
     direction: fromMe ? 'out' : 'in',
     message_id: (key.id != null ? String(key.id) : ''),
+    timestamp: msgTimestamp(msg),
     text_preview: textPreview(msg && msg.message),
   };
+}
+
+// WhatsApp message send-time in unix seconds. Baileys gives a number, a numeric
+// string, or a protobuf Long ({low, high}). Returns null if unavailable (caller
+// falls back to ingestion time).
+function msgTimestamp(msg) {
+  const t = msg && msg.messageTimestamp;
+  if (t == null) return null;
+  if (typeof t === 'number') return t;
+  if (typeof t === 'string') { const n = parseInt(t, 10); return Number.isFinite(n) ? n : null; }
+  if (typeof t === 'object' && typeof t.low === 'number') return t.low; // Long
+  return null;
 }
 
 module.exports = { normalizePhone, senderFromMessage, jidUser, jidDomain, isLidJid, phoneJidFromKey, textPreview };

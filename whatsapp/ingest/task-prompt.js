@@ -1,21 +1,29 @@
 // ============================================================
 // whatsapp/ingest/task-prompt.js — loads the task-extraction AGENT from Dropbox.
 //
-// The agent instructions + the firm procedures live in Dropbox so the firm can
-// teach/correct them without touching code. The paths come ONLY from env vars —
-// there is no baked-in default agent. NO silent fallback either: if the env var
-// is missing, Dropbox isn't connected, or the file can't be read, it throws a
-// clear error (never a stale or default prompt), so a misconfiguration is loud.
+// The agent is declared in config/agents.json as `wa_task`, EXACTLY like every
+// other portal agent — its Dropbox paths live there, not in env vars and not
+// hardcoded here:
 //
-//   agent prompt:  WHATSAPP_TASK_PROMPT_PATH  (required — path to the agent .md)
-//   procedures:    WHATSAPP_PROCEDURE_PATH    (optional — a FOLDER; every .md/.txt
-//                  inside is folded in. May also be a single file or a
-//                  comma-separated list of files/folders. If unset, no procedures.)
+//   "wa_task": {
+//     "source":     "/shared-claude/task-creator/wataskextractor.md",  // the agent
+//     "procedures": "/shared-claude/task-creator/נהלים ופרוצדורות"       // a FOLDER
+//   }
+//
+// `source` is the agent instructions (same field the other agents use).
+// `procedures` is a FOLDER (or single file, or comma-list) whose .md/.txt files
+// are folded in as reference — a folder, so new procedures can just be dropped in.
+//
+// NO silent fallback: if the entry is missing, Dropbox isn't connected, or a file
+// can't be read, it throws a clear error (never a stale or default prompt), so a
+// misconfiguration is loud.
 // ============================================================
 const dropbox = require('../../lib/dropbox');
+const agentsConfig = require('../../config/agents.json');
 
-const PROMPT_PATH = process.env.WHATSAPP_TASK_PROMPT_PATH || '';
-const PROCEDURES_PATH = process.env.WHATSAPP_PROCEDURE_PATH || '';
+const WA_TASK = (agentsConfig.agents && agentsConfig.agents.wa_task) || {};
+const PROMPT_PATH = WA_TASK.source || '';
+const PROCEDURES_PATH = WA_TASK.procedures || '';
 
 const TTL_MS = 10 * 60 * 1000;
 let _cache = null;
@@ -61,7 +69,7 @@ async function loadTaskPrompt() {
   if (_cache && (Date.now() - _cacheAt) < TTL_MS) return _cache;
 
   // 1) the agent instructions
-  if (!PROMPT_PATH) throw new Error('WHATSAPP_TASK_PROMPT_PATH is not set — no task agent configured');
+  if (!PROMPT_PATH) throw new Error('no task agent configured — set agents.wa_task.source in config/agents.json');
   ensureDropbox('the task agent');
   let prompt;
   try {
@@ -89,7 +97,7 @@ async function loadTaskPrompt() {
   console.log('[whatsapp/processor] task agent loaded (dropbox ' + PROMPT_PATH + ') | procedure ' +
     (procAttached ? ('attached (' + PROCEDURES_PATH + ')')
       : (PROCEDURES_PATH ? 'NOT attached — is the folder empty? (' + PROCEDURES_PATH + ')'
-        : 'none (WHATSAPP_PROCEDURE_PATH not set)')));
+        : 'none (agents.wa_task.procedures not set)')));
 
   _cache = prompt;
   _cacheAt = Date.now();

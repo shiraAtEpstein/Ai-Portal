@@ -35,6 +35,8 @@ const { createAuthStore } = require('./auth-store');
 const db = require('./db');
 const ingestDb = require('../ingest/db');
 const { senderFromMessage } = require('../ingest/phone');
+const { pickDealByGroupName } = require('../ingest/match');
+const { pickDealByGroupNameAI } = require('../ingest/ai-match');
 const monday = require('../../lib/monday');
 
 const MAX_BACKOFF_MS = 30_000;
@@ -154,6 +156,18 @@ class BaileysGroupsProvider extends EventEmitter {
   // Message ingestion (Phase 1): fresh messages -> pending processing_jobs.
     // Never throws back into Baileys.
     this.sock.ev.on('messages.upsert', async (up) => {
+      // Diagnostic: logs EVERY upsert before any filtering, so we can see
+      // whether WhatsApp is delivering messages to this device at all, and
+      // with what type ('notify' = live, 'append' = history-style).
+      console.log(`[whatsapp/ingest] upsert received: type=${up && up.type} count=${up && up.messages ? up.messages.length : 0}`);
+      // Diagnostic: dump the first message key so we can see exactly which
+      // address fields WhatsApp provides (remoteJid, participant, and any
+      // phone-number companions like senderPn/participantPn) for @lid senders.
+      // Remove this line once LID→phone resolution is confirmed.
+      try {
+        const k0 = up && up.messages && up.messages[0] && up.messages[0].key;
+        if (k0) console.log('[whatsapp/ingest] first message key:', JSON.stringify(k0));
+      } catch (_) {}
       try { await this._ingest(up); } catch (e) {
         console.error('[whatsapp/ingest] upsert handler failed:', e.message);
       }
@@ -161,7 +175,15 @@ class BaileysGroupsProvider extends EventEmitter {
   }
 
   async _ingest({ messages, type }) {
-    if (type !== 'notify' || !Array.isArray(messages)) return;
+    if (!Array.isArray(messages)) return;
+    // 'notify' = live messages. 'append' = messages WhatsApp redelivers after a
+    // reconnect/gap (or a small recent-message sync). We ingest BOTH so a
+    // message missed during a disconnect is still captured when it comes back —
+    // without this, the redelivered copy was silently dropped and the message
+    // was lost for good. Safe to reprocess: UNIQUE(source, source_item_id) +
+    // ON CONFLICT DO NOTHING means a message that arrives twice inserts once.
+    // Other upsert types (e.g. 'replace' for edits) are ignored for now.
+    if (type !== 'notify' && type !== 'append') return;
     let enqueued = 0;
     let skipped = 0;
     for (const msg of messages) {
@@ -194,6 +216,12 @@ class BaileysGroupsProvider extends EventEmitter {
           skipped++; continue;
         }
 
+        // Resolve the message up to its Deal (Phase 4). The deal belongs to the
+        // CHAT, not the client: a group resolves via its stored group-id or by
+        // matching the group name against the sender-client's deals; a 1:1 chat
+        // falls back to the client (only when they have a single deal).
+        const dealId = await this._resolveDealForMessage(info, contact);
+
         const jobId = await ingestDb.enqueueJob({
           source_item_id: info.message_id,
           chat_jid: info.chat_jid,
@@ -201,9 +229,18 @@ class BaileysGroupsProvider extends EventEmitter {
           direction: info.direction,
           sender_phone: info.phone_normalized || null,
           contact_id: contact ? contact.id : null,
+          deal_id: dealId,
           payloadObj: msg,
         });
-        if (jobId) enqueued++; else skipped++;
+        if (jobId) {
+          enqueued++;
+          if (dealId) {
+            // Mark for the summary processor, and update the deterministic
+            // "awaiting reply" signal (client in / firm out).
+            try { await ingestDb.markDealNeedsUpdate(dealId); } catch (_) {}
+            try { await ingestDb.noteDealActivity(dealId, info.direction, info.timestamp); } catch (_) {}
+          }
+        } else skipped++;
       } catch (e) {
         skipped++;
         console.error('[whatsapp/ingest] failed to ingest one message:', e.message);
@@ -220,6 +257,71 @@ class BaileysGroupsProvider extends EventEmitter {
   async _matchClient(phoneNormalized) {
     try { return await monday.findClientByPhone(phoneNormalized); }
     catch (_) { return null; }
+  }
+
+  // Resolve a message to its Deal. The deal belongs to the CHAT.
+  //   Group chat:
+  //     1) the deal that stores THIS group's id (most reliable), else
+  //     2) the sender-client's deals, disambiguated by matching the group name.
+  //     Cached on the whatsapp_groups row so it's resolved once per group.
+  //   One-on-one chat: fall back to the client (only if a single deal).
+  // Never throws — a failure just leaves the message unlinked (review).
+  async _resolveDealForMessage(info, contact) {
+    try {
+      if (!info.is_group) {
+        return await this._resolveContactDeal(contact);
+      }
+      const group = await db.getGroup(this.accountId, info.chat_jid);
+      if (group && group.deal_id) return group.deal_id;   // already resolved once
+
+      // 1) Reliable: a deal has this group's id stored.
+      let dealDesc = await monday.resolveDealForGroupId(info.chat_jid);
+
+      // 2) Else: pick from the sender-client's deals by best group-name match —
+      //    first the free deterministic pass, then an AI fallback for the
+      //    ambiguous / cross-language cases (constrained to these candidates).
+      if (!dealDesc && contact && contact.monday_item_id) {
+        const candidates = await monday.resolveDealsForClient(contact.monday_item_id);
+        const groupName = group && group.name;
+        dealDesc = pickDealByGroupName(groupName, candidates);
+        if (!dealDesc) dealDesc = await pickDealByGroupNameAI(groupName, candidates);
+      }
+      if (!dealDesc) return null;
+
+      const dealRow = await ingestDb.upsertDeal(dealDesc);
+      if (!dealRow) return null;
+      await db.setGroupDeal(this.accountId, info.chat_jid, dealRow.id);
+      return dealRow.id;
+    } catch (e) {
+      console.error('[whatsapp/ingest] deal resolution failed:', e.message);
+      return null;
+    }
+  }
+
+  // 1:1 fallback: resolve (and cache on the contact) the deal, only when the
+  // client has exactly ONE deal — otherwise there's no way to disambiguate a
+  // one-on-one message, so it stays unlinked (review).
+  async _resolveContactDeal(contact) {
+    if (!contact) return null;
+    if (contact.deal_id) return contact.deal_id;        // already resolved once
+    if (!contact.monday_item_id) return null;           // sender not matched to a client
+    try {
+      const deals = await monday.resolveDealsForClient(contact.monday_item_id);
+      if (!Array.isArray(deals) || deals.length !== 1) {
+        if (deals && deals.length > 1) {
+          console.log(`[whatsapp/ingest] client ${contact.monday_item_id} is in ${deals.length} deals — leaving message unlinked (ambiguous)`);
+        }
+        return null;
+      }
+      const dealRow = await ingestDb.upsertDeal(deals[0]);
+      if (!dealRow) return null;
+      await ingestDb.setContactDeal(contact.id, dealRow.id);
+      contact.deal_id = dealRow.id;
+      return dealRow.id;
+    } catch (e) {
+      console.error('[whatsapp/ingest] deal resolution failed:', e.message);
+      return null;
+    }
   }
 
   _contactFields(info, msg, match) {

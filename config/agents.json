@@ -10,6 +10,12 @@
       "description": "Creates newsletters, posts and professional content",
       "source": "/shared-claude/ניוזלטר/content-writer.md"
     },
+    "wa_task": {
+  "name": "WhatsApp Task Extractor",
+  "description": "Background agent — turns new WhatsApp messages on a deal into tasks. Not a chat agent: intentionally left out of every role so it never appears in the picker; it powers the WhatsApp processor only.",
+  "source": "/shared-claude/task-creator/wataskextractor.md",
+  "procedures": "/shared-claude/task-creator/נהלים ופרוצדורות"
+    },
     "researcher": {
       "name": "Research Assistant",
       "description": "Researches topics, trends and background information",

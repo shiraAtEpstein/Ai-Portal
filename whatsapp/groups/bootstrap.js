@@ -12,6 +12,8 @@
 // directly.
 // ============================================================
 const db = require('./db');
+const ingestDb = require('../ingest/db');
+const processor = require('../ingest/processor');
 const { BaileysGroupsProvider } = require('./provider');
 
 // Fixed recipient for the "needs a human" alert, per operator's explicit
@@ -38,6 +40,19 @@ async function start(transporter) {
     return null;
   }
   accountId = account.id;
+
+  // Provision the ingestion tables (wa_contacts, processing_jobs) at boot,
+  // rather than lazily on the first message. Two reasons: (1) you can query
+  // them immediately instead of hitting "relation does not exist" before any
+  // traffic, and (2) a future background processor can safely read them even
+  // before the first message arrives. Best-effort — a failure here must not
+  // stop the connector from starting.
+  try {
+    await ingestDb.ensureTables();
+    console.log('[whatsapp/ingest] tables ensured at boot (wa_contacts, processing_jobs)');
+  } catch (e) {
+    console.error('[whatsapp/ingest] could not ensure tables at boot:', e.message);
+  }
 
   provider = new BaileysGroupsProvider(accountId);
 
@@ -68,7 +83,57 @@ async function start(transporter) {
   });
 
   await provider.connect();
+  startProcessorSchedule();
   return provider;
+}
+
+// Twice-a-day summary batch. Times are firm-local (Asia/Jerusalem), overridable
+// via WHATSAPP_PROCESS_TIMES (comma-separated HH:MM). On-demand refresh
+// (ensureDealFresh) covers anything asked about between runs. We check every few
+// minutes and fire once per slot per day (tracked in memory).
+let _scheduleTimer = null;
+let _lastFiredSlot = null;
+const PROCESS_TZ = 'Asia/Jerusalem';
+
+function _processTimes() {
+  return (process.env.WHATSAPP_PROCESS_TIMES || '07:00,14:00')
+    .split(',').map((s) => s.trim()).filter((s) => /^\d{1,2}:\d{2}$/.test(s));
+}
+
+function _localParts() {
+  // HH:MM and YYYY-MM-DD in the firm timezone (runtime Date is fine here).
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: PROCESS_TZ, hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+  const parts = {};
+  for (const p of fmt.formatToParts(new Date())) parts[p.type] = p.value;
+  const hhmm = `${parts.hour}:${parts.minute}`;
+  const date = `${parts.year}-${parts.month}-${parts.day}`;
+  return { hhmm, date };
+}
+
+function startProcessorSchedule() {
+  if (_scheduleTimer) return;
+  const tick = () => {
+    try {
+      const { hhmm, date } = _localParts();
+      const times = _processTimes();
+      if (!times.includes(hhmm)) return;
+      const slot = `${date} ${hhmm}`;
+      if (_lastFiredSlot === slot) return; // already fired this slot today
+      _lastFiredSlot = slot;
+      console.log(`[whatsapp/processor] scheduled batch firing at ${slot} (${PROCESS_TZ})`);
+      processor.processPendingDeals({ limit: 500 }).catch((e) =>
+        console.error('[whatsapp/processor] scheduled batch failed:', e.message)
+      );
+    } catch (e) {
+      console.error('[whatsapp/processor] schedule tick failed:', e.message);
+    }
+  };
+  // Every 60s so we don't miss a one-minute slot window.
+  _scheduleTimer = setInterval(tick, 60 * 1000);
+  console.log(`[whatsapp/processor] schedule armed for ${_processTimes().join(', ')} (${PROCESS_TZ})`);
 }
 
 // Best-effort email to ALERT_EMAIL. Never throws into the caller — a
@@ -116,6 +181,19 @@ async function getGroups() {
   return db.listGroups(accountId);
 }
 
+// Read-only ingestion health for the admin endpoint: connection status, job
+// counts, contact resolution, recent contacts, and recent offline windows.
+async function getIngestHealth() {
+  const status = await getStatus();
+  const ingest = await ingestDb.stats({ recentLimit: 10 });
+  let gaps = [];
+  if (accountId) {
+    try { gaps = await db.listConnectionGaps(accountId, 10); }
+    catch (e) { console.error('[whatsapp/gap] listConnectionGaps failed:', e.message); }
+  }
+  return { status, ingest, recentGaps: gaps };
+}
+
 // Clears a corrupted/stuck session and forces a fresh QR. Disconnects the
 // live socket (if any), wipes the stored auth state, then reconnects —
 // Baileys' initAuthCreds() kicks in on the next connect() since
@@ -137,4 +215,4 @@ async function reset() {
   return { ok: true };
 }
 
-module.exports = { start, getStatus, getLatestQr, getGroups, reset };
+module.exports = { start, getStatus, getLatestQr, getGroups, reset, getIngestHealth };

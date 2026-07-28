@@ -47,6 +47,10 @@ const MODEL_ALIASES = { sonnet: 'claude-sonnet-4-6', haiku: 'claude-haiku-4-5-20
 const DEFAULT_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';
 const MAX_TOKENS = 16000;  // must be big enough for a build_document call whose data field carries the whole report; 4096 truncated it mid-tool-call
 const MAX_STEPS = 8;
+// Explicit memory tool (remember/forget). When on, the model writes memory ONLY
+// through the tools (after confirming with the user), and passive background
+// learning (memory.observe) is disabled. Default OFF = legacy passive behavior.
+const MEMORY_TOOL_ON = !!process.env.MEMORY_TOOL && process.env.MEMORY_TOOL !== 'off';
 // Tools whose (possibly large) output we cache so build_document can reuse it
 // server-side instead of the model retyping it into the tool call.
 const DATA_TOOLS = new Set(['monday_read_board', 'monday_query', 'monday_my_tasks', 'gmail_search', 'calendar_list', 'dropbox_read']);
@@ -628,6 +632,37 @@ module.exports = function createChatRouter() {
       tools.push(makeBuildDocumentTool(res, req.session, buildCtx));
       system += '\n\nFILE BUILDING (MANDATORY): When the user asks for a file, document, Word doc, Excel, spreadsheet, PDF, or presentation, you MUST call the build_document tool in THIS SAME turn. Never say you are building, creating, preparing, or generating a file — and never end your turn on a promise like "building it now" — without actually calling build_document in the same message. If you need data first, fetch it with your other tools, then call build_document before replying. If the file is based on data you fetched with a tool (e.g. a monday board), call build_document with use_last_data=true instead of copying the rows into `data`. Only after the tool returns and the download link is shown should you briefly confirm the file is ready.';
     }
+    // Explicit memory tools (verdict-returning). On only when MEMORY_TOOL is set;
+    // when on, the passive observe() write below is disabled — memory is written
+    // ONLY here, after the user confirms. See lib/memory rememberExplicit/forgetExplicit.
+    if (MEMORY_TOOL_ON && memory.ENABLED) {
+      tools.push({
+        name: 'remember',
+        description: "Save a durable PREFERENCE (how the user likes you to respond) or a matter FACT to long-term memory. Call this ONLY AFTER the user has explicitly confirmed they want it saved permanently — you must ask a one-line confirmation first. Returns the REAL result as JSON: {status:'saved'|...} / {status:'rejected',reason} / {status:'already_known'}. NEVER tell the user you saved or will remember anything unless this returned status 'saved'. If it returns 'rejected', tell them why and offer to keep it just for this chat.",
+        input_schema: { type: 'object', properties: {
+          kind: { type: 'string', enum: ['preference', 'fact'], description: "'preference' = how to respond (tone, language, form of address, length, format). 'fact' = a case/matter note, kept for THIS agent only." },
+          text: { type: 'string', description: "What to remember, as a clear instruction, e.g. \"Address the user as Tzipora\" or \"Reply in Hebrew unless asked otherwise\"." },
+        }, required: ['kind', 'text'] },
+        run: async (args) => {
+          if (sessionMuted) return JSON.stringify({ status: 'rejected', reason: 'muted' });
+          try { return JSON.stringify(await memory.rememberExplicit(req.session.userId, { kind: args.kind, text: args.text, agentId })); }
+          catch (e) { return JSON.stringify({ status: 'rejected', reason: 'error', detail: e.message }); }
+        },
+      });
+      tools.push({
+        name: 'forget',
+        description: "Remove something previously saved to long-term memory. Returns JSON {status:'forgotten'|'not_found'}. Use the same wording that was remembered. For a matter fact pass kind:'fact'.",
+        input_schema: { type: 'object', properties: {
+          text: { type: 'string', description: 'The preference or fact to remove, matching what was saved.' },
+          kind: { type: 'string', enum: ['preference', 'fact'], description: "Default 'preference'. Use 'fact' to remove a matter note for this agent." },
+        }, required: ['text'] },
+        run: async (args) => {
+          try { return JSON.stringify(await memory.forgetExplicit(req.session.userId, { text: args.text, kind: args.kind, agentId })); }
+          catch (e) { return JSON.stringify({ status: 'error', detail: e.message }); }
+        },
+      });
+      system += '\n\nMEMORY (explicit, with confirmation): You can save durable preferences and matter facts to long-term memory with the `remember` tool, and remove them with `forget`. Rules: (1) When the user explicitly asks you to remember or "always" do something, first ask ONE short confirmation ("Save this as a permanent preference, or just for this chat?") and call `remember` only after they confirm. (2) When you NOTICE a durable preference the user expressed but did NOT ask to save (e.g. they keep asking for short answers), briefly OFFER to remember it and ask; call `remember` only if they say yes. (3) NEVER tell the user you saved something or will remember it unless `remember` returned status "saved". If it returned "rejected", tell them the reason (e.g. it looks like client/matter data) and offer to keep it just for this conversation. (4) Preferences are how-to-respond only; a case/matter note uses kind="fact" and is kept for THIS agent only. Reply in the user\'s language.';
+    }
     console.log('[DIAG] req agent=' + agentId + ' roles=' + JSON.stringify(roles) + ' buildCap=' + caps.files.has('build') + ' tools=[' + tools.map((t) => t.name).join(',') + ']');
 
     const model = isGeneral ? DEFAULT_MODEL : ((agent.model && (MODEL_ALIASES[agent.model] || agent.model)) || DEFAULT_MODEL);
@@ -678,7 +713,10 @@ module.exports = function createChatRouter() {
       // it never blocks or breaks the reply; it only stages/promotes preferences
       // and stores explicit matter facts (walled to this agent). Skipped when the
       // conversation is muted (Layer 4 "don't remember this chat").
-      if (persist && !sessionMuted) memory.observe(req.session.userId, { userText: message, assistantText: answer, agentId }).catch(function (e) { console.error('[MEMORY] observe failed:', e.message); });
+      // Passive background learning. DISABLED when the explicit memory tool is on
+      // (MEMORY_TOOL): in that mode memory is written only through remember/forget,
+      // after the user confirms — no silent inference.
+      if (persist && !sessionMuted && !MEMORY_TOOL_ON) memory.observe(req.session.userId, { userText: message, assistantText: answer, agentId }).catch(function (e) { console.error('[MEMORY] observe failed:', e.message); });
       // §9 — background: detect a durable firm-wide rule the user stated and file it
       // as a PENDING request for admin approval. Never changes rules on its own.
       if (persist && !sessionMuted) firmRules.detectFromChat({ userId: req.session.userId, name, email: req.session.email, agentId, userText: message }).catch(function (e) { console.error('[FIRM-RULES] detect failed:', e.message); });

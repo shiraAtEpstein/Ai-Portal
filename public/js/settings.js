@@ -81,9 +81,12 @@ function openAdmin() {
 // ==============================================================
 //  MARKETING (admins only) - read-only dashboard
 // ==============================================================
-document.getElementById('marketing-open-btn').addEventListener('click', openMarketing);
-document.getElementById('marketing-close-btn').addEventListener('click', closeMarketing);
-document.getElementById('marketing-refresh-btn').addEventListener('click', loadMarketing);
+// Null-safe: these marketing controls may be absent from the DOM (e.g. the
+// Marketing button is commented out in index.html). Optional chaining keeps a
+// missing element from throwing and halting the rest of this boot script.
+document.getElementById('marketing-open-btn')?.addEventListener('click', openMarketing);
+document.getElementById('marketing-close-btn')?.addEventListener('click', closeMarketing);
+document.getElementById('marketing-refresh-btn')?.addEventListener('click', loadMarketing);
 
 function openMarketing() {
   document.getElementById('marketing-screen').style.display = 'block';

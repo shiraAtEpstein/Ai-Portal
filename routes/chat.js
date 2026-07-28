@@ -553,7 +553,12 @@ module.exports = function createChatRouter() {
     const caps = capabilitiesFor(roles);
     const toolAllow = toolAllowFromCaps(caps);
 
+    // Observability: capture what each framework layer contributed, for the
+    // one-line [LAYERS] trace emitted below. Log-only; nothing here changes the
+    // assembled prompt or the behavior.
+    const layerTrace = { firm: 0, profile: 0, profileNote: 'ok', mem: 0, facts: 0 };
     let system = nowPreamble() + await firmPreamble();
+    layerTrace.firm = system.length; // now-clock + Firm Core (Dropbox rules + pinned facts)
     // Layer 2 — inject the signed-in user's personal framework right after the
     // Firm Core, clearly subordinate to it. Empty for users with no framework
     // (pure Firm Core), so this can never break an existing user.
@@ -561,13 +566,16 @@ module.exports = function createChatRouter() {
       const uf = await userFramework.loadForEmail(req.session.email);
       const ufBlock = userFramework.render(uf, req.session.name);
       if (ufBlock) system += ufBlock + '\n\n';
-    } catch (e) { console.error('[USER-FW] inject failed:', e.message); }
+      layerTrace.profile = (uf && uf.text) ? uf.text.length : 0;
+      if (uf && uf.error) layerTrace.profileNote = uf.error;
+    } catch (e) { console.error('[USER-FW] inject failed:', e.message); layerTrace.profileNote = 'exception'; }
     // Layer 3 — learned preferences (staged→promoted memory). Firm Core and the
     // profile above still win; a direct instruction this turn wins over these.
     // Empty for users with no learned memory, and any failure is swallowed.
     try {
       const mem = await memory.loadForUser(req.session.userId, { name: req.session.name });
       if (mem && mem.text) system += mem.text + '\n\n';
+      layerTrace.mem = (mem && mem.items) ? mem.items.length : 0;
     } catch (e) { console.error('[MEMORY] inject failed:', e.message); }
     // Layer 3b — matter facts, WALLED to this agent only. Never loaded for the
     // general router or externally-publishing agents (see lib/memory exclusion).
@@ -575,6 +583,7 @@ module.exports = function createChatRouter() {
     try {
       const facts = await memory.loadFactsForAgent(req.session.userId, agentId);
       if (facts && facts.text) system += facts.text + '\n\n';
+      layerTrace.facts = (facts && facts.items) ? facts.items.length : 0;
     } catch (e) { console.error('[MEMORY] facts inject failed:', e.message); }
     if (sessionMuted) {
       system += 'SESSION NOTE: The user asked not to remember this conversation. Nothing said here '
@@ -622,6 +631,17 @@ module.exports = function createChatRouter() {
     console.log('[DIAG] req agent=' + agentId + ' roles=' + JSON.stringify(roles) + ' buildCap=' + caps.files.has('build') + ' tools=[' + tools.map((t) => t.name).join(',') + ']');
 
     const model = isGeneral ? DEFAULT_MODEL : ((agent.model && (MODEL_ALIASES[agent.model] || agent.model)) || DEFAULT_MODEL);
+    // One-line trace of every framework layer this answer passed through, so a
+    // whole request can be followed in the logs: firm rules, personal profile,
+    // learned prefs, walled matter facts, session-mute, tools, model. Log-only.
+    console.log('[LAYERS] ' + name + ' -> ' + agentId +
+      ' | now+firm=' + layerTrace.firm + 'ch' +
+      ' profile=' + (layerTrace.profileNote === 'ok' ? layerTrace.profile + 'ch' : layerTrace.profileNote) +
+      ' mem=' + layerTrace.mem + 'prefs' +
+      ' facts=' + layerTrace.facts + (layerTrace.facts ? '@' + agentId : '') +
+      ' muted=' + !!sessionMuted +
+      ' tools=[' + tools.map((t) => t.name).join(',') + ']' +
+      ' model=' + model);
     const promptText = buildPromptText(message, history);
 
     sseHead(res);

@@ -65,7 +65,10 @@ function showPortal(name, role) {
   // Manage Users and Activity Log now live in Settings (People & roles / Activity log).
   document.getElementById('admin-open-btn').style.display = 'none';
   document.getElementById('activity-open-btn').style.display = 'none';
-  document.getElementById('marketing-open-btn').style.display = isAdmin ? 'block' : 'none';
+  // Null-safe: the Marketing button may be absent from the DOM (commented out
+  // in index.html), so guard before touching its style.
+  const marketingBtn = document.getElementById('marketing-open-btn');
+  if (marketingBtn) marketingBtn.style.display = isAdmin ? 'block' : 'none';
 }
 
 // ══════════════════════════════════════════════════════════

@@ -627,7 +627,7 @@ module.exports = function createChatRouter() {
     }
 
     // File building is a role capability now (files: build), not an agent flag.
-    const buildCtx = { lastToolText: '', lastToolName: '' };
+    const buildCtx = { lastToolText: '', lastToolName: '', memorySaved: false };
     if (caps.files.has('build')) {
       tools.push(makeBuildDocumentTool(res, req.session, buildCtx));
       system += '\n\nFILE BUILDING (MANDATORY): When the user asks for a file, document, Word doc, Excel, spreadsheet, PDF, or presentation, you MUST call the build_document tool in THIS SAME turn. Never say you are building, creating, preparing, or generating a file — and never end your turn on a promise like "building it now" — without actually calling build_document in the same message. If you need data first, fetch it with your other tools, then call build_document before replying. If the file is based on data you fetched with a tool (e.g. a monday board), call build_document with use_last_data=true instead of copying the rows into `data`. Only after the tool returns and the download link is shown should you briefly confirm the file is ready.';
@@ -645,8 +645,11 @@ module.exports = function createChatRouter() {
         }, required: ['kind', 'text'] },
         run: async (args) => {
           if (sessionMuted) return JSON.stringify({ status: 'rejected', reason: 'muted' });
-          try { return JSON.stringify(await memory.rememberExplicit(req.session.userId, { kind: args.kind, text: args.text, agentId })); }
-          catch (e) { return JSON.stringify({ status: 'rejected', reason: 'error', detail: e.message }); }
+          try {
+            const r = await memory.rememberExplicit(req.session.userId, { kind: args.kind, text: args.text, agentId });
+            if (r && r.status === 'saved') buildCtx.memorySaved = true; // lets the guard verify the reply's claim
+            return JSON.stringify(r);
+          } catch (e) { return JSON.stringify({ status: 'rejected', reason: 'error', detail: e.message }); }
         },
       });
       tools.push({
@@ -700,6 +703,10 @@ module.exports = function createChatRouter() {
             operatorLanguage: frameworkGuard.detectLanguage(message),
             profile: { name: req.session.name },
             source: buildCtx.lastToolText || '',
+            // Say/do gap: only checked when the explicit memory tool is on. Passes
+            // whether a `remember` call actually saved this turn, so the guard can
+            // flag a reply that claims a save which never happened.
+            ...(MEMORY_TOOL_ON ? { memorySaved: buildCtx.memorySaved === true } : {}),
           });
           if (!guard.pass) {
             console.warn('[GUARD] ' + name + ' -> ' + agentId + ' | ' +

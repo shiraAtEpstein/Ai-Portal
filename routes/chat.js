@@ -33,6 +33,12 @@ const firmRules = require('../lib/firm-rules');
 // Clock for the model: pins the real current date/time (firm TZ) into the
 // system prompt so every agent anchors "today", date ranges and greetings to now.
 const { nowPreamble } = require('../lib/now');
+// Framework guard (SHADOW): the deterministic output gate from lib/framework-guard.
+// Inert unless FRAMEWORK_GUARD is set in the environment; when on it only LOGS
+// firm-rule violations after a reply is produced. It never alters or blocks a
+// reply (see the shadow block after runStreamingChat below). This is the
+// deliberate, reviewable wiring point PR #74 added the module for.
+const frameworkGuard = require('../lib/framework-guard');
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -378,11 +384,11 @@ async function firmPreamble() {
   } catch (e) {
     console.error('[FIRM] Dropbox house rules unavailable (' + FIRM_RULES_PATH + '): ' + e.message);
   }
-  // Fallback only if Dropbox is unreachable, so the portal never runs rule-less.
-  if (!rules) {
-    try { rules = String(await db.getFirmRules() || '').trim(); }
-    catch (e) { console.error('[CHAT] could not load fallback firm rules:', e.message); }
-  }
+  // No secondary copy. If Dropbox is unreachable we deliberately keep only the
+  // pinned firmCriticalFacts() above, rather than a hand-maintained DB duplicate
+  // that silently drifts from CLAUDE.md. Single source of truth for the full
+  // house rules is Dropbox (CLAUDE.md); the only DB-sourced rules are the §9
+  // approved-update deltas added below.
   if (rules) preamble += rules + '\n\n';
   // §9 — approved firm-rule updates from the DB take precedence over the file above.
   try {
@@ -625,6 +631,28 @@ module.exports = function createChatRouter() {
     try {
       const answer = await runStreamingChat(res, { model, system, tools }, promptText, message, buildCtx);
       console.log('[CHAT] ' + name + ' (' + (roles || []).join('/') + ') -> ' + agentId + (active ? ' [' + active.id + ']' : ''));
+      // Framework guard (SHADOW MODE): validate the finished answer against the
+      // firm rules and LOG any violation. Off unless FRAMEWORK_GUARD is set to a
+      // non-"off" value in the environment. Wrapped in try/catch and never alters
+      // or blocks the reply, so it cannot change or break an existing chat. Turn
+      // it on with FRAMEWORK_GUARD=log in Render, watch the logs, then decide on
+      // real enforcement (regenerate loop / gating gmail_draft bodies) later.
+      if (process.env.FRAMEWORK_GUARD && process.env.FRAMEWORK_GUARD !== 'off') {
+        try {
+          const guard = await frameworkGuard.validateOutput(answer, {
+            channel: 'chat',
+            expectedLanguage: 'match',
+            operatorLanguage: frameworkGuard.detectLanguage(message),
+            profile: { name: req.session.name },
+            source: buildCtx.lastToolText || '',
+          });
+          if (!guard.pass) {
+            console.warn('[GUARD] ' + name + ' -> ' + agentId + ' | ' +
+              guard.blocking.map(function (b) { return b.rule; }).join(', ') + '\n' +
+              frameworkGuard.formatReport(guard));
+          }
+        } catch (e) { console.error('[GUARD] check failed:', e.message); }
+      }
       if (persist && convId) await db.addMessage(convId, 'assistant', answer).catch(function (e) { console.error('[CHAT] save reply failed:', e.message); });
       // Layer 3 — learn from this exchange in the BACKGROUND. Fire-and-forget so
       // it never blocks or breaks the reply; it only stages/promotes preferences

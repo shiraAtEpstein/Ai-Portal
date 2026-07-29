@@ -39,7 +39,17 @@ const { pickDealByGroupName } = require('../ingest/match');
 const { pickDealByGroupNameAI } = require('../ingest/ai-match');
 const monday = require('../../lib/monday');
 
-const MAX_BACKOFF_MS = 30_000;
+// Reconnect policy. The old code capped backoff at 30s and then retried
+// FOREVER with no jitter — that produced 700+ perfectly-regular reconnects
+// against a dead/restricted session, which is exactly the pattern WhatsApp
+// flags as automated abuse. Now: back off up to 10 min, add jitter so the
+// retries aren't metronomic, and STOP after a bounded number of attempts —
+// handing off to the human-alert path (bootstrap emails on 'auth_required')
+// instead of hammering. Ordinary blips still recover within the first few
+// fast attempts; only a genuinely stuck session reaches the cap.
+const BASE_BACKOFF_MS = 2_000;
+const MAX_BACKOFF_MS = 600_000;          // 10 min ceiling (was 30s)
+const MAX_RECONNECT_ATTEMPTS = 15;       // ~1h of backed-off tries, then stop
 
 class BaileysGroupsProvider extends EventEmitter {
   constructor(accountId) {
@@ -67,6 +77,7 @@ class BaileysGroupsProvider extends EventEmitter {
 
   async connect() {
     this._stopped = false;
+    this.reconnectAttempt = 0; // fresh attempt budget on a manual (re)connect / reset
     this.authStore = await createAuthStore(this.accountId);
     await this._startSocket();
   }
@@ -160,14 +171,9 @@ class BaileysGroupsProvider extends EventEmitter {
       // whether WhatsApp is delivering messages to this device at all, and
       // with what type ('notify' = live, 'append' = history-style).
       console.log(`[whatsapp/ingest] upsert received: type=${up && up.type} count=${up && up.messages ? up.messages.length : 0}`);
-      // Diagnostic: dump the first message key so we can see exactly which
-      // address fields WhatsApp provides (remoteJid, participant, and any
-      // phone-number companions like senderPn/participantPn) for @lid senders.
-      // Remove this line once LID→phone resolution is confirmed.
-      try {
-        const k0 = up && up.messages && up.messages[0] && up.messages[0].key;
-        if (k0) console.log('[whatsapp/ingest] first message key:', JSON.stringify(k0));
-      } catch (_) {}
+      // (Removed the 'first message key' diagnostic that dumped raw message
+      // keys — those include client phone numbers, which must not be written
+      // to the logs. LID→phone resolution is confirmed working.)
       try { await this._ingest(up); } catch (e) {
         console.error('[whatsapp/ingest] upsert handler failed:', e.message);
       }
@@ -371,8 +377,26 @@ class BaileysGroupsProvider extends EventEmitter {
 
   _scheduleReconnect() {
     this.reconnectAttempt += 1;
-    const delayMs = Math.min(MAX_BACKOFF_MS, 1000 * 2 ** this.reconnectAttempt);
-    console.warn(`[whatsapp/groups] reconnecting in ${delayMs}ms (attempt ${this.reconnectAttempt})`);
+
+    // Endless reconnects against a logged-out / restricted / dead session are
+    // pointless and are the exact signal WhatsApp treats as abuse. After a
+    // bounded number of attempts, STOP auto-reconnecting and surface an
+    // 'auth_required' state — bootstrap emails the operator on that status, and
+    // a manual Reset or a redeploy (both start a fresh provider) resumes it.
+    if (this.reconnectAttempt > MAX_RECONNECT_ATTEMPTS) {
+      this._stopped = true;
+      console.error(`[whatsapp/groups] giving up after ${MAX_RECONNECT_ATTEMPTS} reconnect attempts — manual Reset / QR rescan needed`);
+      this._setStatus('auth_required', `Stopped auto-reconnecting after ${MAX_RECONNECT_ATTEMPTS} failed attempts — rescan the QR or Reset the connector to resume`)
+        .catch((e) => console.error('[whatsapp/groups] failed to persist give-up status:', e.message));
+      return;
+    }
+
+    // Exponential backoff with a 10-min ceiling, plus jitter (a random 50-100%
+    // of the computed delay) so repeated reconnects don't land on a perfectly
+    // regular clock — another automation tell.
+    const ceiling = Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * 2 ** this.reconnectAttempt);
+    const delayMs = Math.round(ceiling * (0.5 + Math.random() * 0.5));
+    console.warn(`[whatsapp/groups] reconnecting in ${delayMs}ms (attempt ${this.reconnectAttempt}/${MAX_RECONNECT_ATTEMPTS})`);
     setTimeout(() => {
       if (!this._stopped) this._startSocket().catch((e) => console.error('[whatsapp/groups] reconnect failed:', e.message));
     }, delayMs);

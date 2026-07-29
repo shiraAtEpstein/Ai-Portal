@@ -48,7 +48,7 @@
     b.id = 'mkt-open-btn';
     b.className = anchor.className;         // reuse the sidebar's .admin-btn styling
     b.textContent = '📣 Marketing';
-    b.style.display = 'block';              // we only reach here for admins
+    b.style.display = 'none';              // we only reach here for admins
     b.onclick = openOverlay;
     anchor.parentNode.insertBefore(b, anchor);
     return true;

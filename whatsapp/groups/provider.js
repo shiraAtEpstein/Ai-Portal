@@ -50,6 +50,8 @@ const monday = require('../../lib/monday');
 const BASE_BACKOFF_MS = 2_000;
 const MAX_BACKOFF_MS = 600_000;          // 10 min ceiling (was 30s)
 const MAX_RECONNECT_ATTEMPTS = 15;       // ~1h of backed-off tries, then stop
+const STABLE_MS = 60_000;                // stay connected this long before the
+                                         // backoff counter is forgiven (see 'open')
 
 class BaileysGroupsProvider extends EventEmitter {
   constructor(accountId) {
@@ -60,6 +62,9 @@ class BaileysGroupsProvider extends EventEmitter {
     this.status = 'disconnected';
     this.reconnectAttempt = 0;
     this._stopped = false;
+    this._connecting = false;     // guard: a socket start is in progress
+    this._reconnectTimer = null;  // pending reconnect setTimeout handle
+    this._stableTimer = null;     // fires once a connection has held STABLE_MS
 
     // Required by Baileys internally (retry/decrypt bookkeeping and the
     // device list per JID) — without these, processMessage() crashes on
@@ -84,12 +89,14 @@ class BaileysGroupsProvider extends EventEmitter {
 
   async disconnect() {
     this._stopped = true;
+    this._clearReconnectTimer();
+    this._clearStableTimer();
     try {
       await this.sock?.logout();
     } catch (e) {
       // Already disconnected — fine to ignore.
     }
-    this.sock = null;
+    this._teardownSocket();
     await this._setStatus('disconnected');
   }
 
@@ -104,7 +111,46 @@ class BaileysGroupsProvider extends EventEmitter {
     throw new Error('Media download not implemented yet — Phase 1 is text-only.');
   }
 
+  // Fully dispose the current socket before opening a new one. Without this,
+  // a reconnect left the previous socket alive, so two sockets briefly logged
+  // in with the SAME device credentials. WhatsApp allows only one connection
+  // per linked device, so it kicked one with a stream:error — which our close
+  // handler treated as another disconnect and reconnected again, opening yet
+  // another overlapping socket. That self-inflicted flapping loop (every ~2s,
+  // every group logged twice) ends with WhatsApp deregistering the device
+  // (stream:error 401). We detach OUR listeners first so the old socket's close
+  // can't re-enter the reconnect path, then end it.
+  _teardownSocket() {
+    const old = this.sock;
+    this.sock = null;
+    if (!old) return;
+    try { old.ev.removeAllListeners(); } catch (_) {}
+    try { old.end(undefined); } catch (_) {}
+  }
+
+  _clearReconnectTimer() {
+    if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
+  }
+
+  _clearStableTimer() {
+    if (this._stableTimer) { clearTimeout(this._stableTimer); this._stableTimer = null; }
+  }
+
+  // Guarded entry point: never runs two socket starts at once, and always
+  // disposes the previous socket before creating a new one.
   async _startSocket() {
+    if (this._connecting) return;
+    this._connecting = true;
+    this._clearReconnectTimer();
+    this._teardownSocket();
+    try {
+      await this._openSocket();
+    } finally {
+      this._connecting = false;
+    }
+  }
+
+  async _openSocket() {
     const { version } = await fetchLatestBaileysVersion();
 
     this.sock = makeWASocket({
@@ -353,13 +399,25 @@ class BaileysGroupsProvider extends EventEmitter {
     }
 
     if (connection === 'open') {
-      this.reconnectAttempt = 0;
+      // If the operator asked to disconnect while this socket was mid-connect
+      // (disconnect() ran during the fetch/await window before the socket
+      // existed), don't bring it to life — tear it down instead of leaving an
+      // orphaned, ingesting socket that was never logged out.
+      if (this._stopped) { this._teardownSocket(); return; }
       await this._setStatus('connected');
+      // Only forgive the backoff once the link has proven STABLE. Zeroing the
+      // attempt counter the instant we connect is what let a connect->drop flap
+      // loop at the 2s floor forever — every brief 'open' reset the counter. If
+      // we hold the connection for STABLE_MS, clear it; if we drop before then,
+      // the counter keeps climbing so the delay grows and the cap can trip.
+      this._clearStableTimer();
+      this._stableTimer = setTimeout(() => { this.reconnectAttempt = 0; }, STABLE_MS);
       await this._discoverGroups();
       return;
     }
 
     if (connection === 'close') {
+      this._clearStableTimer();
       if (this._stopped) return; // intentional disconnect, don't reconnect
 
       const statusCode = lastDisconnect?.error?.output?.statusCode;
@@ -376,6 +434,7 @@ class BaileysGroupsProvider extends EventEmitter {
   }
 
   _scheduleReconnect() {
+    if (this._reconnectTimer || this._connecting) return; // one reconnect at a time
     this.reconnectAttempt += 1;
 
     // Endless reconnects against a logged-out / restricted / dead session are
@@ -397,8 +456,18 @@ class BaileysGroupsProvider extends EventEmitter {
     const ceiling = Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * 2 ** this.reconnectAttempt);
     const delayMs = Math.round(ceiling * (0.5 + Math.random() * 0.5));
     console.warn(`[whatsapp/groups] reconnecting in ${delayMs}ms (attempt ${this.reconnectAttempt}/${MAX_RECONNECT_ATTEMPTS})`);
-    setTimeout(() => {
-      if (!this._stopped) this._startSocket().catch((e) => console.error('[whatsapp/groups] reconnect failed:', e.message));
+    this._reconnectTimer = setTimeout(() => {
+      this._reconnectTimer = null;
+      if (this._stopped) return;
+      this._startSocket().catch((e) => {
+        console.error('[whatsapp/groups] reconnect failed:', e.message);
+        // _openSocket threw before any socket was wired, so nothing will emit
+        // 'close' to drive the next retry — reschedule here so a transient
+        // start failure keeps backing off and eventually trips the attempt cap
+        // (→ auth_required + operator alert) instead of silently wedging in
+        // 'reconnecting' forever.
+        if (!this._stopped) this._scheduleReconnect();
+      });
     }, delayMs);
   }
 

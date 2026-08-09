@@ -34,7 +34,7 @@ const { SafeCache } = require('./safe-cache');
 const { createAuthStore } = require('./auth-store');
 const db = require('./db');
 const ingestDb = require('../ingest/db');
-const { senderFromMessage } = require('../ingest/phone');
+const { senderFromMessage, normalizePhone, jidUser, isLidJid } = require('../ingest/phone');
 const { pickDealByGroupName } = require('../ingest/match');
 const { pickDealByGroupNameAI } = require('../ingest/ai-match');
 const monday = require('../../lib/monday');
@@ -177,7 +177,7 @@ class BaileysGroupsProvider extends EventEmitter {
 
     this.sock.ev.on('groups.update', async (updates) => {
       for (const g of updates) {
-        if (g.id) await this._upsertGroup(g.id, g.subject, g.size);
+if (g.id) await this._upsertGroup(g.id, g.subject, g.size, this._phonesFrom(g.participants));
       }
     });
 
@@ -188,7 +188,14 @@ class BaileysGroupsProvider extends EventEmitter {
     // groupFetchAllParticipating() in _discoverGroups().
     this.sock.ev.on('groups.upsert', async (groups) => {
       for (const g of groups) {
-        if (g.id) await this._upsertGroup(g.id, g.subject, g.size ?? (g.participants ? g.participants.length : null));
+      if (g.id) {
+          await this._upsertGroup(
+            g.id,
+            g.subject,
+            g.size ?? (g.participants ? g.participants.length : null),
+            this._phonesFrom(g.participants)
+          );
+        }
       }
     });
 
@@ -200,14 +207,14 @@ class BaileysGroupsProvider extends EventEmitter {
     // an admin deleting the group for everyone surfaces the same way,
     // as every member (including us) being removed.
     this.sock.ev.on('group-participants.update', async ({ id, participants, action }) => {
-      if (action !== 'remove') return;
       const ownJid = this.sock?.user?.id || this.authStore?.auth?.creds?.me?.id;
-      if (!ownJid) return;
-      const wasRemoved = participants.some((jid) => areJidsSameUser(jid, ownJid));
-      if (wasRemoved) {
+      if (action === 'remove' && ownJid && participants.some((jid) => areJidsSameUser(jid, ownJid))) {
         await db.markGroupRemoved(this.accountId, id);
         console.log(`[whatsapp/groups] removed from group: ${id}`);
+        return;
       }
+      // Membership changed — re-pull the full member list and refresh phones.
+      await this._refreshGroupParticipants(id);
     });
 
   // Message ingestion (Phase 1): fresh messages -> pending processing_jobs.
@@ -485,7 +492,12 @@ class BaileysGroupsProvider extends EventEmitter {
       const seenJids = new Set();
       for (const jid of Object.keys(groups)) {
         const g = groups[jid];
-        await this._upsertGroup(jid, g.subject, g.participants ? g.participants.length : null);
+    await this._upsertGroup(
+          jid,
+          g.subject,
+          g.participants ? g.participants.length : null,
+          this._phonesFrom(g.participants)
+        );
         seenJids.add(jid);
       }
       await this._reconcileRemovedGroups(seenJids);
@@ -516,9 +528,50 @@ class BaileysGroupsProvider extends EventEmitter {
     }
   }
 
-  async _upsertGroup(jid, name, participantCount) {
-    const group = await db.upsertGroup(this.accountId, jid, name, participantCount);
+async _upsertGroup(jid, name, participantCount, participantPhones) {
+    const group = await db.upsertGroup(this.accountId, jid, name, participantCount, participantPhones);
     if (group) this.emit('group', group);
+  }
+
+  // Turn a Baileys participants array into the set of normalized (last-9-digit)
+  // phone numbers we can match against the staff directory (lib/routing.js).
+  // @lid-only participants with no companion phone are dropped; our own line is
+  // excluded. Returns null when there's no participants array so the DB keeps
+  // the previously-captured list instead of wiping it.
+  _phonesFrom(participants) {
+    if (!Array.isArray(participants)) return null;
+    const ownJid = this.sock?.user?.id || this.authStore?.auth?.creds?.me?.id || '';
+    const out = new Set();
+    for (const p of participants) {
+      const id = (p && (p.id || p.jid)) || '';
+      if (!id) continue;
+      if (ownJid && (areJidsSameUser(id, ownJid) || (p.jid && areJidsSameUser(p.jid, ownJid)))) continue;
+      let phoneSource = null;
+      if (!isLidJid(id)) {
+        phoneSource = id;
+      } else if (p.jid && !isLidJid(p.jid)) {
+        phoneSource = p.jid;
+      } else if (p.phoneNumber) {
+        phoneSource = String(p.phoneNumber);
+      }
+      if (!phoneSource) continue;
+      const phone9 = normalizePhone(jidUser(phoneSource));
+      if (phone9) out.add(phone9);
+    }
+    return Array.from(out);
+  }
+
+  // Re-pull one group's members and refresh its stored phones (best-effort).
+  async _refreshGroupParticipants(jid) {
+    if (!this.sock || !jid) return;
+    try {
+      const meta = await this.sock.groupMetadata(jid);
+      if (meta && Array.isArray(meta.participants)) {
+        await this._upsertGroup(jid, meta.subject, meta.participants.length, this._phonesFrom(meta.participants));
+      }
+    } catch (e) {
+      console.error(`[whatsapp/groups] participant refresh failed for ${jid}:`, e.message);
+    }
   }
 
   async _setStatus(status, detail) {

@@ -26,7 +26,9 @@ const createFirmRulesRouter = require('./routes/firm-rules');
 const createMarketingRouter = require('./routes/marketing');
 const createDailyRouter = require('./routes/daily');
 const createWhatsappGroupsRouter = require('./routes/whatsapp-groups');
+const createUnansweredRouter = require('./routes/unanswered');
 const whatsappGroups = require('./whatsapp/groups/bootstrap');
+const unansweredScheduler = require('./lib/scheduler');
 
 // Dropbox-backed agents: load framework .md files from the connected Dropbox
 // folder at boot and on a timer (roles stay in config/agents.json). Falls back
@@ -95,9 +97,9 @@ app.use(createFirmRulesRouter({ transporter }));
 app.use(createMarketingRouter());
 // 'Today' panel: per-user daily task completions (server-side persistence).
 app.use(createDailyRouter());
-// WhatsApp Groups (Baileys) — Phase 1, read-only. Admin status/QR endpoints.
 app.use(createWhatsappGroupsRouter());
-
+// Unanswered client chats — deterministic detection + digest (WhatsApp).
+app.use(createUnansweredRouter());
 // Health check — also reports whether the database is reachable.
 app.get('/healthz', async (req, res) => {
   let database = false;
@@ -133,7 +135,11 @@ refreshAgents('boot');
 whatsappGroups.start(transporter).catch((e) => {
   console.error('[whatsapp/groups] failed to start:', e.message);
 });
-
+// Daily unanswered-chat digest scheduler (Asia/Jerusalem). In-process; on a
+// sleeping host it fires when the instance is next awake (see lib/scheduler.js).
+try { unansweredScheduler.start(); } catch (e) {
+  console.error('[unanswered/scheduler] failed to start:', e.message);
+}
 if (dropbox.configured()) {
   const REFRESH_MS = parseInt(process.env.AGENTS_REFRESH_MS || '300000', 10); // 5 min
   setInterval(function () { refreshAgents('interval'); }, REFRESH_MS).unref();

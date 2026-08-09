@@ -551,7 +551,7 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
       participant_phones: Array.isArray(row.participant_phones) ? row.participant_phones : [],
       lastText,
     });
-  }
+  
   return out;
 }
 module.exports = {

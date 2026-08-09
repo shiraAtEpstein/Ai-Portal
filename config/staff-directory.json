@@ -1,0 +1,14 @@
+{
+  "_comment": "Staff phone directory for WhatsApp routing. Match key is phone9 — the last 9 digits, same normalization as normalizePhone() in whatsapp/ingest/phone.js (strips 972 / leading zeros). 'inAllGroups: true' marks the partner who is a participant of every group (Yaakov Epstein) and must be ignored when picking the responsible staff member. 'defaultOwner' names the admin who receives anything that can't be routed.",
+  "defaultOwnerEmail": "shira@epsteinlaw.co.il",
+  "staff": [
+    { "name": "Yaakov Epstein", "phone9": "546422750", "email": "y@epsteinlaw.co.il", "inAllGroups": true },
+    { "name": "Yaakov Hershkovitz", "phone9": "559195392", "email": "yh@epsteinlaw.co.il" },
+    { "name": "Yehudit Roshnivsky", "phone9": "552723770", "email": "yehudit@epsteinlaw.co.il" },
+    { "name": "Shina Kovan", "phone9": "552895400", "email": "skovan@epsteinlaw.co.il" },
+    { "name": "Shira Lipner", "phone9": "559368440", "email": "shira@epsteinlaw.co.il" },
+    { "name": "Talia Kornblut", "phone9": "559713617", "email": "tk@epsteinlaw.co.il" },
+    { "name": "Oren Cohen", "phone9": "559602260", "email": "oren@epsteinlaw.co.il" },
+    { "name": "Elisheva Feder", "phone9": "559946543", "email": "eli7@epsteinlaw.co.il" }
+  ]
+}

@@ -5,7 +5,7 @@
 // ============================================================
 const { getPool } = require('../../db');
 const enc = require('../../lib/crypto');
-
+const { textPreview } = require('./phone');
 let ensured = false;
 async function ensureTables() {
   if (ensured) return;

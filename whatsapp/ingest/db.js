@@ -458,44 +458,77 @@ async function stats({ recentLimit = 10 } = {}) {
 // older than N hours. Runs over the plaintext columns of processing_jobs; the
 // encrypted body of the ONE last-inbound message is decrypted only to return
 // its text — the "needs a reply?" call is made by AI in the digest builder.
-async function listUnansweredChats({ hours = 3 } = {}) {
+async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
   await ensureTables();
   const p = getPool();
   if (!p) return [];
   const h = Math.min(Math.max(Number(hours) || 3, 0), 24 * 30); // clamp 0..30d
+  const staff = Array.isArray(staffPhones) ? staffPhones.filter(Boolean) : [];
+  // "Firm side" = the LAWLY bot line (direction='out') OR any staff member
+  // writing from their own phone (sender_phone in the staff directory). A chat
+  // is unanswered only when the LAST message is from someone who is NEITHER —
+  // i.e. an actual client — and no firm-side message came after it.
   const r = await p.query(
-    `WITH last_in AS (
+    `WITH staff AS (SELECT unnest($2::text[]) AS phone9),
+     client_in AS (
        SELECT DISTINCT ON (chat_jid)
               chat_jid, id, created_at, payload_encrypted, contact_id, is_group
        FROM processing_jobs
        WHERE source = 'whatsapp' AND direction = 'in' AND chat_jid IS NOT NULL
+         AND (sender_phone IS NULL OR sender_phone NOT IN (SELECT phone9 FROM staff))
        ORDER BY chat_jid, created_at DESC
      ),
-     last_out AS (
-       SELECT chat_jid, MAX(created_at) AS last_outbound_at
+     firm_activity AS (
+       SELECT chat_jid, MAX(created_at) AS last_firm_at
        FROM processing_jobs
-       WHERE source = 'whatsapp' AND direction = 'out' AND chat_jid IS NOT NULL
+       WHERE source = 'whatsapp' AND chat_jid IS NOT NULL
+         AND (direction = 'out' OR sender_phone IN (SELECT phone9 FROM staff))
        GROUP BY chat_jid
      )
-     SELECT li.chat_jid,
-            li.created_at AS last_inbound_at,
-            li.payload_encrypted,
-            li.is_group,
-            lo.last_outbound_at,
-            ROUND(EXTRACT(EPOCH FROM (now() - li.created_at)) / 3600.0, 1) AS hours_waiting,
+     SELECT ci.chat_jid,
+            ci.created_at AS last_inbound_at,
+            ci.payload_encrypted,
+            ci.is_group,
+            fa.last_firm_at AS last_outbound_at,
+            ROUND(EXTRACT(EPOCH FROM (now() - ci.created_at)) / 3600.0, 1) AS hours_waiting,
             g.name AS group_name,
             g.participant_phones,
             c.monday_client_name,
             c.display_name
-     FROM last_in li
-     LEFT JOIN last_out lo ON lo.chat_jid = li.chat_jid
-     LEFT JOIN whatsapp_groups g ON g.provider_group_jid = li.chat_jid AND g.removed_at IS NULL
-     LEFT JOIN wa_contacts c ON c.id = li.contact_id
-     WHERE (lo.last_outbound_at IS NULL OR lo.last_outbound_at < li.created_at)
-       AND li.created_at < now() - make_interval(hours => $1::int)
-     ORDER BY li.created_at ASC`,
-    [h]
+     FROM client_in ci
+     LEFT JOIN firm_activity fa ON fa.chat_jid = ci.chat_jid
+     LEFT JOIN whatsapp_groups g ON g.provider_group_jid = ci.chat_jid AND g.removed_at IS NULL
+     LEFT JOIN wa_contacts c ON c.id = ci.contact_id
+     WHERE (fa.last_firm_at IS NULL OR fa.last_firm_at < ci.created_at)
+       AND ci.created_at < now() - make_interval(hours => $1::int)
+     ORDER BY ci.created_at ASC`,
+    [h, staff]
   );
+
+  const out = [];
+  for (const row of r.rows) {
+    let lastText = '';
+    try {
+      const json = enc.decrypt(row.payload_encrypted || '');
+      const msg = json ? JSON.parse(json) : null;
+      lastText = textPreview(msg && msg.message) || '';
+    } catch (_) {
+      lastText = '';
+    }
+    out.push({
+      chat_jid: row.chat_jid,
+      isGroup: row.is_group,
+      groupName: row.group_name || null,
+      label: row.group_name || row.monday_client_name || row.display_name || row.chat_jid,
+      clientName: row.monday_client_name || row.display_name || null,
+      hoursWaiting: row.hours_waiting != null ? Number(row.hours_waiting) : null,
+      lastInboundAt: row.last_inbound_at,
+      participant_phones: Array.isArray(row.participant_phones) ? row.participant_phones : [],
+      lastText,
+    });
+  }
+  return out;
+}
 
   const out = [];
   for (const row of r.rows) {

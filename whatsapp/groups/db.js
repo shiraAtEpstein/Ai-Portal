@@ -56,6 +56,9 @@ async function ensureTables() {
   // cached here so we don't re-resolve on every message. deals.id lives in
   // whatsapp/ingest/db.js; nullable until resolved (or if it can't be).
   await p.query(`ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS deal_id UUID;`);
+  // Routing: normalized (last-9-digit) phones of the group's participants, so an
+  // unanswered chat can be routed to the staff member who is in the group.
+  await p.query(`ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS participant_phones TEXT[];`);
   // Connection gap log: one row per offline window (went_down_at .. came_back_at).
   // WhatsApp only redelivers messages missed during SHORT gaps; a long outage
   // may drop some for good. This table is the audit trail so a human can see
@@ -193,19 +196,21 @@ async function getAccountStatus(accountId) {
   return r.rows[0] || null;
 }
 
-// --- groups -----------------------------------------------------------
-
-async function upsertGroup(accountId, providerGroupJid, name, participantCount) {
+async function upsertGroup(accountId, providerGroupJid, name, participantCount, participantPhones) {
   await ensureTables();
   const p = getPool();
   if (!p) return null;
+  const phones = Array.isArray(participantPhones) ? participantPhones : null;
   const r = await p.query(
-    `INSERT INTO whatsapp_groups (account_id, provider_group_jid, name, participant_count)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO whatsapp_groups (account_id, provider_group_jid, name, participant_count, participant_phones)
+     VALUES ($1, $2, $3, $4, $5)
      ON CONFLICT (account_id, provider_group_jid)
-     DO UPDATE SET name = EXCLUDED.name, participant_count = EXCLUDED.participant_count, removed_at = NULL
+     DO UPDATE SET name = EXCLUDED.name,
+                   participant_count = EXCLUDED.participant_count,
+                   participant_phones = COALESCE(EXCLUDED.participant_phones, whatsapp_groups.participant_phones),
+                   removed_at = NULL
      RETURNING *`,
-    [accountId, providerGroupJid, name || providerGroupJid, participantCount || null]
+    [accountId, providerGroupJid, name || providerGroupJid, participantCount || null, phones]
   );
   return r.rows[0];
 }

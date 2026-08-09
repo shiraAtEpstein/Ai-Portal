@@ -12,16 +12,12 @@ const db = require('../db');
 const { authenticate, requireAdmin } = require('../lib/sessions');
 const { agentsConfig } = require('../lib/access');
 const agentRegistry = require('../lib/agents'); // Dropbox agent refresh
+const { sendFirmEmail } = require('../lib/firm-mailer'); // shared Gmail-API sender
 
 const ALLOWED_DOMAIN = (process.env.GOOGLE_ALLOWED_DOMAIN || 'epsteinlaw.co.il').toLowerCase();
 const BASE_URL = (process.env.PUBLIC_BASE_URL || 'https://ai-portal-wf42.onrender.com').replace(/\/+$/, '');
 const INVITE_FROM = process.env.EMAIL_FROM || 'Epstein & Co. Portal <noreply@epsteinlaw.co.il>';
 const LOGO_URL = BASE_URL + '/logo.png.jpg';
-
-// Gmail (OAuth) credentials — set these in Render.
-const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID || '';
-const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET || '';
-const GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN || '';
 
 // The role names an admin is allowed to assign (the keys of agents.json > roles).
 function assignableRoles() {
@@ -49,65 +45,15 @@ function inviteEmailHtml({ inviterName, roleLabel, link, email }) {
   '</table></div>';
 }
 
-// Exchange the long-lived refresh token for a short-lived access token.
-async function gmailAccessToken(signal) {
-  const body = new URLSearchParams({
-    client_id: GMAIL_CLIENT_ID,
-    client_secret: GMAIL_CLIENT_SECRET,
-    refresh_token: GMAIL_REFRESH_TOKEN,
-    grant_type: 'refresh_token',
-  });
-  const resp = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body.toString(),
-    signal,
-  });
-  const j = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error('auth: ' + (j.error_description || j.error || ('HTTP ' + resp.status)));
-  return j.access_token;
+// Send the invite email through the Gmail API (shared lib/firm-mailer). Behavior
+// is identical to the previous inline sender — same From, same 12s timeout,
+// same {sent, reason} contract — it just lives in one place now.
+async function sendInvite({ to, inviterName, roleLabel, link }) {
+  const subject = '[Action required] ' + inviterName + ' invited you to the Epstein & Co. AI Portal';
+  const html = inviteEmailHtml({ inviterName: esc(inviterName), roleLabel: esc(roleLabel), link: esc(link), email: esc(to) });
+  return sendFirmEmail({ to, subject, html, from: INVITE_FROM });
 }
 
-// Send the invite email through the Gmail API. Times out after 12s.
-async function sendInvite({ to, inviterName, roleLabel, link }) {
-  if (!GMAIL_CLIENT_ID || !GMAIL_REFRESH_TOKEN) return { sent: false, reason: 'email not configured' };
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12000);
-  try {
-    const accessToken = await gmailAccessToken(controller.signal);
-    const subject = '[Action required] ' + inviterName + ' invited you to the Epstein & Co. AI Portal';
-    const html = inviteEmailHtml({ inviterName: esc(inviterName), roleLabel: esc(roleLabel), link: esc(link), email: esc(to) });
-    const bodyB64 = Buffer.from(html, 'utf8').toString('base64');
-    const mime =
-      'From: ' + INVITE_FROM + '\r\n' +
-      'To: ' + to + '\r\n' +
-      'Subject: ' + subject + '\r\n' +
-      'MIME-Version: 1.0\r\n' +
-      'Content-Type: text/html; charset="UTF-8"\r\n' +
-      'Content-Transfer-Encoding: base64\r\n\r\n' +
-      bodyB64;
-    const raw = Buffer.from(mime, 'utf8').toString('base64url');
-    const resp = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ raw }),
-      signal: controller.signal,
-    });
-    if (!resp.ok) {
-      let detail = 'HTTP ' + resp.status;
-      try { const j = await resp.json(); detail = (j.error && j.error.message) || detail; } catch (_) { /* keep status */ }
-      console.error('[MAIL] invite send failed:', detail);
-      return { sent: false, reason: detail };
-    }
-    return { sent: true };
-  } catch (e) {
-    const reason = (e && e.name === 'AbortError') ? 'timed out reaching Google' : (e && e.message) || 'unknown error';
-    console.error('[MAIL] invite send failed:', reason);
-    return { sent: false, reason };
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 module.exports = function createAdminRouter({ loadUsers }) {
   const router = express.Router();

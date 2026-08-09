@@ -6,6 +6,7 @@
 const { getPool } = require('../../db');
 const enc = require('../../lib/crypto');
 const { textPreview } = require('./phone');
+
 let ensured = false;
 async function ensureTables() {
   if (ensured) return;
@@ -453,11 +454,13 @@ async function stats({ recentLimit = 10 } = {}) {
     recentContacts: recent.rows,
   };
 }
+
 // --- Unanswered-chat detection (deterministic query; AI decides needs-reply) --
-// Per chat: last message is inbound (client) with no outbound (firm) after it,
-// older than N hours. Runs over the plaintext columns of processing_jobs; the
-// encrypted body of the ONE last-inbound message is decrypted only to return
-// its text — the "needs a reply?" call is made by AI in the digest builder.
+// Per chat: last message is from a CLIENT (inbound, and not a staff phone) with
+// no firm-side message (LAWLY bot OR a staff phone) after it, older than N hours.
+// Runs over the plaintext columns of processing_jobs; the encrypted body of the
+// ONE last-inbound message is decrypted only to return its text — the "needs a
+// reply?" call is made by AI in the digest builder.
 async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
   await ensureTables();
   const p = getPool();
@@ -507,6 +510,9 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
 
   const out = [];
   for (const row of r.rows) {
+    // Decrypt just this one last-inbound message to return its text (for the AI
+    // needs-reply check in the digest builder). Never logged. On any
+    // decrypt/parse failure, keep the chat with an empty preview.
     let lastText = '';
     try {
       const json = enc.decrypt(row.payload_encrypted || '');
@@ -515,6 +521,7 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
     } catch (_) {
       lastText = '';
     }
+
     out.push({
       chat_jid: row.chat_jid,
       isGroup: row.is_group,
@@ -524,36 +531,12 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
       hoursWaiting: row.hours_waiting != null ? Number(row.hours_waiting) : null,
       lastInboundAt: row.last_inbound_at,
       participant_phones: Array.isArray(row.participant_phones) ? row.participant_phones : [],
-      lastText,
+      lastText, // for the AI needs-reply check / debugging only
     });
   }
   return out;
 }
 
-  const out = [];
-  for (const row of r.rows) {
-    let lastText = '';
-    try {
-      const json = enc.decrypt(row.payload_encrypted || '');
-      const msg = json ? JSON.parse(json) : null;
-      lastText = textPreview(msg && msg.message) || '';
-    } catch (_) {
-      lastText = '';
-    }
-    out.push({
-      chat_jid: row.chat_jid,
-      isGroup: row.is_group,
-      groupName: row.group_name || null,
-      label: row.group_name || row.monday_client_name || row.display_name || row.chat_jid,
-      clientName: row.monday_client_name || row.display_name || null,
-      hoursWaiting: row.hours_waiting != null ? Number(row.hours_waiting) : null,
-      lastInboundAt: row.last_inbound_at,
-      participant_phones: Array.isArray(row.participant_phones) ? row.participant_phones : [],
-      lastText,
-    });
-  
-  return out;
-}
 module.exports = {
   ensureTables,
   upsertContact,

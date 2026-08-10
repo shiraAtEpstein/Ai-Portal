@@ -611,11 +611,15 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
       lastInboundAt: row.last_client_at,
       firstUnansweredAt: row.first_unanswered_at,
       unansweredCount: msgCount,
+      lastClientPhone: row.last_client_phone || null, // last-9 digits, for a wa.me link
       participant_phones: Array.isArray(row.participant_phones) ? row.participant_phones : [],
       blockText,                          // WHOLE unanswered block -> AI needs-reply check
       lastText,                           // last line only (debugging)
     });
   }
+  // Sort OLDEST-waiting first (longest hoursWaiting at the top) — most urgent
+  // first, matching how the digest should read.
+  out.sort((a, b) => (b.hoursWaiting || 0) - (a.hoursWaiting || 0));
   console.log(`[unanswered/why] ${out.length} chat(s) TAKEN out of ${r.rows.length} chat(s) with a client message`);
   return out;
 }

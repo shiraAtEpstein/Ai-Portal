@@ -45,8 +45,10 @@ module.exports = function createUnansweredRouter() {
   // Manual trigger: build + send the digests right now.
   router.post('/api/admin/unanswered/send-digest', authenticate, requireAdmin, async (req, res) => {
     try {
-      const hours = hoursFrom(req);
-      const result = await sendDigests({ hours });
+     const hours = hoursFrom(req);
+      // ?to=someone@epsteinlaw.co.il -> TEST MODE: send only there (no staff).
+      const testEmail = (req.query && req.query.to) || (req.body && req.body.to) || null;
+      const result = await sendDigests({ hours, testEmail });
       res.json({ ok: true, ...result });
     } catch (e) {
       res.status(500).json({ error: 'Failed to send digests.', detail: e.message });

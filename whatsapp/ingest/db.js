@@ -455,21 +455,51 @@ async function stats({ recentLimit = 10 } = {}) {
   };
 }
 
-// --- Unanswered-chat detection (deterministic query; AI decides needs-reply) --
-// Per chat: last message is from a CLIENT (inbound, and not a staff phone) with
-// no firm-side message (LAWLY bot OR a staff phone) after it, older than N hours.
-// Runs over the plaintext columns of processing_jobs; the encrypted body of the
-// ONE last-inbound message is decrypted only to return its text — the "needs a
-// reply?" call is made by AI in the digest builder.
+// --- Unanswered-chat detection (deterministic; no processor / Dropbox / AI) --
+//
+// A chat is "unanswered" when the client has written one or more messages that
+// the firm has NOT replied to yet. We look at the whole UNANSWERED BLOCK — every
+// client message that came AFTER the firm's last reply (all of them if the firm
+// never replied) — rather than only the single last message. This matters for
+// two reasons Shira asked for:
+//
+//   1. Waiting time = the LONGEST-waiting message. If a client asked something
+//      5h ago and then sent "תודה" 10m ago, they've still been waiting 5h — so
+//      hoursWaiting is measured from the OLDEST unanswered message in the block,
+//      not the last one.
+//   2. "Question then thanks". The AI needs-reply check sees the WHOLE block
+//      (question + thanks), so a real question isn't hidden just because the
+//      most recent line happens to be an acknowledgement.
+//
+// Runs over the plaintext columns of processing_jobs (chat_jid, direction,
+// created_at). The encrypted body is touched only for the unanswered block's
+// messages (capped), to build the text handed to the needs-reply check. Chat
+// labels come from whatsapp_groups; client name from wa_contacts.
+//
+// NOTE on time: created_at is INGEST time, not the WhatsApp send-time (which is
+// only inside the encrypted payload). For live traffic these are ~equal; a
+// message redelivered after a reconnect gap ('append') can carry a later
+// created_at, which would only delay a flag, never invent one.
 async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
   await ensureTables();
   const p = getPool();
   if (!p) return [];
- // NOTE: use Number.isFinite, NOT `Number(hours) || 3` — the latter turns a
+  // NOTE: use Number.isFinite, NOT `Number(hours) || 3` — the latter turns a
   // legitimate 0 (falsy!) into 3, which silently ignored ?hours=0.
   const hn = Number(hours);
   const h = Math.min(Math.max(Number.isFinite(hn) ? hn : 3, 0), 24 * 30); // clamp 0..30d; 0 is kept
   const staff = Array.isArray(staffPhones) ? staffPhones.filter(Boolean) : [];
+
+  // VERBOSE DIAGNOSTIC MODE:
+  // Pull EVERY chat that has at least one client message, together with (a) when
+  // the client last wrote, (b) when the firm last wrote (LAWLY 'out' OR any staff
+  // phone), and (c) the whole UNANSWERED BLOCK — all client messages after the
+  // firm's last reply, with the oldest one's timestamp driving the wait time.
+  // Then we classify and LOG each chat with the reason it was kept or dropped —
+  // so it's always visible in the logs "why it took these, and from where".
+  // "Firm side" = direction='out' OR sender_phone in the staff directory. A chat
+  // is unanswered only when there is at least one client message the firm hasn't
+  // replied to, and the oldest such message is older than N hours.
   console.log(`[unanswered/staff] scan using ${staff.length} staff phone(s): ${staff.join(', ') || '(none)'}`);
 
   const r = await p.query(
@@ -487,29 +517,48 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
        WHERE source = 'whatsapp' AND chat_jid IS NOT NULL
        GROUP BY chat_jid
      ),
-     last_client_msg AS (
-       SELECT DISTINCT ON (chat_jid)
-              chat_jid, created_at, payload_encrypted, contact_id, is_group, sender_phone
-       FROM processing_jobs
-       WHERE source = 'whatsapp' AND direction = 'in' AND chat_jid IS NOT NULL
-         AND (sender_phone IS NULL OR sender_phone NOT IN (SELECT phone9 FROM staff))
-       ORDER BY chat_jid, created_at DESC
+     -- Every client message the firm has NOT replied to (after last_firm_at, or
+     -- all of them if the firm never replied). This is the "unanswered block".
+     block AS (
+       SELECT pj.chat_jid, pj.created_at, pj.payload_encrypted, pj.contact_id,
+              pj.is_group, pj.sender_phone
+       FROM processing_jobs pj
+       JOIN per_chat pc ON pc.chat_jid = pj.chat_jid
+       WHERE pj.source = 'whatsapp' AND pj.direction = 'in' AND pj.chat_jid IS NOT NULL
+         AND (pj.sender_phone IS NULL OR pj.sender_phone NOT IN (SELECT phone9 FROM staff))
+         AND (pc.last_firm_at IS NULL OR pj.created_at > pc.last_firm_at)
+     ),
+     block_agg AS (
+       SELECT chat_jid,
+              MIN(created_at) AS first_unanswered_at,   -- oldest waiting message
+              MAX(created_at) AS last_unanswered_at,
+              COUNT(*)        AS msg_count,
+              bool_or(is_group) AS is_group,
+              -- oldest-first, capped, so the block reads in order for the AI
+              (array_agg(payload_encrypted ORDER BY created_at ASC))[1:25] AS payloads,
+              (array_agg(sender_phone ORDER BY created_at DESC))[1] AS last_client_phone,
+              (array_agg(contact_id ORDER BY created_at DESC) FILTER (WHERE contact_id IS NOT NULL))[1] AS contact_id
+       FROM block
+       GROUP BY chat_jid
      )
      SELECT pc.chat_jid,
             pc.last_client_at,
             pc.last_firm_at,
-            lcm.payload_encrypted,
-            lcm.is_group,
-            lcm.sender_phone AS last_client_phone,
-            ROUND(EXTRACT(EPOCH FROM (now() - pc.last_client_at)) / 3600.0, 1) AS hours_waiting,
+            ba.first_unanswered_at,
+            ba.last_unanswered_at,
+            ba.msg_count,
+            ba.payloads,
+            ba.is_group,
+            ba.last_client_phone,
+            ROUND(EXTRACT(EPOCH FROM (now() - ba.first_unanswered_at)) / 3600.0, 1) AS hours_waiting,
             g.name AS group_name,
             g.participant_phones,
             c.monday_client_name,
             c.display_name
      FROM per_chat pc
-     JOIN last_client_msg lcm ON lcm.chat_jid = pc.chat_jid
+     LEFT JOIN block_agg ba ON ba.chat_jid = pc.chat_jid
      LEFT JOIN whatsapp_groups g ON g.provider_group_jid = pc.chat_jid AND g.removed_at IS NULL
-     LEFT JOIN wa_contacts c ON c.id = lcm.contact_id
+     LEFT JOIN wa_contacts c ON c.id = ba.contact_id
      WHERE pc.last_client_at IS NOT NULL
      ORDER BY pc.last_client_at DESC`,
     [staff]
@@ -518,26 +567,39 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
   const out = [];
   for (const row of r.rows) {
     const label = row.group_name || row.monday_client_name || row.display_name || row.chat_jid;
-    const waited = row.hours_waiting != null ? Number(row.hours_waiting) : null;
-    const firmAfter = row.last_firm_at && row.last_client_at && new Date(row.last_firm_at) >= new Date(row.last_client_at);
+    // No unanswered block => the firm's last message came after every client
+    // message (or there are none) => nothing awaiting a reply.
+    const hasBlock = row.first_unanswered_at != null;
+    // Wait time is measured from the OLDEST unanswered message in the block.
+    const waited = hasBlock && row.hours_waiting != null ? Number(row.hours_waiting) : null;
     const tooRecent = waited != null && waited < h;
+    const msgCount = row.msg_count != null ? Number(row.msg_count) : 0;
 
+    // Classify + LOG the reason for every chat that has a client message.
     let decision;
-    if (firmAfter) decision = `SKIP (firm replied after — firm last wrote ${row.last_firm_at})`;
-    else if (tooRecent) decision = `SKIP (too recent — waited ${waited}h < threshold ${h}h)`;
-    else decision = 'TAKE (client wrote last, no firm reply, past threshold)';
-    console.log(`[unanswered/why] "${label}" | lastClient=${row.last_client_at} (${row.last_client_phone || 'lid/unknown'}) | lastFirm=${row.last_firm_at || 'never'} | waited=${waited}h -> ${decision}`);
+    if (!hasBlock) decision = `SKIP (firm replied after — firm last wrote ${row.last_firm_at || 'n/a'})`;
+    else if (tooRecent) decision = `SKIP (too recent — oldest unanswered waited ${waited}h < threshold ${h}h)`;
+    else decision = `TAKE (${msgCount} unanswered client msg(s), oldest waited ${waited}h, no firm reply after)`;
+    console.log(`[unanswered/why] "${label}" | oldestUnanswered=${row.first_unanswered_at || 'none'} (${row.last_client_phone || 'lid/unknown'}) | lastClient=${row.last_client_at} | lastFirm=${row.last_firm_at || 'never'} | block=${msgCount} | waited=${waited}h -> ${decision}`);
 
-    if (firmAfter || tooRecent) continue;
+    if (!hasBlock || tooRecent) continue;
 
-    let lastText = '';
-    try {
-      const json = enc.decrypt(row.payload_encrypted || '');
-      const msg = json ? JSON.parse(json) : null;
-      lastText = textPreview(msg && msg.message) || '';
-    } catch (_) {
-      lastText = '';
+    // Decrypt the block's messages (oldest first) so the AI needs-reply step can
+    // read the WHOLE conversation since the last firm reply — not just the last
+    // line. Never logged. On failure, that message contributes empty text.
+    const payloads = Array.isArray(row.payloads) ? row.payloads : [];
+    const parts = [];
+    for (const pe of payloads) {
+      try {
+        const json = enc.decrypt(pe || '');
+        const msg = json ? JSON.parse(json) : null;
+        const t = textPreview(msg && msg.message) || '';
+        if (t) parts.push(t);
+      } catch (_) { /* skip this message's text */ }
     }
+    const blockText = parts.join('\n');
+    // Keep lastText as the most recent line too (debugging / back-compat).
+    const lastText = parts.length ? parts[parts.length - 1] : '';
 
     out.push({
       chat_jid: row.chat_jid,
@@ -545,15 +607,19 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
       groupName: row.group_name || null,
       label,
       clientName: row.monday_client_name || row.display_name || null,
-      hoursWaiting: waited,
+      hoursWaiting: waited,               // measured from the OLDEST unanswered msg
       lastInboundAt: row.last_client_at,
+      firstUnansweredAt: row.first_unanswered_at,
+      unansweredCount: msgCount,
       participant_phones: Array.isArray(row.participant_phones) ? row.participant_phones : [],
-      lastText,
+      blockText,                          // WHOLE unanswered block -> AI needs-reply check
+      lastText,                           // last line only (debugging)
     });
   }
   console.log(`[unanswered/why] ${out.length} chat(s) TAKEN out of ${r.rows.length} chat(s) with a client message`);
   return out;
 }
+
 module.exports = {
   ensureTables,
   upsertContact,

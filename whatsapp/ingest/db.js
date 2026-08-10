@@ -467,52 +467,67 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
   if (!p) return [];
   const h = Math.min(Math.max(Number(hours) || 3, 0), 24 * 30); // clamp 0..30d
   const staff = Array.isArray(staffPhones) ? staffPhones.filter(Boolean) : [];
-  // "Firm side" = the LAWLY bot line (direction='out') OR any staff member
-  // writing from their own phone (sender_phone in the staff directory). A chat
-  // is unanswered only when the LAST message is from someone who is NEITHER —
-  // i.e. an actual client — and no firm-side message came after it.
+
+  console.log(`[unanswered/staff] scan using ${staff.length} staff phone(s): ${staff.join(', ') || '(none)'}`);
+
   const r = await p.query(
-    `WITH staff AS (SELECT unnest($2::text[]) AS phone9),
-     client_in AS (
+    `WITH staff AS (SELECT unnest($1::text[]) AS phone9),
+     per_chat AS (
+       SELECT chat_jid,
+              MAX(created_at) FILTER (
+                WHERE direction = 'in'
+                  AND (sender_phone IS NULL OR sender_phone NOT IN (SELECT phone9 FROM staff))
+              ) AS last_client_at,
+              MAX(created_at) FILTER (
+                WHERE direction = 'out' OR sender_phone IN (SELECT phone9 FROM staff)
+              ) AS last_firm_at
+       FROM processing_jobs
+       WHERE source = 'whatsapp' AND chat_jid IS NOT NULL
+       GROUP BY chat_jid
+     ),
+     last_client_msg AS (
        SELECT DISTINCT ON (chat_jid)
-              chat_jid, id, created_at, payload_encrypted, contact_id, is_group
+              chat_jid, created_at, payload_encrypted, contact_id, is_group, sender_phone
        FROM processing_jobs
        WHERE source = 'whatsapp' AND direction = 'in' AND chat_jid IS NOT NULL
          AND (sender_phone IS NULL OR sender_phone NOT IN (SELECT phone9 FROM staff))
        ORDER BY chat_jid, created_at DESC
-     ),
-     firm_activity AS (
-       SELECT chat_jid, MAX(created_at) AS last_firm_at
-       FROM processing_jobs
-       WHERE source = 'whatsapp' AND chat_jid IS NOT NULL
-         AND (direction = 'out' OR sender_phone IN (SELECT phone9 FROM staff))
-       GROUP BY chat_jid
      )
-     SELECT ci.chat_jid,
-            ci.created_at AS last_inbound_at,
-            ci.payload_encrypted,
-            ci.is_group,
-            fa.last_firm_at AS last_outbound_at,
-            ROUND(EXTRACT(EPOCH FROM (now() - ci.created_at)) / 3600.0, 1) AS hours_waiting,
+     SELECT pc.chat_jid,
+            pc.last_client_at,
+            pc.last_firm_at,
+            lcm.payload_encrypted,
+            lcm.is_group,
+            lcm.sender_phone AS last_client_phone,
+            ROUND(EXTRACT(EPOCH FROM (now() - pc.last_client_at)) / 3600.0, 1) AS hours_waiting,
             g.name AS group_name,
             g.participant_phones,
             c.monday_client_name,
             c.display_name
-     FROM client_in ci
-     LEFT JOIN firm_activity fa ON fa.chat_jid = ci.chat_jid
-     LEFT JOIN whatsapp_groups g ON g.provider_group_jid = ci.chat_jid AND g.removed_at IS NULL
-     LEFT JOIN wa_contacts c ON c.id = ci.contact_id
-     WHERE (fa.last_firm_at IS NULL OR fa.last_firm_at < ci.created_at)
-       AND ci.created_at < now() - make_interval(hours => $1::int)
-     ORDER BY ci.created_at ASC`,
-    [h, staff]
+     FROM per_chat pc
+     JOIN last_client_msg lcm ON lcm.chat_jid = pc.chat_jid
+     LEFT JOIN whatsapp_groups g ON g.provider_group_jid = pc.chat_jid AND g.removed_at IS NULL
+     LEFT JOIN wa_contacts c ON c.id = lcm.contact_id
+     WHERE pc.last_client_at IS NOT NULL
+     ORDER BY pc.last_client_at DESC`,
+    [staff]
   );
 
   const out = [];
   for (const row of r.rows) {
-    // Decrypt just this one last-inbound message to return its text (for the AI
-    // needs-reply check in the digest builder). Never logged. On any
-    // decrypt/parse failure, keep the chat with an empty preview.
+    const label = row.group_name || row.monday_client_name || row.display_name || row.chat_jid;
+    const waited = row.hours_waiting != null ? Number(row.hours_waiting) : null;
+    const firmAfter = row.last_firm_at && row.last_client_at && new Date(row.last_firm_at) >= new Date(row.last_client_at);
+    const tooRecent = waited != null && waited < h;
+
+    let decision;
+    if (firmAfter) decision = `SKIP (firm replied after — firm last wrote ${row.last_firm_at})`;
+    else if (tooRecent) decision = `SKIP (too recent — waited ${waited}h < threshold ${h}h)`;
+    else decision = 'TAKE (client wrote last, no firm reply, past threshold)';
+    console.log(`[unanswered/why] "${label}" | lastClient=${row.last_client_at} (${row.last_client_phone || 'lid/unknown'}) | lastFirm=${row.last_firm_at || 'never'} | waited=${waited}h -> ${decision}`);
+
+    if (firmAfter || tooRecent) continue;
+
     let lastText = '';
     try {
       const json = enc.decrypt(row.payload_encrypted || '');
@@ -526,17 +541,17 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
       chat_jid: row.chat_jid,
       isGroup: row.is_group,
       groupName: row.group_name || null,
-      label: row.group_name || row.monday_client_name || row.display_name || row.chat_jid,
+      label,
       clientName: row.monday_client_name || row.display_name || null,
-      hoursWaiting: row.hours_waiting != null ? Number(row.hours_waiting) : null,
-      lastInboundAt: row.last_inbound_at,
+      hoursWaiting: waited,
+      lastInboundAt: row.last_client_at,
       participant_phones: Array.isArray(row.participant_phones) ? row.participant_phones : [],
-      lastText, // for the AI needs-reply check / debugging only
+      lastText,
     });
   }
+  console.log(`[unanswered/why] ${out.length} chat(s) TAKEN out of ${r.rows.length} chat(s) with a client message`);
   return out;
 }
-
 module.exports = {
   ensureTables,
   upsertContact,

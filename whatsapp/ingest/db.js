@@ -465,9 +465,11 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
   await ensureTables();
   const p = getPool();
   if (!p) return [];
-  const h = Math.min(Math.max(Number(hours) || 3, 0), 24 * 30); // clamp 0..30d
+ // NOTE: use Number.isFinite, NOT `Number(hours) || 3` — the latter turns a
+  // legitimate 0 (falsy!) into 3, which silently ignored ?hours=0.
+  const hn = Number(hours);
+  const h = Math.min(Math.max(Number.isFinite(hn) ? hn : 3, 0), 24 * 30); // clamp 0..30d; 0 is kept
   const staff = Array.isArray(staffPhones) ? staffPhones.filter(Boolean) : [];
-
   console.log(`[unanswered/staff] scan using ${staff.length} staff phone(s): ${staff.join(', ') || '(none)'}`);
 
   const r = await p.query(

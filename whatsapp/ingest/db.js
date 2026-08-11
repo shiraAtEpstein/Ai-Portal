@@ -113,7 +113,77 @@ async function ensureTables() {
   // `needs`: does the FIRM have to act, and how — response | action | none.
   // Drives attention/awaiting_reply. (See lawly-status-criteria.md.)
   await p.query(`ALTER TABLE deal_items ADD COLUMN IF NOT EXISTS needs TEXT;`);
+  // Per-message triage category for CLIENT messages (direction 'in'):
+  //   'required' 🔴 | 'none' 🟢 | 'potential' 🟡 | NULL = not classified yet.
+  // Filled lazily by the classifier pass (lib/message-classifier). NULL is a
+  // retry state, so a message the AI couldn't reach during an outage is picked
+  // up next pass. Response-time metrics count ONLY 'required'.
+  await p.query(`ALTER TABLE processing_jobs ADD COLUMN IF NOT EXISTS client_category TEXT;`);
+  await p.query(
+    `CREATE INDEX IF NOT EXISTS idx_pj_unclassified
+       ON processing_jobs (created_at)
+       WHERE direction = 'in' AND client_category IS NULL;`
+  );
+  // Manual "handled" dismissals for the unanswered list. A chat is dismissed at a
+  // point in time; the detector then hides it as long as no NEWER client message
+  // has arrived (i.e. dismissed_at >= the latest client message). If the client
+  // writes again after being dismissed, the chat reappears automatically. This is
+  // how a chat answered DURING a WhatsApp outage (reply never captured) gets
+  // cleared without any DB surgery.
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS unanswered_dismissals (
+      chat_jid TEXT PRIMARY KEY,
+      dismissed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      dismissed_by TEXT
+    );
+  `);
   ensured = true;
+}
+
+// Client messages awaiting triage classification (direction 'in', not from a
+// staff phone, client_category still NULL). Returns id + encrypted payload for
+// the caller to decrypt and classify. Oldest first so a backlog drains in order.
+async function listUnclassifiedInbound({ limit = 50, staffPhones = [] } = {}) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return [];
+  const staff = Array.isArray(staffPhones) ? staffPhones.filter(Boolean) : [];
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 500);
+  const r = await p.query(
+    `SELECT pj.id, pj.payload_encrypted
+     FROM processing_jobs pj
+     WHERE pj.source = 'whatsapp' AND pj.direction = 'in' AND pj.client_category IS NULL
+       AND (pj.sender_phone IS NULL OR pj.sender_phone <> ALL($1::text[]))
+     ORDER BY pj.created_at ASC
+     LIMIT $2`,
+    [staff, lim]
+  );
+  return r.rows;
+}
+
+// Store one message's triage category. Only valid categories are written.
+async function setMessageCategory(id, category) {
+  const p = getPool();
+  if (!p || !id) return;
+  if (!['required', 'none', 'potential'].includes(category)) return;
+  await p.query(`UPDATE processing_jobs SET client_category = $2 WHERE id = $1`, [id, category]);
+}
+
+// Mark a chat "handled" now (manual dismiss). Idempotent — re-dismissing just
+// bumps the timestamp, which also re-hides a chat that reappeared and was
+// handled again.
+async function dismissChat(chatJid, byEmail) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !chatJid) return false;
+  await p.query(
+    `INSERT INTO unanswered_dismissals (chat_jid, dismissed_at, dismissed_by)
+     VALUES ($1, now(), $2)
+     ON CONFLICT (chat_jid) DO UPDATE SET dismissed_at = now(), dismissed_by = EXCLUDED.dismissed_by`,
+    [chatJid, byEmail || null]
+  );
+  console.log(`[unanswered/dismiss] "${chatJid}" marked handled by ${byEmail || 'unknown'}`);
+  return true;
 }
 
 const ITEM_NEEDS = ['response', 'action', 'none'];
@@ -554,11 +624,13 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
             g.name AS group_name,
             g.participant_phones,
             c.monday_client_name,
-            c.display_name
+            c.display_name,
+            dz.dismissed_at
      FROM per_chat pc
      LEFT JOIN block_agg ba ON ba.chat_jid = pc.chat_jid
      LEFT JOIN whatsapp_groups g ON g.provider_group_jid = pc.chat_jid AND g.removed_at IS NULL
      LEFT JOIN wa_contacts c ON c.id = ba.contact_id
+     LEFT JOIN unanswered_dismissals dz ON dz.chat_jid = pc.chat_jid
      WHERE pc.last_client_at IS NOT NULL
      ORDER BY pc.last_client_at DESC`,
     [staff]
@@ -574,15 +646,19 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
     const waited = hasBlock && row.hours_waiting != null ? Number(row.hours_waiting) : null;
     const tooRecent = waited != null && waited < h;
     const msgCount = row.msg_count != null ? Number(row.msg_count) : 0;
+    // Manually dismissed AND no newer client message since the dismissal.
+    const dismissedAt = row.dismissed_at ? new Date(row.dismissed_at) : null;
+    const dismissed = !!(dismissedAt && row.last_client_at && dismissedAt >= new Date(row.last_client_at));
 
     // Classify + LOG the reason for every chat that has a client message.
     let decision;
     if (!hasBlock) decision = `SKIP (firm replied after — firm last wrote ${row.last_firm_at || 'n/a'})`;
+    else if (dismissed) decision = `SKIP (marked handled at ${row.dismissed_at}, no newer client msg)`;
     else if (tooRecent) decision = `SKIP (too recent — oldest unanswered waited ${waited}h < threshold ${h}h)`;
     else decision = `TAKE (${msgCount} unanswered client msg(s), oldest waited ${waited}h, no firm reply after)`;
     console.log(`[unanswered/why] "${label}" | oldestUnanswered=${row.first_unanswered_at || 'none'} (${row.last_client_phone || 'lid/unknown'}) | lastClient=${row.last_client_at} | lastFirm=${row.last_firm_at || 'never'} | block=${msgCount} | waited=${waited}h -> ${decision}`);
 
-    if (!hasBlock || tooRecent) continue;
+    if (!hasBlock || tooRecent || dismissed) continue;
 
     // Decrypt the block's messages (oldest first) so the AI needs-reply step can
     // read the WHOLE conversation since the last firm reply — not just the last
@@ -672,10 +748,12 @@ async function responseStats({ days = 30, staffPhones = [] } = {}) {
   if (!p) return { days, totalTurns: 0, answeredTurns: 0, avgHours: null, medianHours: null, pctWithin3h: null, daily: [] };
   const staff = Array.isArray(staffPhones) ? staffPhones.filter(Boolean) : [];
   const d = Math.min(Math.max(parseInt(days, 10) || 30, 1), 180);
+  // A turn counts toward metrics ONLY if its client message is 🔴 'required'.
+  // 🟢 'none', 🟡 'potential', and NULL (not-yet-classified) turns are excluded.
   const CTE = `
     WITH staff AS (SELECT unnest($1::text[]) AS phone9),
     msgs AS (
-      SELECT chat_jid, created_at,
+      SELECT chat_jid, created_at, client_category,
              CASE WHEN direction = 'out' OR sender_phone IN (SELECT phone9 FROM staff)
                   THEN 'firm' ELSE 'client' END AS side
       FROM processing_jobs
@@ -683,13 +761,15 @@ async function responseStats({ days = 30, staffPhones = [] } = {}) {
         AND created_at >= now() - make_interval(days => $2)
     ),
     seq AS (
-      SELECT chat_jid, created_at, side,
+      SELECT chat_jid, created_at, side, client_category,
              LAG(side) OVER (PARTITION BY chat_jid ORDER BY created_at) AS prev_side
       FROM msgs
     ),
     turns AS (
       SELECT chat_jid, created_at AS client_at
-      FROM seq WHERE side = 'client' AND prev_side IS DISTINCT FROM 'client'
+      FROM seq
+      WHERE side = 'client' AND prev_side IS DISTINCT FROM 'client'
+        AND client_category = 'required'
     ),
     resp AS (
       SELECT t.client_at,
@@ -719,7 +799,21 @@ async function responseStats({ days = 30, staffPhones = [] } = {}) {
     GROUP BY 1 ORDER BY 1`,
     [staff, d]
   );
+  // Category breakdown of CLIENT messages in the window (in, non-staff).
+  const cats = await p.query(
+    `SELECT
+       count(*) FILTER (WHERE client_category = 'required')::int  AS required,
+       count(*) FILTER (WHERE client_category = 'none')::int      AS none,
+       count(*) FILTER (WHERE client_category = 'potential')::int AS potential,
+       count(*) FILTER (WHERE client_category IS NULL)::int       AS pending
+     FROM processing_jobs
+     WHERE source = 'whatsapp' AND direction = 'in'
+       AND (sender_phone IS NULL OR sender_phone <> ALL($1::text[]))
+       AND created_at >= now() - make_interval(days => $2)`,
+    [staff, d]
+  );
   const s = summary.rows[0] || {};
+  const cb = cats.rows[0] || {};
   return {
     days: d,
     totalTurns: s.total_turns || 0,
@@ -728,6 +822,12 @@ async function responseStats({ days = 30, staffPhones = [] } = {}) {
     medianHours: s.median_hours != null ? Number(s.median_hours) : null,
     pctWithin3h: s.pct_within_3h != null ? Number(s.pct_within_3h) : null,
     daily: daily.rows.map((r) => ({ day: r.day, avgHours: r.avg_hours != null ? Number(r.avg_hours) : null, n: r.n })),
+    categories: {
+      required: cb.required || 0,
+      none: cb.none || 0,
+      potential: cb.potential || 0,
+      pending: cb.pending || 0,
+    },
   };
 }
 
@@ -735,6 +835,9 @@ module.exports = {
   ensureTables,
   listRecentJobs,
   responseStats,
+  dismissChat,
+  listUnclassifiedInbound,
+  setMessageCategory,
   upsertContact,
   getContactByPhone,
   enqueueJob,

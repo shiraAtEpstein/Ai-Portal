@@ -660,9 +660,81 @@ async function listRecentJobs({ limit = 40, chatLike = null } = {}) {
   }));
 }
 
+// Response-time analytics for the management dashboard. Deterministic, over the
+// plaintext columns only (no decryption). A "turn" is a client message that
+// STARTS a wait (the previous message in that chat was from the firm, or it's the
+// first in the window) — so a burst of client messages counts once. Its response
+// time is the gap to the next firm message. Returns summary + a daily trend.
+//   { days, totalTurns, answeredTurns, avgHours, medianHours, pctWithin3h, daily[] }
+async function responseStats({ days = 30, staffPhones = [] } = {}) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return { days, totalTurns: 0, answeredTurns: 0, avgHours: null, medianHours: null, pctWithin3h: null, daily: [] };
+  const staff = Array.isArray(staffPhones) ? staffPhones.filter(Boolean) : [];
+  const d = Math.min(Math.max(parseInt(days, 10) || 30, 1), 180);
+  const CTE = `
+    WITH staff AS (SELECT unnest($1::text[]) AS phone9),
+    msgs AS (
+      SELECT chat_jid, created_at,
+             CASE WHEN direction = 'out' OR sender_phone IN (SELECT phone9 FROM staff)
+                  THEN 'firm' ELSE 'client' END AS side
+      FROM processing_jobs
+      WHERE source = 'whatsapp' AND chat_jid IS NOT NULL
+        AND created_at >= now() - make_interval(days => $2)
+    ),
+    seq AS (
+      SELECT chat_jid, created_at, side,
+             LAG(side) OVER (PARTITION BY chat_jid ORDER BY created_at) AS prev_side
+      FROM msgs
+    ),
+    turns AS (
+      SELECT chat_jid, created_at AS client_at
+      FROM seq WHERE side = 'client' AND prev_side IS DISTINCT FROM 'client'
+    ),
+    resp AS (
+      SELECT t.client_at,
+             EXTRACT(EPOCH FROM (
+               (SELECT MIN(m.created_at) FROM msgs m
+                 WHERE m.chat_jid = t.chat_jid AND m.side = 'firm' AND m.created_at > t.client_at)
+               - t.client_at)) / 3600.0 AS hours
+      FROM turns t
+    )`;
+  const summary = await p.query(
+    CTE + `
+    SELECT
+      (SELECT count(*) FROM turns)::int AS total_turns,
+      (SELECT count(*) FROM resp WHERE hours IS NOT NULL)::int AS answered_turns,
+      (SELECT round(avg(hours)::numeric, 1) FROM resp WHERE hours IS NOT NULL) AS avg_hours,
+      (SELECT round(percentile_cont(0.5) WITHIN GROUP (ORDER BY hours)::numeric, 1)
+         FROM resp WHERE hours IS NOT NULL) AS median_hours,
+      (SELECT round(100.0 * count(*) FILTER (WHERE hours <= 3) / NULLIF(count(*), 0), 0)
+         FROM resp WHERE hours IS NOT NULL) AS pct_within_3h`,
+    [staff, d]
+  );
+  const daily = await p.query(
+    CTE + `
+    SELECT to_char(date_trunc('day', client_at), 'YYYY-MM-DD') AS day,
+           round(avg(hours)::numeric, 1) AS avg_hours, count(*)::int AS n
+    FROM resp WHERE hours IS NOT NULL
+    GROUP BY 1 ORDER BY 1`,
+    [staff, d]
+  );
+  const s = summary.rows[0] || {};
+  return {
+    days: d,
+    totalTurns: s.total_turns || 0,
+    answeredTurns: s.answered_turns || 0,
+    avgHours: s.avg_hours != null ? Number(s.avg_hours) : null,
+    medianHours: s.median_hours != null ? Number(s.median_hours) : null,
+    pctWithin3h: s.pct_within_3h != null ? Number(s.pct_within_3h) : null,
+    daily: daily.rows.map((r) => ({ day: r.day, avgHours: r.avg_hours != null ? Number(r.avg_hours) : null, n: r.n })),
+  };
+}
+
 module.exports = {
   ensureTables,
   listRecentJobs,
+  responseStats,
   upsertContact,
   getContactByPhone,
   enqueueJob,

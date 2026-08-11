@@ -14,6 +14,7 @@ const express = require('express');
 const { authenticate, requireAdmin } = require('../lib/sessions');
 const { buildDigest, sendDigests } = require('../lib/unanswered-digest');
 const ingestDb = require('../whatsapp/ingest/db');
+const { loadDirectory, routeGroupToStaff } = require('../lib/routing');
 
 const DEFAULT_HOURS = parseInt(process.env.UNANSWERED_HOURS || '3', 10);
 
@@ -91,6 +92,49 @@ module.exports = function createUnansweredRouter() {
       });
     } catch (e) {
       return res.json({ ok: false, stage: 'network', message: e.message, present, clientIdTail });
+    }
+  });
+
+  // Management dashboard data: live "waiting now" numbers (consistent with the
+  // digest/page) + historical response-time stats.
+  //   GET /api/admin/unanswered/dashboard?days=30
+  router.get('/api/admin/unanswered/dashboard', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const dir = loadDirectory();
+      const staffPhones = (dir.staff || []).map((s) => s.phone9).filter(Boolean);
+      const dRaw = parseInt((req.query && req.query.days) || '30', 10);
+      const days = Math.min(Math.max(Number.isFinite(dRaw) ? dRaw : 30, 1), 180);
+
+      // Live: everything currently waiting (hours=0), same source as the page.
+      const chats = await ingestDb.listUnansweredChats({ hours: 0, staffPhones });
+      let oldest = 0;
+      const aging = { lt3: 0, h3to24: 0, gt24: 0 };
+      const perStaff = {};
+      for (const c of chats) {
+        const h = Number(c.hoursWaiting) || 0;
+        if (h > oldest) oldest = h;
+        if (h < 3) aging.lt3++; else if (h < 24) aging.h3to24++; else aging.gt24++;
+        const { responsible } = routeGroupToStaff(c.participant_phones, dir);
+        for (const person of responsible) perStaff[person.name] = (perStaff[person.name] || 0) + 1;
+      }
+      const perStaffArr = Object.entries(perStaff)
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count);
+
+      const history = await ingestDb.responseStats({ days, staffPhones });
+
+      res.json({
+        days,
+        live: {
+          waitingNow: chats.length,
+          oldestHours: Math.round(oldest * 10) / 10,
+          aging,
+          perStaff: perStaffArr,
+        },
+        history,
+      });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to build dashboard.', detail: e.message });
     }
   });
 

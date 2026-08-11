@@ -13,6 +13,7 @@
 const express = require('express');
 const { authenticate, requireAdmin } = require('../lib/sessions');
 const { buildDigest, sendDigests } = require('../lib/unanswered-digest');
+const ingestDb = require('../whatsapp/ingest/db');
 
 const DEFAULT_HOURS = parseInt(process.env.UNANSWERED_HOURS || '3', 10);
 
@@ -90,6 +91,21 @@ module.exports = function createUnansweredRouter() {
       });
     } catch (e) {
       return res.json({ ok: false, stage: 'network', message: e.message, present, clientIdTail });
+    }
+  });
+
+  // Testing aid: the most recent ingested WhatsApp messages (read-only, no text).
+  //   GET /api/admin/unanswered/ingest-recent?limit=40&chat=teller
+  // Lets you send a WhatsApp message and confirm it landed with the right
+  // direction ('in' = client, 'out' = LAWLY line) and time.
+  router.get('/api/admin/unanswered/ingest-recent', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const limit = parseInt((req.query && req.query.limit) || '40', 10);
+      const chat = (req.query && req.query.chat) || null;
+      const rows = await ingestDb.listRecentJobs({ limit, chatLike: chat });
+      res.json({ count: rows.length, rows });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to read recent ingest.', detail: e.message });
     }
   });
 

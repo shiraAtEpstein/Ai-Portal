@@ -24,6 +24,7 @@ const settings = require('../lib/user-settings');
 const store = require('../lib/settings-store');
 const userFramework = require('../lib/user-framework');
 const dropbox = require('../lib/dropbox');
+const { buildDigest } = require('../lib/unanswered-digest');
 
 module.exports = function createMeRouter() {
   const router = express.Router();
@@ -39,6 +40,35 @@ module.exports = function createMeRouter() {
       // Case-insensitive: roles may be stored capitalized (e.g. "Admin").
       isAdmin: roles.some((r) => String(r).toLowerCase() === 'admin'),
     });
+  });
+
+  // The signed-in user's UNANSWERED client chats — powers the "הודעות שממתינות"
+  // page (public/messages.html) that the daily email links to. Reuses the same
+  // deterministic detector + AI triage as the digest, then scopes to what THIS
+  // user is responsible for (admins/owner see the whole firm). The list clears
+  // itself: once someone replies in WhatsApp, the chat drops out automatically.
+  //   GET /api/me/unanswered?hours=0  -> { email, isAdmin, count, items[], generatedAt }
+  router.get('/api/me/unanswered', authenticate, async (req, res) => {
+    try {
+      const email = String((req.session && req.session.email) || '').toLowerCase();
+      const roles = (req.session && req.session.roles) || [];
+      const isAdmin = roles.some((r) => String(r).toLowerCase() === 'admin');
+      const raw = (req.query && req.query.hours);
+      const n = parseInt(raw, 10);
+      const hours = Number.isFinite(n) && n >= 0 ? n : 0; // page shows everything waiting
+      const digest = await buildDigest({ hours });
+      let items;
+      if (isAdmin) {
+        items = digest.all;
+      } else {
+        const entry = Object.entries(digest.byPerson).find(([e]) => e.toLowerCase() === email);
+        items = entry ? entry[1].items : [];
+      }
+      res.json({ email, isAdmin, count: items.length, items, generatedAt: digest.generatedAt });
+    } catch (e) {
+      console.error('[ME] unanswered load failed:', e.message);
+      res.status(500).json({ error: 'Could not load your waiting messages.' });
+    }
   });
 
   // The signed-in user's AI Profile (CORE): their User Framework (Layer 2) text,

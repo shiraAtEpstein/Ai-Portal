@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>דשבורד זמני מענה · Lawly</title>
+  <style>
+    :root{
+      --ink:#1f2430; --muted:#8a9099; --teal:#6e8b7c; --amber:#c08a2d; --red:#b4462f;
+      --line:#eceef1; --card:#fff; --bg:#f4f4f6; --dark:#2b2f38;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);font-family:Arial,Helvetica,sans-serif;color:var(--ink);direction:rtl;}
+    .wrap{max-width:900px;margin:0 auto;padding:24px 16px 56px;}
+    .card{background:var(--card);border:1px solid #e2e3e7;border-radius:12px;overflow:hidden;margin-bottom:18px;}
+    header{background:var(--dark);padding:22px 26px;display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px;}
+    header .kicker{color:#9aa1ac;font-size:12px;letter-spacing:.3px;margin-bottom:6px;}
+    header h1{color:#fff;font-size:21px;margin:0;font-weight:bold;}
+    header .ctrl{display:flex;align-items:center;gap:8px;}
+    header select,header button{font:inherit;border-radius:6px;border:1px solid #4a4f59;background:#3a3f49;color:#e8eaee;padding:7px 12px;cursor:pointer;}
+    header button:hover{background:#454b56;}
+    .section-title{font-size:13px;color:var(--muted);font-weight:bold;padding:16px 22px 0;}
+    .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;padding:16px 22px 22px;}
+    .tile{border:1px solid var(--line);border-radius:10px;padding:16px;text-align:center;}
+    .tile .num{font-size:28px;font-weight:bold;line-height:1.1;}
+    .tile .lab{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.4;}
+    .aging{display:flex;height:26px;border-radius:6px;overflow:hidden;margin:6px 22px 8px;}
+    .aging span{display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:bold;min-width:26px;}
+    .legend{display:flex;gap:16px;flex-wrap:wrap;padding:2px 22px 20px;font-size:12px;color:var(--muted);}
+    .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-left:5px;vertical-align:middle;}
+    .chart{padding:12px 18px 22px;}
+    .bars{display:flex;align-items:flex-end;gap:4px;height:150px;border-bottom:1px solid var(--line);padding-bottom:2px;}
+    .bars .b{flex:1;min-width:5px;background:var(--teal);border-radius:3px 3px 0 0;position:relative;}
+    .xlabels{display:flex;gap:4px;margin-top:6px;}
+    .xlabels span{flex:1;text-align:center;font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;}
+    table{width:100%;border-collapse:collapse;}
+    td,th{padding:11px 22px;border-bottom:1px solid var(--line);text-align:right;font-size:14px;}
+    th{font-size:12px;color:var(--muted);}
+    td.n{text-align:left;font-weight:bold;}
+    .state{padding:34px 22px;text-align:center;color:var(--muted);}
+    .err{color:var(--red);}
+    .foot{font-size:11.5px;color:#aab0b8;padding:0 6px;line-height:1.7;}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <header>
+        <div>
+          <div class="kicker">משרד אפשטיין · Lawly</div>
+          <h1>דשבורד זמני מענה</h1>
+        </div>
+        <div class="ctrl">
+          <select id="days">
+            <option value="7">7 ימים</option>
+            <option value="30" selected>30 ימים</option>
+            <option value="90">90 ימים</option>
+          </select>
+          <button id="refresh" type="button">רענון</button>
+        </div>
+      </header>
+      <div id="body"><div class="state">טוען…</div></div>
+    </div>
+    <div class="foot" id="foot"></div>
+  </div>
+
+  <script>
+    function fmtHours(h){
+      if(h == null) return '—';
+      var n = Number(h);
+      if(!isFinite(n)) return '—';
+      if(n >= 24) return (Math.round(n/24*10)/10) + ' ימים';
+      return (Math.round(n*10)/10) + ' שע׳';
+    }
+    function el(tag, cls, text){ var e=document.createElement(tag); if(cls)e.className=cls; if(text!=null)e.textContent=text; return e; }
+    function tile(num, lab, color){
+      var t = el('div','tile');
+      var n = el('div','num', num); if(color) n.style.color = color;
+      t.appendChild(n); t.appendChild(el('div','lab', lab)); return t;
+    }
+
+    var body = document.getElementById('body');
+    var daysSel = document.getElementById('days');
+    var refreshBtn = document.getElementById('refresh');
+    var loading = false;
+
+    function render(d){
+      body.innerHTML = '';
+      var live = d.live || {}, hist = d.history || {}, aging = live.aging || {};
+
+      // --- KPI tiles ---
+      body.appendChild(el('div','section-title','עכשיו'));
+      var tiles = el('div','tiles');
+      tiles.appendChild(tile(String(live.waitingNow || 0), 'ממתינות עכשיו', (live.waitingNow>0?'var(--red)':'var(--teal)')));
+      tiles.appendChild(tile(fmtHours(live.oldestHours), 'הוותיקה ביותר'));
+      tiles.appendChild(tile(fmtHours(hist.avgHours), 'זמן תגובה ממוצע'));
+      tiles.appendChild(tile(fmtHours(hist.medianHours), 'חציון זמן תגובה'));
+      tiles.appendChild(tile((hist.pctWithin3h==null?'—':hist.pctWithin3h+'%'), 'נענו תוך 3 שעות'));
+      tiles.appendChild(tile(String(hist.answeredTurns||0), 'הודעות שטופלו (' + (d.days||30) + ' ימים)'));
+      body.appendChild(tiles);
+
+      // --- aging of currently waiting ---
+      var total = (aging.lt3||0)+(aging.h3to24||0)+(aging.gt24||0);
+      body.appendChild(el('div','section-title','פילוח ההמתנה כרגע'));
+      if(total === 0){
+        body.appendChild(el('div','state','אין הודעות שממתינות כרגע 🎉'));
+      } else {
+        var bar = el('div','aging');
+        function seg(count,color){ if(!count)return; var s=el('span',null,String(count)); s.style.background=color; s.style.flex=count; bar.appendChild(s); }
+        seg(aging.lt3,'var(--teal)'); seg(aging.h3to24,'var(--amber)'); seg(aging.gt24,'var(--red)');
+        body.appendChild(bar);
+        var lg = el('div','legend');
+        lg.innerHTML = '<span><i style="background:var(--teal)"></i>עד 3 שעות</span>' +
+                       '<span><i style="background:var(--amber)"></i>3–24 שעות</span>' +
+                       '<span><i style="background:var(--red)"></i>מעל 24 שעות</span>';
+        body.appendChild(lg);
+      }
+
+      // --- response-time trend ---
+      body.appendChild(el('div','section-title','מגמת זמן תגובה ממוצע (לפי יום)'));
+      var daily = hist.daily || [];
+      if(!daily.length){
+        body.appendChild(el('div','state','אין עדיין מספיק נתונים להצגת מגמה.'));
+      } else {
+        var max = Math.max.apply(null, daily.map(function(x){return x.avgHours||0;})) || 1;
+        var chart = el('div','chart');
+        var bars = el('div','bars');
+        daily.forEach(function(x){
+          var b = el('div','b');
+          b.style.height = Math.max(3, Math.round((x.avgHours||0)/max*100)) + '%';
+          if((x.avgHours||0) >= 24) b.style.background='var(--red)';
+          else if((x.avgHours||0) >= 3) b.style.background='var(--amber)';
+          b.title = x.day + ' · ' + fmtHours(x.avgHours) + ' · ' + x.n + ' הודעות';
+          bars.appendChild(b);
+        });
+        chart.appendChild(bars);
+        var xl = el('div','xlabels');
+        daily.forEach(function(x,i){
+          var show = (daily.length<=10) || (i % Math.ceil(daily.length/8) === 0);
+          xl.appendChild(el('span', null, show ? x.day.slice(5) : ''));
+        });
+        chart.appendChild(xl);
+        body.appendChild(chart);
+      }
+
+      // --- per-staff load ---
+      body.appendChild(el('div','section-title','עומס לפי איש צוות (ממתין כרגע)'));
+      var ps = live.perStaff || [];
+      if(!ps.length){
+        body.appendChild(el('div','state','אין כרגע הקצאות פתוחות.'));
+      } else {
+        var tbl = el('table');
+        var hr = el('tr'); hr.appendChild(el('th',null,'איש צוות')); hr.appendChild(el('th','n','ממתינות')); tbl.appendChild(hr);
+        ps.forEach(function(p){
+          var tr = el('tr'); tr.appendChild(el('td',null,p.name)); var tdn=el('td','n',String(p.count));
+          if(p.count>=3) tdn.style.color='var(--red)'; tr.appendChild(tdn); tbl.appendChild(tr);
+        });
+        body.appendChild(tbl);
+      }
+
+      var t = new Date(); var hh=String(t.getHours()).padStart(2,'0'), mm=String(t.getMinutes()).padStart(2,'0');
+      document.getElementById('foot').textContent = 'המספרים "עכשיו" חיים; זמני התגובה מחושבים על פני ' + (d.days||30) + ' הימים האחרונים. עודכן ב-' + hh + ':' + mm + '.';
+    }
+
+    function load(){
+      if(loading) return;
+      loading = true; refreshBtn.disabled = true; refreshBtn.textContent='מרענן…';
+      fetch('/api/admin/unanswered/dashboard?days=' + encodeURIComponent(daysSel.value),
+            { credentials:'include', cache:'no-store', headers:{ Accept:'application/json' } })
+        .then(function(r){
+          if(r.status===401) throw {msg:'יש להתחבר כדי לראות את הדשבורד.'};
+          if(r.status===403) throw {msg:'הדשבורד זמין למנהלים בלבד.'};
+          if(!r.ok) throw {msg:'שגיאה בטעינה (HTTP ' + r.status + ').'};
+          return r.json();
+        })
+        .then(render)
+        .catch(function(e){ body.innerHTML=''; body.appendChild(el('div','state err',(e&&e.msg)||'לא ניתן לטעון כרגע.')); })
+        .then(function(){ loading=false; refreshBtn.disabled=false; refreshBtn.textContent='רענון'; });
+    }
+
+    daysSel.addEventListener('change', load);
+    refreshBtn.addEventListener('click', load);
+    load();
+    setInterval(load, 300 * 1000); // refresh every 5 min
+  </script>
+</body>
+</html>

@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>הודעות שממתינות למענה · Lawly</title>
+  <style>
+    :root{
+      --ink:#1f2430; --muted:#8a9099; --teal:#6e8b7c; --clientteal:#93a08f;
+      --amber:#c08a2d; --red:#b4462f; --line:#eceef1; --card:#ffffff; --bg:#f4f4f6;
+      --dark:#2b2f38;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);font-family:Arial,Helvetica,sans-serif;color:var(--ink);direction:rtl;}
+    .wrap{max-width:680px;margin:0 auto;padding:24px 16px 48px;}
+    .card{background:var(--card);border:1px solid #e2e3e7;border-radius:12px;overflow:hidden;}
+    header{background:var(--dark);padding:22px 26px;}
+    header .kicker{color:#9aa1ac;font-size:12px;letter-spacing:.3px;margin-bottom:6px;}
+    header h1{color:#fff;font-size:21px;margin:0;font-weight:bold;}
+    .bar{display:flex;align-items:center;justify-content:space-between;padding:14px 26px 6px;font-size:13px;color:var(--muted);}
+    .bar button{font:inherit;color:#2b2f38;background:#eef0f2;border:1px solid #e2e3e7;border-radius:6px;padding:6px 14px;cursor:pointer;}
+    .bar button:hover{background:#e6e9ec;}
+    .scope{font-weight:bold;color:#6b7280;}
+    table{width:100%;border-collapse:collapse;}
+    th{font-size:12px;color:var(--muted);font-weight:bold;text-align:right;padding:6px 24px 8px;border-bottom:1px solid var(--line);}
+    th.time{text-align:left;}
+    td{padding:13px 24px;border-bottom:1px solid var(--line);vertical-align:top;}
+    td.time{text-align:left;font-size:14px;white-space:nowrap;font-weight:bold;}
+    .label{font-size:15px;font-weight:bold;color:var(--ink);}
+    .label a{color:var(--ink);text-decoration:none;}
+    .chatlink{color:#0a7cff;font-size:12px;font-weight:normal;}
+    .client{font-size:13px;color:var(--clientteal);margin-top:3px;}
+    .state{padding:40px 26px;text-align:center;color:var(--muted);font-size:15px;line-height:1.7;}
+    .empty{padding:44px 26px;text-align:center;color:#3f8f6a;font-size:16px;}
+    .foot{padding:14px 26px 22px;font-size:11.5px;color:#aab0b8;line-height:1.7;border-top:1px solid var(--line);}
+    .err{color:var(--red);}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <header>
+        <div class="kicker">משרד אפשטיין · Lawly</div>
+        <h1>הודעות שממתינות למענה</h1>
+      </header>
+      <div class="bar">
+        <div id="scope" class="scope"></div>
+        <button id="refresh" type="button">רענון</button>
+      </div>
+      <div id="content">
+        <div class="state">טוען…</div>
+      </div>
+      <div class="foot">
+        הרשימה מתעדכנת אוטומטית. שיחה יורדת מהרשימה ברגע שמישהו במשרד עונה בוואטסאפ.
+        <span id="updated"></span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Natural-Hebrew wait label — mirrors lib/unanswered-digest.js waitLabel().
+    function waitLabel(h){
+      var n = Number(h);
+      if(!isFinite(n)) return '';
+      if(n >= 24){
+        var d = Math.round(n/24);
+        if(d === 1) return 'יום';
+        if(d === 2) return 'יומיים';
+        return d + ' ימים';
+      }
+      var hr = Math.max(1, Math.round(n));
+      if(hr === 1) return 'שעה';
+      if(hr === 2) return 'שעתיים';
+      return hr + ' שעות';
+    }
+    // Urgency colour by how long it's been waiting.
+    function waitColor(h){
+      var n = Number(h) || 0;
+      if(n >= 72) return 'var(--red)';
+      if(n >= 24) return 'var(--amber)';
+      return 'var(--teal)';
+    }
+    function el(tag, cls, text){
+      var e = document.createElement(tag);
+      if(cls) e.className = cls;
+      if(text != null) e.textContent = text;
+      return e;
+    }
+
+    var content = document.getElementById('content');
+    var scopeEl = document.getElementById('scope');
+    var updatedEl = document.getElementById('updated');
+
+    function render(data){
+      scopeEl.textContent = data.isAdmin ? 'תצוגת כל המשרד' : 'ההודעות שלך';
+      content.innerHTML = '';
+      var items = data.items || [];
+      if(!items.length){
+        content.appendChild(el('div','empty','אין כרגע הודעות שממתינות למענה 🎉'));
+        stampUpdated();
+        return;
+      }
+      var table = el('table');
+      var thead = el('tr');
+      thead.appendChild(el('th', null, 'שיחה / לקוח'));
+      thead.appendChild(el('th', 'time', 'זמן המתנה'));
+      table.appendChild(thead);
+
+      items.forEach(function(it){
+        var tr = el('tr');
+        var nameTd = el('td');
+        var label = el('div','label');
+        if(it.link){
+          var a = document.createElement('a');
+          a.href = it.link; a.target = '_blank'; a.rel = 'noopener';
+          a.textContent = it.label || '';
+          label.appendChild(a);
+          var lk = el('span','chatlink',' ↗ פתיחת צ׳אט');
+          label.appendChild(lk);
+        } else {
+          label.textContent = it.label || '';
+        }
+        nameTd.appendChild(label);
+        if(it.clientName){ nameTd.appendChild(el('div','client', it.clientName)); }
+        tr.appendChild(nameTd);
+
+        var timeTd = el('td','time', waitLabel(it.hoursWaiting));
+        timeTd.style.color = waitColor(it.hoursWaiting);
+        tr.appendChild(timeTd);
+        table.appendChild(tr);
+      });
+      content.appendChild(table);
+      stampUpdated();
+    }
+
+    function stampUpdated(){
+      var t = new Date();
+      var hh = String(t.getHours()).padStart(2,'0');
+      var mm = String(t.getMinutes()).padStart(2,'0');
+      updatedEl.textContent = '· עודכן ב-' + hh + ':' + mm;
+    }
+
+    function load(){
+      fetch('/api/me/unanswered?hours=0', { credentials:'include', headers:{ Accept:'application/json' } })
+        .then(function(r){
+          if(r.status === 401){ throw { auth:true }; }
+          if(!r.ok){ throw new Error('HTTP ' + r.status); }
+          return r.json();
+        })
+        .then(render)
+        .catch(function(e){
+          content.innerHTML = '';
+          if(e && e.auth){
+            var d = el('div','state');
+            d.appendChild(document.createTextNode('יש להתחבר כדי לראות את הרשימה. '));
+            var a = document.createElement('a'); a.href='/'; a.textContent='התחברות';
+            d.appendChild(a);
+            content.appendChild(d);
+          } else {
+            content.appendChild(el('div','state err','לא ניתן לטעון את הרשימה כרגע. נסו רענון.'));
+          }
+        });
+    }
+
+    document.getElementById('refresh').addEventListener('click', load);
+    load();
+    setInterval(load, 180 * 1000); // auto-refresh every 3 min (each load runs AI triage)
+  </script>
+</body>
+</html>

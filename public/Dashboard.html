@@ -99,6 +99,16 @@
       tiles.appendChild(tile(String(hist.answeredTurns||0), 'הודעות שטופלו (' + (d.days||30) + ' ימים)'));
       body.appendChild(tiles);
 
+      // --- message category breakdown ---
+      var cats = hist.categories || {};
+      body.appendChild(el('div','section-title','פילוח הודעות לקוח (' + (d.days||30) + ' ימים)'));
+      var ctiles = el('div','tiles');
+      ctiles.appendChild(tile(String(cats.required||0), '🔴 דורש מענה', 'var(--red)'));
+      ctiles.appendChild(tile(String(cats.none||0), '🟢 לא דורש מענה', 'var(--teal)'));
+      ctiles.appendChild(tile(String(cats.potential||0), '🟡 אולי דורש מענה', 'var(--amber)'));
+      if((cats.pending||0) > 0) ctiles.appendChild(tile(String(cats.pending), '⏳ בהמתנה לסיווג'));
+      body.appendChild(ctiles);
+
       // --- aging of currently waiting ---
       var total = (aging.lt3||0)+(aging.h3to24||0)+(aging.gt24||0);
       body.appendChild(el('div','section-title','פילוח ההמתנה כרגע'));

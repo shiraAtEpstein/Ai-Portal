@@ -624,8 +624,45 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
   return out;
 }
 
+// Recent ingested messages for TESTING that WhatsApp capture really works.
+// Read-only, no decryption: returns direction, masked sender, chat label, status
+// and time so you can send a WhatsApp message and watch it land with the right
+// direction. Optional `chatLike` filters by group name or jid substring.
+async function listRecentJobs({ limit = 40, chatLike = null } = {}) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return [];
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 40, 1), 200);
+  const params = [];
+  let filter = `WHERE pj.source = 'whatsapp'`;
+  if (chatLike) {
+    params.push('%' + chatLike + '%');
+    filter += ` AND (g.name ILIKE $${params.length} OR pj.chat_jid ILIKE $${params.length})`;
+  }
+  params.push(lim);
+  const r = await p.query(
+    `SELECT pj.chat_jid, pj.direction, pj.sender_phone, pj.is_group, pj.status, pj.created_at,
+            g.name AS group_name
+     FROM processing_jobs pj
+     LEFT JOIN whatsapp_groups g ON g.provider_group_jid = pj.chat_jid AND g.removed_at IS NULL
+     ${filter}
+     ORDER BY pj.created_at DESC
+     LIMIT $${params.length}`,
+    params
+  );
+  return r.rows.map((row) => ({
+    chat: row.group_name || row.chat_jid,
+    direction: row.direction,                                   // 'in' = client, 'out' = LAWLY line
+    sender: row.sender_phone ? ('…' + String(row.sender_phone).slice(-4)) : null,
+    isGroup: row.is_group,
+    status: row.status,
+    at: row.created_at,
+  }));
+}
+
 module.exports = {
   ensureTables,
+  listRecentJobs,
   upsertContact,
   getContactByPhone,
   enqueueJob,

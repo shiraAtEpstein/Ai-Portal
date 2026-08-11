@@ -140,8 +140,15 @@
       updatedEl.textContent = '· עודכן ב-' + hh + ':' + mm;
     }
 
+    var refreshBtn = document.getElementById('refresh');
+    var loading = false;
+
     function load(){
-      fetch('/api/me/unanswered?hours=0', { credentials:'include', headers:{ Accept:'application/json' } })
+      if(loading) return;            // ignore double-clicks while a load is in flight
+      loading = true;
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = 'מרענן…';
+      fetch('/api/me/unanswered?hours=0', { credentials:'include', cache:'no-store', headers:{ Accept:'application/json' } })
         .then(function(r){
           if(r.status === 401){ throw { auth:true }; }
           if(!r.ok){ throw new Error('HTTP ' + r.status); }
@@ -159,10 +166,15 @@
           } else {
             content.appendChild(el('div','state err','לא ניתן לטעון את הרשימה כרגע. נסו רענון.'));
           }
+        })
+        .then(function(){                 // always re-enable the button (success or error)
+          loading = false;
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = 'רענון';
         });
     }
 
-    document.getElementById('refresh').addEventListener('click', load);
+    refreshBtn.addEventListener('click', load);
     load();
     setInterval(load, 180 * 1000); // auto-refresh every 3 min (each load runs AI triage)
   </script>

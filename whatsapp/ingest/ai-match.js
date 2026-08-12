@@ -10,17 +10,22 @@ const claude = require('../../lib/claude');
 // Returns the chosen candidate object, or null if unsure / not configured.
 async function pickDealByGroupNameAI(groupName, candidates) {
   const list = (candidates || []).filter(Boolean);
-  if (list.length <= 1) return list[0] || null;   // nothing to disambiguate
+  if (!list.length) return null;                  // nothing to match against
   if (!claude.isConfigured() || !groupName) return null;
 
+  // NOTE: we verify even a SINGLE candidate — the chat might be about an older
+  // matter that isn't in the system at all, so a lone deal is not proof. The AI
+  // must answer 0 (none) unless the chat is clearly about a listed deal.
   const options = list.map((d, i) => ({ n: i + 1, id: String(d.monday_item_id), name: d.name || '' }));
   const system =
     'You match a WhatsApp chat to the correct real-estate deal for a law firm. ' +
     'The chat name and the deal names may be in Hebrew or English, transliterated, ' +
-    'abbreviated, nicknamed, or messy. All candidate deals belong to the SAME client, ' +
-    'so the distinguishing signal is usually the property, neighbourhood, or city. ' +
-    'Choose the ONE deal the chat is about. If you are not clearly confident, choose 0 (none). ' +
-    'Never invent a deal. Reply with JSON only.';
+    'abbreviated, nicknamed, or messy. The listed deals all belong to the SAME client, ' +
+    'but the chat MIGHT be about a different / older matter that is NOT in the list. ' +
+    'Choose a deal ONLY if the chat is clearly about it (matching surname AND ' +
+    'property / neighbourhood / city). If you are not clearly confident, or the chat ' +
+    'seems to be about a matter not listed, choose 0 (none). Never invent a deal. ' +
+    'Reply with JSON only.';
   const user =
     `WhatsApp chat name:\n"${groupName}"\n\n` +
     `Candidate deals:\n` +

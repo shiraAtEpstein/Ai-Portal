@@ -34,12 +34,15 @@ function sharedTokenCount(a, b) {
 
 // From the client's candidate deals, choose the one the group name matches.
 //   0 candidates -> null
-//   1 candidate  -> that one (no ambiguity to resolve)
+//   1 candidate  -> null (do NOT auto-accept: the chat might be about an OLDER
+//                   matter that isn't in the system, so a single found deal
+//                   is not proof. Defer to the AI verifier, which can answer
+//                   "none".)
 //   >1           -> the single best name match; null if there's a tie or no
 //                   overlap (ambiguous -> leave for review, never guess).
 function pickDealByGroupName(groupName, candidates) {
   const list = (candidates || []).filter(Boolean);
-  if (list.length <= 1) return list[0] || null;
+  if (list.length <= 1) return null;
   const scored = list
     .map((d) => ({ d, score: sharedTokenCount(groupName, d.name) }))
     .sort((x, y) => y.score - x.score);

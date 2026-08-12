@@ -29,6 +29,7 @@
     .label{font-weight:bold;color:var(--ink);}
     .client{font-size:13px;color:var(--clientteal);margin-top:2px;}
     .resp{font-size:13px;color:#565a62;}
+    .addr{color:#0a7cff;font-size:11px;font-weight:bold;margin-inline-start:6px;white-space:nowrap;}
     .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:bold;color:#fff;}
     .b-required{background:var(--red);}
     .b-potential{background:var(--amber);}
@@ -107,7 +108,9 @@
         tr.appendChild(nameTd);
         var stTd = el('td','status'); stTd.appendChild(badge(it.status)); tr.appendChild(stTd);
         var tmTd = el('td','time', waitLabel(it.hoursWaiting)); tmTd.style.color = waitColor(it.hoursWaiting); tr.appendChild(tmTd);
-        tr.appendChild(el('td','resp', it.responsibleName || '—'));
+        var respTd = el('td','resp'); respTd.appendChild(document.createTextNode(it.responsibleName || '—'));
+        if(it.addressed){ respTd.appendChild(el('span','addr','↩ פנייה בשם')); }
+        tr.appendChild(respTd);
         table.appendChild(tr);
       });
       content.appendChild(table);

@@ -255,6 +255,15 @@ class BaileysGroupsProvider extends EventEmitter {
     let skipped = 0;
     for (const msg of messages) {
       try {
+        // Deletion (revoke) for everyone: carries the key of the message that
+        // was deleted. Mark that message deleted so it drops off the board, and
+        // don't ingest the revoke stub itself.
+        const proto = msg && msg.message && msg.message.protocolMessage;
+        if (proto && (proto.type === 0 || proto.type === 'REVOKE') && proto.key && proto.key.id) {
+          try { await ingestDb.markMessageDeleted(String(proto.key.id)); } catch (_) {}
+          skipped++; continue;
+        }
+
         const info = senderFromMessage(msg);
         if (!info.message_id) { skipped++; continue; }
 

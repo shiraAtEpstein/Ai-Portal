@@ -12,7 +12,7 @@
 // ============================================================
 const express = require('express');
 const { authenticate, requireAdmin } = require('../lib/sessions');
-const { buildDigest, sendDigests } = require('../lib/unanswered-digest');
+const { buildDigest, sendDigests, buildBoard } = require('../lib/unanswered-digest');
 const ingestDb = require('../whatsapp/ingest/db');
 const { loadDirectory, routeGroupToStaff } = require('../lib/routing');
 
@@ -92,6 +92,17 @@ module.exports = function createUnansweredRouter() {
       });
     } catch (e) {
       return res.json({ ok: false, stage: 'network', message: e.message, present, clientIdTail });
+    }
+  });
+
+  // Control board (verification): every currently-unanswered chat with status,
+  // wait time, and who's in charge. Answered chats aren't here.
+  router.get('/api/admin/unanswered/board', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const board = await buildBoard();
+      res.json(board);
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to build board.', detail: e.message });
     }
   });
 

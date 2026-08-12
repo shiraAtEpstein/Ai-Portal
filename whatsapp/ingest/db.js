@@ -129,6 +129,9 @@ async function ensureTables() {
     `CREATE INDEX IF NOT EXISTS idx_pj_sent_at_missing
        ON processing_jobs (created_at) WHERE sent_at IS NULL;`
   );
+  // Set when a message is DELETED for everyone in WhatsApp (revoke). A deleted
+  // message no longer counts as unanswered and drops off the board.
+  await p.query(`ALTER TABLE processing_jobs ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;`);
   await p.query(
     `CREATE INDEX IF NOT EXISTS idx_pj_unclassified
        ON processing_jobs (created_at)
@@ -207,6 +210,20 @@ async function backfillSentAt({ limit = 100 } = {}) {
   }
   if (r.rows.length) console.log(`[sent-at-backfill] scanned ${r.rows.length}, filled ${filled} from send-time`);
   return { scanned: r.rows.length, filled };
+}
+
+// Mark a message deleted (WhatsApp revoke) by its source_item_id (= key.id of
+// the revoked message). It then drops out of the unanswered detection.
+async function markMessageDeleted(sourceItemId) {
+  const p = getPool();
+  if (!p || !sourceItemId) return;
+  const r = await p.query(
+    `UPDATE processing_jobs SET deleted_at = now()
+     WHERE source = 'whatsapp' AND source_item_id = $1 AND deleted_at IS NULL
+     RETURNING id`,
+    [String(sourceItemId)]
+  );
+  if (r.rows[0]) console.log(`[whatsapp/ingest] message ${sourceItemId} marked deleted (revoked) — drops off the board`);
 }
 
 // Store one message's triage category. Only valid categories are written.
@@ -634,7 +651,7 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
        SELECT chat_jid, direction, sender_phone, payload_encrypted, contact_id, is_group,
               COALESCE(sent_at, created_at) AS eff_at
        FROM processing_jobs
-       WHERE source = 'whatsapp' AND chat_jid IS NOT NULL
+       WHERE source = 'whatsapp' AND chat_jid IS NOT NULL AND deleted_at IS NULL
      ),
      per_chat AS (
        SELECT chat_jid,
@@ -821,7 +838,7 @@ async function responseStats({ days = 30, staffPhones = [] } = {}) {
              CASE WHEN direction = 'out' OR sender_phone IN (SELECT phone9 FROM staff)
                   THEN 'firm' ELSE 'client' END AS side
       FROM processing_jobs
-      WHERE source = 'whatsapp' AND chat_jid IS NOT NULL
+      WHERE source = 'whatsapp' AND chat_jid IS NOT NULL AND deleted_at IS NULL
         AND COALESCE(sent_at, created_at) >= now() - make_interval(days => $2)
     ),
     seq AS (
@@ -900,6 +917,7 @@ module.exports = {
   listRecentJobs,
   responseStats,
   dismissChat,
+  markMessageDeleted,
   backfillSentAt,
   listUnclassifiedInbound,
   setMessageCategory,

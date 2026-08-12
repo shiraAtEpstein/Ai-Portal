@@ -56,9 +56,18 @@ async function ensureTables() {
   // cached here so we don't re-resolve on every message. deals.id lives in
   // whatsapp/ingest/db.js; nullable until resolved (or if it can't be).
   await p.query(`ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS deal_id UUID;`);
-  // Routing: normalized (last-9-digit) phones of the group's participants, so an
-  // unanswered chat can be routed to the staff member who is in the group.
+  // Routing: the normalized (last-9-digit) phone numbers of the group's
+  // participants, so an unanswered chat can be routed to the staff member who
+  // is in the group (see lib/routing.js). Captured at discovery / membership
+  // change; @lid-only participants with no recoverable phone are omitted.
   await p.query(`ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS participant_phones TEXT[];`);
+  // The RESPONSIBLE staff member for this group's case, resolved ONCE from the
+  // linked monday deal's "person in charge" (paralegal / deal_owner) column and
+  // cached here — responsibility is set once per case and doesn't change, so we
+  // never re-sync. NULL = not resolved yet (resolved lazily the first time the
+  // group is needed). Routing sends a chat's alert to this person only.
+  await p.query(`ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS responsible_email TEXT;`);
+  await p.query(`ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS responsible_name TEXT;`);
   // Connection gap log: one row per offline window (went_down_at .. came_back_at).
   // WhatsApp only redelivers messages missed during SHORT gaps; a long outage
   // may drop some for good. This table is the audit trail so a human can see
@@ -196,6 +205,13 @@ async function getAccountStatus(accountId) {
   return r.rows[0] || null;
 }
 
+// --- groups -----------------------------------------------------------
+
+// participantPhones (optional): array of normalized last-9-digit phones. When
+// provided (group discovery / membership change) it overwrites the stored set;
+// when omitted (e.g. a metadata-only groups.update with just a new subject) the
+// existing participant_phones are preserved via COALESCE, so we never wipe a
+// good list with a null.
 async function upsertGroup(accountId, providerGroupJid, name, participantCount, participantPhones) {
   await ensureTables();
   const p = getPool();
@@ -252,6 +268,20 @@ async function setGroupDeal(accountId, providerGroupJid, dealId) {
   await p.query(
     `UPDATE whatsapp_groups SET deal_id = $3 WHERE account_id = $1 AND provider_group_jid = $2`,
     [accountId, providerGroupJid, dealId]
+  );
+}
+
+// Cache the resolved responsible staff member on a group (by its WhatsApp jid).
+// email='' is a valid "resolved to nobody / default owner" marker so we don't
+// re-query monday for a group with no linked deal.
+async function setGroupResponsibleByJid(providerGroupJid, email, name) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !providerGroupJid) return;
+  await p.query(
+    `UPDATE whatsapp_groups SET responsible_email = $2, responsible_name = $3
+     WHERE provider_group_jid = $1`,
+    [providerGroupJid, email == null ? '' : String(email), name || null]
   );
 }
 
@@ -334,6 +364,7 @@ module.exports = {
   listGroups,
   getGroup,
   setGroupDeal,
+  setGroupResponsibleByJid,
   openConnectionGap,
   closeConnectionGap,
   listConnectionGaps,

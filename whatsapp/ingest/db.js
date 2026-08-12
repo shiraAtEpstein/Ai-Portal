@@ -625,7 +625,8 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
             g.participant_phones,
             c.monday_client_name,
             c.display_name,
-            dz.dismissed_at
+            dz.dismissed_at,
+            g.responsible_email
      FROM per_chat pc
      LEFT JOIN block_agg ba ON ba.chat_jid = pc.chat_jid
      LEFT JOIN whatsapp_groups g ON g.provider_group_jid = pc.chat_jid AND g.removed_at IS NULL
@@ -688,6 +689,7 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
       firstUnansweredAt: row.first_unanswered_at,
       unansweredCount: msgCount,
       lastClientPhone: row.last_client_phone || null, // last-9 digits, for a wa.me link
+      responsibleEmail: row.responsible_email == null ? null : String(row.responsible_email), // '' = resolved to default owner; null = not resolved yet
       participant_phones: Array.isArray(row.participant_phones) ? row.participant_phones : [],
       blockText,                          // WHOLE unanswered block -> AI needs-reply check
       lastText,                           // last line only (debugging)

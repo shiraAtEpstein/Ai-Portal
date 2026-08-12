@@ -119,6 +119,16 @@ async function ensureTables() {
   // retry state, so a message the AI couldn't reach during an outage is picked
   // up next pass. Response-time metrics count ONLY 'required'.
   await p.query(`ALTER TABLE processing_jobs ADD COLUMN IF NOT EXISTS client_category TEXT;`);
+  // The ACTUAL WhatsApp send time (from the message's messageTimestamp), as
+  // opposed to created_at which is INGEST time. Used for all wait/response
+  // timing so a message redelivered late (after a reconnect) is timed from when
+  // it was really sent. NULL for rows not yet backfilled -> falls back to
+  // created_at via COALESCE.
+  await p.query(`ALTER TABLE processing_jobs ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;`);
+  await p.query(
+    `CREATE INDEX IF NOT EXISTS idx_pj_sent_at_missing
+       ON processing_jobs (created_at) WHERE sent_at IS NULL;`
+  );
   await p.query(
     `CREATE INDEX IF NOT EXISTS idx_pj_unclassified
        ON processing_jobs (created_at)
@@ -159,6 +169,44 @@ async function listUnclassifiedInbound({ limit = 50, staffPhones = [] } = {}) {
     [staff, lim]
   );
   return r.rows;
+}
+
+// Backfill sent_at (real WhatsApp send time) for existing rows that predate the
+// column, by decrypting each payload and reading its messageTimestamp. Rows with
+// no usable timestamp get sent_at = created_at so they're not rescanned. Bounded;
+// run repeatedly until it reports 0 scanned.
+async function backfillSentAt({ limit = 100 } = {}) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return { scanned: 0, filled: 0 };
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 1000);
+  const r = await p.query(
+    `SELECT id, payload_encrypted FROM processing_jobs
+     WHERE source = 'whatsapp' AND sent_at IS NULL AND payload_encrypted IS NOT NULL
+     ORDER BY created_at DESC LIMIT $1`,
+    [lim]
+  );
+  let filled = 0;
+  for (const row of r.rows) {
+    let ts = null;
+    try {
+      const json = enc.decrypt(row.payload_encrypted || '');
+      const msg = json ? JSON.parse(json) : null;
+      const n = Number(msg && msg.messageTimestamp);
+      if (Number.isFinite(n) && n > 0) ts = n;
+    } catch (_) { /* unreadable -> fall back to created_at below */ }
+    if (ts) {
+      await p.query(
+        `UPDATE processing_jobs SET sent_at = to_timestamp($2::double precision) WHERE id = $1 AND sent_at IS NULL`,
+        [row.id, ts]
+      );
+      filled++;
+    } else {
+      await p.query(`UPDATE processing_jobs SET sent_at = created_at WHERE id = $1 AND sent_at IS NULL`, [row.id]);
+    }
+  }
+  if (r.rows.length) console.log(`[sent-at-backfill] scanned ${r.rows.length}, filled ${filled} from send-time`);
+  return { scanned: r.rows.length, filled };
 }
 
 // Store one message's triage category. Only valid categories are written.
@@ -258,6 +306,7 @@ async function enqueueJob({
   contact_id,
   deal_id,
   payloadObj,
+  ts_seconds, // WhatsApp send time (messageTimestamp), seconds since epoch
 } = {}) {
   await ensureTables();
   const p = getPool();
@@ -270,10 +319,13 @@ async function enqueueJob({
     console.warn('[whatsapp/ingest] could not serialize raw payload, storing empty:', e.message);
     payloadEncrypted = enc.encrypt('{}');
   }
+  const tsNum = Number(ts_seconds);
+  const sentSeconds = Number.isFinite(tsNum) && tsNum > 0 ? tsNum : null;
   const r = await p.query(
     `INSERT INTO processing_jobs
-       (source, source_item_id, chat_jid, is_group, direction, sender_phone, contact_id, deal_id, payload_encrypted)
-     VALUES ('whatsapp', $1, $2, $3, $4, $5, $6, $7, $8)
+       (source, source_item_id, chat_jid, is_group, direction, sender_phone, contact_id, deal_id, payload_encrypted, sent_at)
+     VALUES ('whatsapp', $1, $2, $3, $4, $5, $6, $7, $8,
+             CASE WHEN $9::double precision IS NULL THEN NULL ELSE to_timestamp($9::double precision) END)
      ON CONFLICT (source, source_item_id) DO NOTHING
      RETURNING id`,
     [
@@ -285,6 +337,7 @@ async function enqueueJob({
       contact_id || null,
       deal_id || null,
       payloadEncrypted,
+      sentSeconds,
     ]
   );
   return (r.rows[0] && r.rows[0].id) || null;
@@ -574,40 +627,48 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
 
   const r = await p.query(
     `WITH staff AS (SELECT unnest($1::text[]) AS phone9),
+     -- eff_at = the ACTUAL WhatsApp send time (sent_at) when known, else the
+     -- ingest time (created_at). All wait/answer timing uses this, so a message
+     -- redelivered late after a reconnect is still timed from when it was SENT.
+     base AS (
+       SELECT chat_jid, direction, sender_phone, payload_encrypted, contact_id, is_group,
+              COALESCE(sent_at, created_at) AS eff_at
+       FROM processing_jobs
+       WHERE source = 'whatsapp' AND chat_jid IS NOT NULL
+     ),
      per_chat AS (
        SELECT chat_jid,
-              MAX(created_at) FILTER (
+              MAX(eff_at) FILTER (
                 WHERE direction = 'in'
                   AND (sender_phone IS NULL OR sender_phone NOT IN (SELECT phone9 FROM staff))
               ) AS last_client_at,
-              MAX(created_at) FILTER (
+              MAX(eff_at) FILTER (
                 WHERE direction = 'out' OR sender_phone IN (SELECT phone9 FROM staff)
               ) AS last_firm_at
-       FROM processing_jobs
-       WHERE source = 'whatsapp' AND chat_jid IS NOT NULL
+       FROM base
        GROUP BY chat_jid
      ),
      -- Every client message the firm has NOT replied to (after last_firm_at, or
      -- all of them if the firm never replied). This is the "unanswered block".
      block AS (
-       SELECT pj.chat_jid, pj.created_at, pj.payload_encrypted, pj.contact_id,
-              pj.is_group, pj.sender_phone
-       FROM processing_jobs pj
-       JOIN per_chat pc ON pc.chat_jid = pj.chat_jid
-       WHERE pj.source = 'whatsapp' AND pj.direction = 'in' AND pj.chat_jid IS NOT NULL
-         AND (pj.sender_phone IS NULL OR pj.sender_phone NOT IN (SELECT phone9 FROM staff))
-         AND (pc.last_firm_at IS NULL OR pj.created_at > pc.last_firm_at)
+       SELECT b.chat_jid, b.eff_at, b.payload_encrypted, b.contact_id,
+              b.is_group, b.sender_phone
+       FROM base b
+       JOIN per_chat pc ON pc.chat_jid = b.chat_jid
+       WHERE b.direction = 'in'
+         AND (b.sender_phone IS NULL OR b.sender_phone NOT IN (SELECT phone9 FROM staff))
+         AND (pc.last_firm_at IS NULL OR b.eff_at > pc.last_firm_at)
      ),
      block_agg AS (
        SELECT chat_jid,
-              MIN(created_at) AS first_unanswered_at,   -- oldest waiting message
-              MAX(created_at) AS last_unanswered_at,
+              MIN(eff_at) AS first_unanswered_at,   -- oldest waiting message
+              MAX(eff_at) AS last_unanswered_at,
               COUNT(*)        AS msg_count,
               bool_or(is_group) AS is_group,
               -- oldest-first, capped, so the block reads in order for the AI
-              (array_agg(payload_encrypted ORDER BY created_at ASC))[1:25] AS payloads,
-              (array_agg(sender_phone ORDER BY created_at DESC))[1] AS last_client_phone,
-              (array_agg(contact_id ORDER BY created_at DESC) FILTER (WHERE contact_id IS NOT NULL))[1] AS contact_id
+              (array_agg(payload_encrypted ORDER BY eff_at ASC))[1:25] AS payloads,
+              (array_agg(sender_phone ORDER BY eff_at DESC))[1] AS last_client_phone,
+              (array_agg(contact_id ORDER BY eff_at DESC) FILTER (WHERE contact_id IS NOT NULL))[1] AS contact_id
        FROM block
        GROUP BY chat_jid
      )
@@ -755,12 +816,13 @@ async function responseStats({ days = 30, staffPhones = [] } = {}) {
   const CTE = `
     WITH staff AS (SELECT unnest($1::text[]) AS phone9),
     msgs AS (
-      SELECT chat_jid, created_at, client_category,
+      -- created_at here = the effective time (real send time when known).
+      SELECT chat_jid, COALESCE(sent_at, created_at) AS created_at, client_category,
              CASE WHEN direction = 'out' OR sender_phone IN (SELECT phone9 FROM staff)
                   THEN 'firm' ELSE 'client' END AS side
       FROM processing_jobs
       WHERE source = 'whatsapp' AND chat_jid IS NOT NULL
-        AND created_at >= now() - make_interval(days => $2)
+        AND COALESCE(sent_at, created_at) >= now() - make_interval(days => $2)
     ),
     seq AS (
       SELECT chat_jid, created_at, side, client_category,
@@ -811,7 +873,7 @@ async function responseStats({ days = 30, staffPhones = [] } = {}) {
      FROM processing_jobs
      WHERE source = 'whatsapp' AND direction = 'in'
        AND (sender_phone IS NULL OR sender_phone <> ALL($1::text[]))
-       AND created_at >= now() - make_interval(days => $2)`,
+       AND COALESCE(sent_at, created_at) >= now() - make_interval(days => $2)`,
     [staff, d]
   );
   const s = summary.rows[0] || {};
@@ -838,6 +900,7 @@ module.exports = {
   listRecentJobs,
   responseStats,
   dismissChat,
+  backfillSentAt,
   listUnclassifiedInbound,
   setMessageCategory,
   upsertContact,

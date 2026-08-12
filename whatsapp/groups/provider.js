@@ -177,7 +177,10 @@ class BaileysGroupsProvider extends EventEmitter {
 
     this.sock.ev.on('groups.update', async (updates) => {
       for (const g of updates) {
-if (g.id) await this._upsertGroup(g.id, g.subject, g.size, this._phonesFrom(g.participants));
+        // groups.update is usually a metadata-only delta (e.g. a new subject)
+        // and often carries no participants array — pass phones only if present
+        // so _upsertGroup preserves the existing set rather than wiping it.
+        if (g.id) await this._upsertGroup(g.id, g.subject, g.size, this._phonesFrom(g.participants));
       }
     });
 
@@ -188,7 +191,7 @@ if (g.id) await this._upsertGroup(g.id, g.subject, g.size, this._phonesFrom(g.pa
     // groupFetchAllParticipating() in _discoverGroups().
     this.sock.ev.on('groups.upsert', async (groups) => {
       for (const g of groups) {
-      if (g.id) {
+        if (g.id) {
           await this._upsertGroup(
             g.id,
             g.subject,
@@ -199,6 +202,11 @@ if (g.id) await this._upsertGroup(g.id, g.subject, g.size, this._phonesFrom(g.pa
       }
     });
 
+    // Participant add/remove/promote/demote. On a 'remove' that includes OUR
+    // jid the group is gone (see below). For any OTHER membership change we
+    // refresh the group's participant list so routing (lib/routing.js) stays
+    // accurate as staff are added to / removed from a chat.
+    //
     // 'remove' fires both when someone kicks us and when we leave
     // ourselves (Baileys doesn't distinguish at this event level — only
     // the resulting chat message stub does). Either way, if OUR jid is in
@@ -290,6 +298,7 @@ if (g.id) await this._upsertGroup(g.id, g.subject, g.size, this._phonesFrom(g.pa
           contact_id: contact ? contact.id : null,
           deal_id: dealId,
           payloadObj: msg,
+          ts_seconds: info.timestamp, // real WhatsApp send time
         });
         if (jobId) {
           enqueued++;
@@ -492,7 +501,7 @@ if (g.id) await this._upsertGroup(g.id, g.subject, g.size, this._phonesFrom(g.pa
       const seenJids = new Set();
       for (const jid of Object.keys(groups)) {
         const g = groups[jid];
-    await this._upsertGroup(
+        await this._upsertGroup(
           jid,
           g.subject,
           g.participants ? g.participants.length : null,
@@ -528,16 +537,19 @@ if (g.id) await this._upsertGroup(g.id, g.subject, g.size, this._phonesFrom(g.pa
     }
   }
 
-async _upsertGroup(jid, name, participantCount, participantPhones) {
+  async _upsertGroup(jid, name, participantCount, participantPhones) {
     const group = await db.upsertGroup(this.accountId, jid, name, participantCount, participantPhones);
     if (group) this.emit('group', group);
   }
 
   // Turn a Baileys participants array into the set of normalized (last-9-digit)
-  // phone numbers we can match against the staff directory (lib/routing.js).
-  // @lid-only participants with no companion phone are dropped; our own line is
-  // excluded. Returns null when there's no participants array so the DB keeps
-  // the previously-captured list instead of wiping it.
+  // phone numbers we can match against the staff directory (lib/routing.js):
+  //   - @s.whatsapp.net id -> real phone, kept.
+  //   - @lid id -> opaque, NOT a phone; try a companion phone field WhatsApp
+  //     sometimes attaches (jid / phoneNumber), else drop it.
+  //   - OUR OWN number (the LAWLY line) is always excluded.
+  // Returns null (not []) when there's no participants array, so _upsertGroup /
+  // db.upsertGroup preserve any previously-captured list instead of wiping it.
   _phonesFrom(participants) {
     if (!Array.isArray(participants)) return null;
     const ownJid = this.sock?.user?.id || this.authStore?.auth?.creds?.me?.id || '';
@@ -545,23 +557,26 @@ async _upsertGroup(jid, name, participantCount, participantPhones) {
     for (const p of participants) {
       const id = (p && (p.id || p.jid)) || '';
       if (!id) continue;
+      // Skip our own line.
       if (ownJid && (areJidsSameUser(id, ownJid) || (p.jid && areJidsSameUser(p.jid, ownJid)))) continue;
       let phoneSource = null;
       if (!isLidJid(id)) {
-        phoneSource = id;
+        phoneSource = id;                                   // already a phone JID
       } else if (p.jid && !isLidJid(p.jid)) {
-        phoneSource = p.jid;
+        phoneSource = p.jid;                                // companion phone JID
       } else if (p.phoneNumber) {
-        phoneSource = String(p.phoneNumber);
+        phoneSource = String(p.phoneNumber);               // companion phone field
       }
-      if (!phoneSource) continue;
+      if (!phoneSource) continue;                           // @lid-only, unresolvable
       const phone9 = normalizePhone(jidUser(phoneSource));
       if (phone9) out.add(phone9);
     }
     return Array.from(out);
   }
 
-  // Re-pull one group's members and refresh its stored phones (best-effort).
+  // Re-pull one group's current members and refresh its stored phones. Called
+  // on a group-participants.update so routing stays accurate. Best-effort: a
+  // failed metadata fetch just leaves the last-known list in place.
   async _refreshGroupParticipants(jid) {
     if (!this.sock || !jid) return;
     try {

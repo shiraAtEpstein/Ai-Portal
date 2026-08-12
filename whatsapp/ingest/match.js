@@ -1,45 +1,55 @@
 // ============================================================
-// whatsapp/ingest/ai-match.js — AI fallback for chat -> deal matching.
-// Used only when the deterministic passes can't decide (e.g. the group name is
-// in English and the deal name in Hebrew). Constrained SELECTION, not a guess:
-// Claude is handed a fixed list of the client's deals and must pick one of them
-// or answer "none". The backend then verifies the pick is a real candidate.
+// whatsapp/ingest/match.js — pure name-matching for chat → deal resolution.
+// No DB, no side effects. Given a WhatsApp group name and the candidate deals a
+// client is linked to, pick the deal whose name the group name matches best.
 // ============================================================
-const claude = require('../../lib/claude');
 
-// Returns the chosen candidate object, or null if unsure / not configured.
-async function pickDealByGroupNameAI(groupName, candidates) {
-  const list = (candidates || []).filter(Boolean);
-  if (!list.length) return null;                  // nothing to match against
-  if (!claude.isConfigured() || !groupName) return null;
+// Filler words that appear in chat names / deal names but don't identify the
+// matter. The signal is the surname + property/place, so we drop the noise.
+const STOP = new Set([
+  // English
+  'the', 'to', 'in', 'of', 'a', 'an', 'and', 'for', 'with', 'on', 'at', 'by',
+  'purchase', 'purchasing', 'sale', 'selling', 'buy', 'buying', 'deal', 'journey',
+  'amazing', 'group', 'apartment', 'apt', 'property', 'home', 'house', 'new',
+  // Hebrew
+  'של', 'עם', 'עסקה', 'דירה', 'נכס', 'רכישת', 'רכישה', 'מכירת', 'מכירה',
+  'קבוצת', 'ווטסאפ', 'וואטסאפ', 'קבוצה', 'לקוח', 'לקוחות',
+]);
 
-  // NOTE: we verify even a SINGLE candidate — the chat might be about an older
-  // matter that isn't in the system at all, so a lone deal is not proof. The AI
-  // must answer 0 (none) unless the chat is clearly about a listed deal.
-  const options = list.map((d, i) => ({ n: i + 1, id: String(d.monday_item_id), name: d.name || '' }));
-  const system =
-    'You match a WhatsApp chat to the correct real-estate deal for a law firm. ' +
-    'The chat name and the deal names may be in Hebrew or English, transliterated, ' +
-    'abbreviated, nicknamed, or messy. The listed deals all belong to the SAME client, ' +
-    'but the chat MIGHT be about a different / older matter that is NOT in the list. ' +
-    'Choose a deal ONLY if the chat is clearly about it (matching surname AND ' +
-    'property / neighbourhood / city). If you are not clearly confident, or the chat ' +
-    'seems to be about a matter not listed, choose 0 (none). Never invent a deal. ' +
-    'Reply with JSON only.';
-  const user =
-    `WhatsApp chat name:\n"${groupName}"\n\n` +
-    `Candidate deals:\n` +
-    options.map((o) => `${o.n}. ${o.name}`).join('\n') +
-    `\n\nReply exactly as JSON: {"choice": <the number of the matching deal, or 0 if unsure>}`;
-
-  const out = await claude.askJSON({ system, user, model: 'haiku', maxTokens: 200 });
-  if (!out) return null;
-  const choice = Number(out.choice);
-  if (!Number.isInteger(choice) || choice < 1 || choice > options.length) return null;
-
-  // Validate: the pick must be one of the candidates we offered (backend owns identity).
-  const pickedId = options[choice - 1].id;
-  return list.find((d) => String(d.monday_item_id) === pickedId) || null;
+function tokenize(s) {
+  return String(s == null ? '' : s)
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((t) => t && t.length >= 2 && !STOP.has(t));
 }
 
-module.exports = { pickDealByGroupNameAI };
+// Count of distinct significant tokens shared between two names.
+function sharedTokenCount(a, b) {
+  const A = new Set(tokenize(a));
+  if (!A.size) return 0;
+  let n = 0;
+  for (const t of new Set(tokenize(b))) if (A.has(t)) n++;
+  return n;
+}
+
+// From the client's candidate deals, choose the one the group name matches.
+//   0 candidates -> null
+//   1 candidate  -> null (do NOT auto-accept: the chat might be about an OLDER
+//                   matter that isn't in the system, so a single found deal
+//                   is not proof. Defer to the AI verifier, which can answer
+//                   "none".)
+//   >1           -> the single best name match; null if there's a tie or no
+//                   overlap (ambiguous -> leave for review, never guess).
+function pickDealByGroupName(groupName, candidates) {
+  const list = (candidates || []).filter(Boolean);
+  if (list.length <= 1) return null;
+  const scored = list
+    .map((d) => ({ d, score: sharedTokenCount(groupName, d.name) }))
+    .sort((x, y) => y.score - x.score);
+  const top = scored[0];
+  const second = scored[1];
+  if (top.score >= 1 && top.score > second.score) return top.d;
+  return null;
+}
+
+module.exports = { tokenize, sharedTokenCount, pickDealByGroupName };

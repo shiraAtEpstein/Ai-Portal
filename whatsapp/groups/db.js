@@ -260,6 +260,17 @@ async function getGroup(accountId, providerGroupJid) {
   return r.rows[0] || null;
 }
 
+// Set a group's deal link by its jid (one account) — used by the batch re-linker.
+async function setGroupDealByJid(providerGroupJid, dealId) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !providerGroupJid || !dealId) return;
+  await p.query(
+    `UPDATE whatsapp_groups SET deal_id = $2 WHERE provider_group_jid = $1`,
+    [providerGroupJid, dealId]
+  );
+}
+
 // Cache the resolved chat -> deal mapping on the group row.
 async function setGroupDeal(accountId, providerGroupJid, dealId) {
   await ensureTables();
@@ -283,6 +294,21 @@ async function setGroupResponsibleByJid(providerGroupJid, email, name) {
      WHERE provider_group_jid = $1`,
     [providerGroupJid, email == null ? '' : String(email), name || null]
   );
+}
+
+// Look up a group by its WhatsApp jid (one account), including its cached
+// deal_id — used to resolve the responsible via the ALREADY-linked deal
+// (covers both group-id and name-match linkage).
+async function getGroupByJid(providerGroupJid) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !providerGroupJid) return null;
+  const r = await p.query(
+    `SELECT id, name, provider_group_jid, deal_id, responsible_email
+     FROM whatsapp_groups WHERE provider_group_jid = $1 AND removed_at IS NULL LIMIT 1`,
+    [providerGroupJid]
+  );
+  return r.rows[0] || null;
 }
 
 async function listGroups(accountId, { includeRemoved } = {}) {
@@ -363,7 +389,9 @@ module.exports = {
   markGroupRemoved,
   listGroups,
   getGroup,
+  getGroupByJid,
   setGroupDeal,
+  setGroupDealByJid,
   setGroupResponsibleByJid,
   openConnectionGap,
   closeConnectionGap,

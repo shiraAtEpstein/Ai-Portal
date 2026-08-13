@@ -95,6 +95,20 @@ module.exports = function createUnansweredRouter() {
     }
   });
 
+  // Re-link a batch of still-unlinked groups to their monday deal + responsible,
+  // on demand (rebuilds links without waiting for new messages).
+  //   POST /api/admin/unanswered/relink?limit=25   -> run again until remaining=0
+  router.post('/api/admin/unanswered/relink', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const { relinkUnlinked } = require('../lib/relink');
+      const limit = parseInt((req.query && req.query.limit) || '25', 10);
+      const result = await relinkUnlinked({ limit });
+      res.json({ ok: true, ...result });
+    } catch (e) {
+      res.status(500).json({ error: 'Relink failed.', detail: e.message });
+    }
+  });
+
   // Control board (verification): every currently-unanswered chat with status,
   // wait time, and who's in charge. Answered chats aren't here.
   router.get('/api/admin/unanswered/board', authenticate, requireAdmin, async (req, res) => {

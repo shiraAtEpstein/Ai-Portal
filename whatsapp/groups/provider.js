@@ -360,8 +360,15 @@ class BaileysGroupsProvider extends EventEmitter {
       if (!dealDesc && contact && contact.monday_item_id) {
         const candidates = await monday.resolveDealsForClient(contact.monday_item_id);
         const groupName = group && group.name;
+        // 1) cheap: match on the deal NAME only (deterministic, then AI).
         dealDesc = pickDealByGroupName(groupName, candidates);
         if (!dealDesc) dealDesc = await pickDealByGroupNameAI(groupName, candidates);
+        // 2) fallback ONLY if that failed: pull the linked project's details
+        //    (city / neighbourhood) and let the AI match on the fuller context.
+        if (!dealDesc && candidates.length) {
+          await monday.enrichDealsWithContext(candidates);
+          dealDesc = await pickDealByGroupNameAI(groupName, candidates);
+        }
       }
       if (!dealDesc) return null;
 

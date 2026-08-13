@@ -95,6 +95,21 @@ module.exports = function createUnansweredRouter() {
     }
   });
 
+  // Backfill: resolve still-unresolved WhatsApp contacts to their monday CLIENT
+  // by phone (same match the ingest path does). Run this BEFORE relink — it's
+  // what lets relink then find each group's deal via its now-resolved client.
+  //   POST /api/admin/unanswered/resolve-clients?limit=500  -> run until remaining stops dropping
+  router.post('/api/admin/unanswered/resolve-clients', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const { resolveUnresolvedContacts } = require('../lib/resolve-contacts');
+      const limit = parseInt((req.query && req.query.limit) || '500', 10);
+      const result = await resolveUnresolvedContacts({ limit });
+      res.json({ ok: true, ...result });
+    } catch (e) {
+      res.status(500).json({ error: 'Resolve-clients failed.', detail: e.message });
+    }
+  });
+
   // Re-link a batch of still-unlinked groups to their monday deal + responsible,
   // on demand (rebuilds links without waiting for new messages).
   //   POST /api/admin/unanswered/relink?limit=25   -> run again until remaining=0

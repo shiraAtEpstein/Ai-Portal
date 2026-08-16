@@ -47,7 +47,19 @@ function textPreview(message) {
       m.listResponseMessage.singleSelectReply &&
       m.listResponseMessage.singleSelectReply.selectedRowId) ||
     '';
-  return String(raw || '').slice(0, 280);
+  if (raw) return String(raw).slice(0, 280);
+
+  // No readable text — label the media type so the message is never invisible
+  // on the board. Voice notes especially must be surfaced (they usually need a
+  // reply) until transcription exists. Mirrors whatsapp/ingest/processor.js.
+  if (m.audioMessage) return m.audioMessage.ptt ? '[voice message]' : '[audio]';
+  if (m.imageMessage) return '[image]';
+  if (m.videoMessage) return '[video]';
+  if (m.documentMessage) return '[document' + (m.documentMessage.fileName ? ': ' + m.documentMessage.fileName : '') + ']';
+  if (m.stickerMessage) return '[sticker]';
+  if (m.locationMessage) return '[location]';
+  if (m.contactMessage || m.contactsArrayMessage) return '[contact card]';
+  return '';
 }
 
 // WhatsApp may identify a sender by an opaque @lid (privacy id) as the main

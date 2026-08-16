@@ -803,7 +803,14 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
         // Baileys payloads carry the content under .message; Cloud-API/history
         // payloads ARE the message (type/text at top level) — pass whichever.
         const t = textPreview(msg && (msg.message || msg)) || '';
-        if (t) parts.push(t);
+        if (t) {
+          // Prefix each line with the sender's display name so the AI reads the
+          // block as a DIALOGUE — it can then see when a question was answered by
+          // ANYONE in the chat (including a non-staff participant), or was
+          // directed at a specific person, and drop it from the waiting list.
+          const who = (msg && (msg.pushName || msg.verifiedBizName)) ? String(msg.pushName || msg.verifiedBizName).trim() : '';
+          parts.push((who ? who + ': ' : '') + t);
+        }
       } catch (_) { /* skip this message's text */ }
     }
     const blockText = parts.join('\n');

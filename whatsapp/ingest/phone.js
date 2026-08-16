@@ -57,6 +57,33 @@ function unwrapMessage(message) {
 
 function textPreview(message) {
   if (!message || typeof message !== 'object') return '';
+
+  // Cloud-API / history shape (from whatsapp/schema.js normalize, or a raw Cloud
+  // API message): a `type` string with NO Baileys payload. Voice notes come as
+  // type 'audio' with empty text — surface them as [voice message]. This is why
+  // history-synced voice notes were invisible: they aren't Baileys-shaped.
+  if (typeof message.type === 'string' && !message.message
+      && !message.conversation && !message.extendedTextMessage
+      && !message.audioMessage && !message.imageMessage && !message.videoMessage) {
+    const t = message.type;
+    const body = typeof message.text === 'string' ? message.text
+               : (message.text && message.text.body) || '';
+    if (body) return String(body).slice(0, 280);
+    const cap = (message[t] && message[t].caption) || '';
+    if (cap) return String(cap).slice(0, 280);
+    if (t === 'audio' || t === 'voice' || t === 'ptt') return '[voice message]';
+    if (t === 'image') return '[image]';
+    if (t === 'video') return '[video]';
+    if (t === 'document') {
+      const fn = (message.media && message.media.filename) || (message.document && message.document.filename) || '';
+      return '[document' + (fn ? ': ' + fn : '') + ']';
+    }
+    if (t === 'sticker') return '[sticker]';
+    if (t === 'location') return '[location]';
+    if (t === 'contacts' || t === 'contact') return '[contact card]';
+    return ''; // type 'text' with no body, or an unknown type
+  }
+
   const m = unwrapMessage(message);
   const raw =
     m.conversation ||

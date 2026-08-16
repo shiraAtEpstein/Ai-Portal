@@ -81,6 +81,17 @@ async function ensureTables() {
   // display name (recovers staff who appear as an anonymous @lid). NULL = a
   // client / non-staff sender. Drives firm-reply detection and reply-speed.
   await p.query(`ALTER TABLE processing_jobs ADD COLUMN IF NOT EXISTS sender_staff_phone9 TEXT;`);
+  // Cached AI triage verdict per chat, keyed by a signature of the unanswered
+  // block. Lets the board reuse a chat's verdict until its content changes (a
+  // new message) — so we never re-send an unchanged chat to the AI.
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS chat_triage (
+      chat_jid   TEXT PRIMARY KEY,
+      sig        TEXT,
+      verdict    TEXT,
+      updated_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
   // Phase 4B: structured fields the processor extracts alongside the prose
   // summary, so cross-deal questions ("most urgent", "waiting on documents",
   // "overdue payments") are DB queries, not a scan of every summary.
@@ -214,6 +225,33 @@ async function backfillSentAt({ limit = 100 } = {}) {
   }
   if (r.rows.length) console.log(`[sent-at-backfill] scanned ${r.rows.length}, filled ${filled} from send-time`);
   return { scanned: r.rows.length, filled };
+}
+
+// --- Triage verdict cache -------------------------------------------------
+// getChatTriage(jids) -> Map<chat_jid, { sig, verdict }>. Reused so the board
+// only asks the AI about chats whose content changed.
+async function getChatTriage(jids) {
+  const map = new Map();
+  const p = getPool();
+  if (!p || !Array.isArray(jids) || !jids.length) return map;
+  const r = await p.query(
+    `SELECT chat_jid, sig, verdict FROM chat_triage WHERE chat_jid = ANY($1::text[])`,
+    [jids]
+  );
+  for (const row of r.rows) map.set(row.chat_jid, { sig: row.sig, verdict: row.verdict });
+  return map;
+}
+
+// Store a chat's verdict keyed by the content signature it was computed from.
+async function setChatTriage(chatJid, sig, verdict) {
+  const p = getPool();
+  if (!p || !chatJid) return;
+  await p.query(
+    `INSERT INTO chat_triage (chat_jid, sig, verdict, updated_at)
+     VALUES ($1, $2, $3, now())
+     ON CONFLICT (chat_jid) DO UPDATE SET sig = EXCLUDED.sig, verdict = EXCLUDED.verdict, updated_at = now()`,
+    [chatJid, sig || null, verdict || null]
+  );
 }
 
 // Mark a message deleted (WhatsApp revoke) by its source_item_id (= key.id of
@@ -934,6 +972,8 @@ module.exports = {
   responseStats,
   dismissChat,
   markMessageDeleted,
+  getChatTriage,
+  setChatTriage,
   backfillSentAt,
   listUnclassifiedInbound,
   setMessageCategory,

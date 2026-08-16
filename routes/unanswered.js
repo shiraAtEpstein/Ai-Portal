@@ -11,9 +11,12 @@
 // Scope: WhatsApp only. The email side (unanswered Gmail threads) is a later PR.
 // ============================================================
 const express = require('express');
+const path = require('path');
+const fs = require('fs');
 const { authenticate, requireAdmin } = require('../lib/sessions');
-const { buildDigest, sendDigests, buildBoard } = require('../lib/unanswered-digest');
+const { buildDigest, sendDigests, buildBoard, invalidateBoardCache } = require('../lib/unanswered-digest');
 const ingestDb = require('../whatsapp/ingest/db');
+const db = require('../db');
 const { loadDirectory, routeGroupToStaff } = require('../lib/routing');
 
 const DEFAULT_HOURS = parseInt(process.env.UNANSWERED_HOURS || '3', 10);
@@ -22,6 +25,82 @@ function hoursFrom(req) {
   const raw = (req.query && req.query.hours) || (req.body && req.body.hours);
   const n = parseInt(raw, 10);
   return Number.isFinite(n) && n >= 0 ? n : DEFAULT_HOURS;
+}
+
+// ---------------------------------------------------------------------------
+// Board editing — status (נענה / לא דורש מענה) and אחראי
+// ---------------------------------------------------------------------------
+
+// Statuses live in config/board-statuses.json so labels can be changed without
+// touching code. Cached in-process like the staff directory, so a restart picks
+// up an edit. Falls back to the built-in set when the file is missing or
+// malformed — a bad edit must never take the board down.
+const FALLBACK_STATUSES = [
+  { key: 'answered',        label: 'נענה',           icon: '✅', setBy: 'staff', clears: true },
+  { key: 'no_reply_needed', label: 'לא דורש מענה',   icon: '⚪', setBy: 'staff', clears: true },
+  { key: 'required',        label: 'ממתין למענה',    icon: '🔴', setBy: 'ai',    clears: false },
+  { key: 'potential',       label: 'אולי דורש מענה', icon: '🟡', setBy: 'ai',    clears: false },
+  { key: 'voice',           label: 'הודעה קולית',    icon: '🎤', setBy: 'ai',    clears: false },
+];
+let _statuses = null;
+function loadStatuses() {
+  if (_statuses) return _statuses;
+  try {
+    const raw = fs.readFileSync(path.join(__dirname, '..', 'config', 'board-statuses.json'), 'utf8');
+    const parsed = JSON.parse(raw);
+    const list = Array.isArray(parsed.statuses) ? parsed.statuses.filter((s) => s && s.key && s.label) : [];
+    _statuses = list.length ? list : FALLBACK_STATUSES;
+  } catch (e) {
+    console.warn('[board] config/board-statuses.json unreadable, using built-in statuses:', e.message);
+    _statuses = FALLBACK_STATUSES;
+  }
+  return _statuses;
+}
+// Only a staff-settable status that clears may be applied by hand. The AI
+// statuses (ממתין למענה / אולי דורש / הודעה קולית) are produced by the triage and
+// are deliberately NOT hand-settable — otherwise the board and the classifier
+// would disagree and the next rebuild would silently undo the change.
+function clearingStatus(key) {
+  return loadStatuses().find((s) => s.key === key && s.setBy === 'staff' && s.clears) || null;
+}
+
+function sameEmail(a, b) {
+  return !!a && !!b && String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+}
+function isAdminSession(req) {
+  const roles = (req.session && req.session.roles) || [];
+  return roles.some((r) => String(r).toLowerCase() === 'admin');
+}
+
+// A person may edit a chat if they are an admin, or if the board currently
+// routes that chat to them. The check reuses the board itself (and its 45s
+// cache) rather than re-deriving the routing here, so "who is this assigned to"
+// has exactly one definition and the two can never disagree.
+async function findBoardItem(chatJid) {
+  const board = await buildBoard();
+  return (board.items || []).find((i) => i.chatJid === chatJid) || null;
+}
+async function assertMayEdit(req, chatJid) {
+  const item = await findBoardItem(chatJid);
+  if (isAdminSession(req)) return { ok: true, item };
+  if (!item) return { ok: false, code: 404, message: 'השיחה לא נמצאה ברשימה.' };
+  const mine = (item.responsibleEmails || []).some((e) => sameEmail(e, req.session && req.session.email));
+  if (!mine) return { ok: false, code: 403, message: 'רק האחראי על השיחה או מנהל יכולים לעדכן אותה.' };
+  return { ok: true, item };
+}
+
+// Fire-and-forget audit line. Never blocks or fails the request.
+function audit(req, action, targetName, metadata) {
+  try {
+    db.writeAudit({
+      actorId: req.session && req.session.userId,
+      actorName: (req.session && (req.session.name || req.session.email)) || null,
+      action,
+      targetType: 'whatsapp_chat',
+      targetName,
+      metadata: metadata || {},
+    }).catch(() => {});
+  } catch (_) { /* auditing must never break the action */ }
 }
 
 module.exports = function createUnansweredRouter() {
@@ -203,6 +282,130 @@ module.exports = function createUnansweredRouter() {
       res.json({ ok: true, ...result });
     } catch (e) {
       res.status(500).json({ error: 'Failed to send digests.', detail: e.message });
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Board editing. Any signed-in user may CALL these; the per-chat permission
+  // (assignee or admin) is enforced inside each handler by assertMayEdit.
+  // -------------------------------------------------------------------------
+
+  // What the board UI needs to draw its two dropdowns: the status list and the
+  // staff list. No chat data, so it is safe for any signed-in user.
+  router.get('/api/board/meta', authenticate, async (req, res) => {
+    try {
+      const dir = loadDirectory();
+      res.json({
+        isAdmin: isAdminSession(req),
+        email: (req.session && req.session.email) || null,
+        statuses: loadStatuses().map((s) => ({
+          key: s.key,
+          label: s.label,
+          icon: s.icon || '',
+          setBy: s.setBy || 'ai',
+          clears: !!s.clears,
+          help: s.help || '',
+        })),
+        staff: (dir.staff || [])
+          .filter((s) => s.email)
+          .map((s) => ({ name: s.name, email: s.email })),
+      });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to load board metadata.', detail: e.message });
+    }
+  });
+
+  // Set a chat's status by hand. Only the staff-settable, clearing statuses are
+  // accepted (נענה / לא דורש מענה); both remove the chat from the list, and the
+  // key is stored as the dismissal reason so the admin view can show WHY.
+  // A chat re-appears by itself if the client writes again afterwards.
+  router.post('/api/board/status', authenticate, async (req, res) => {
+    try {
+      const chatJid = String((req.body && req.body.chatJid) || '').trim();
+      const status = String((req.body && req.body.status) || '').trim();
+      if (!chatJid) return res.status(400).json({ error: 'chatJid חסר.' });
+      const st = clearingStatus(status);
+      if (!st) return res.status(400).json({ error: 'סטטוס לא חוקי (ניתן לקבוע ידנית רק סטטוס שמסיר מהרשימה).' });
+
+      const gate = await assertMayEdit(req, chatJid);
+      if (!gate.ok) return res.status(gate.code).json({ error: gate.message });
+
+      await ingestDb.dismissChat(chatJid, (req.session && req.session.email) || null, st.key);
+      invalidateBoardCache();
+      audit(req, 'whatsapp.board.status', (gate.item && gate.item.label) || chatJid, { chatJid, status: st.key });
+      res.json({ ok: true, chatJid, status: st.key, label: st.label });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to set status.', detail: e.message });
+    }
+  });
+
+  // Reassign the אחראי. Stored as a portal-side override that always beats the
+  // monday-derived value; monday itself is never written to. An empty email
+  // removes the override and returns the chat to automatic resolution.
+  router.post('/api/board/responsible', authenticate, async (req, res) => {
+    try {
+      const chatJid = String((req.body && req.body.chatJid) || '').trim();
+      const email = String((req.body && req.body.email) || '').trim();
+      if (!chatJid) return res.status(400).json({ error: 'chatJid חסר.' });
+
+      const gate = await assertMayEdit(req, chatJid);
+      if (!gate.ok) return res.status(gate.code).json({ error: gate.message });
+
+      // Only a known staff member may be assigned — never a free-text address.
+      let person = null;
+      if (email) {
+        const dir = loadDirectory();
+        person = (dir.staff || []).find((s) => sameEmail(s.email, email)) || null;
+        if (!person) return res.status(400).json({ error: 'לא נמצא איש צוות עם הכתובת הזו.' });
+      }
+
+      await ingestDb.setResponsibleOverride(
+        chatJid,
+        person ? person.email : null,
+        person ? person.name : null,
+        (req.session && req.session.email) || null
+      );
+      invalidateBoardCache();
+      audit(req, person ? 'whatsapp.board.reassign' : 'whatsapp.board.reassign_clear',
+        (gate.item && gate.item.label) || chatJid,
+        { chatJid, to: person ? person.email : null });
+      res.json({ ok: true, chatJid, responsibleName: person ? person.name : null, cleared: !person });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to set responsible.', detail: e.message });
+    }
+  });
+
+  // Audit view: what was cleared from the board, by whom, when and why. Because
+  // clearing is permanent until the client writes again, an admin must always be
+  // able to see what left the list — and put it back.
+  router.get('/api/admin/unanswered/dismissed', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const limit = parseInt((req.query && req.query.limit) || '100', 10);
+      const rows = await ingestDb.listDismissals({ limit });
+      const byKey = new Map(loadStatuses().map((s) => [s.key, s]));
+      res.json({
+        count: rows.length,
+        rows: rows.map((r) => ({
+          ...r,
+          reasonLabel: r.reason && byKey.has(r.reason) ? byKey.get(r.reason).label : (r.reason || 'לא ידוע'),
+        })),
+      });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to list dismissed chats.', detail: e.message });
+    }
+  });
+
+  // Undo a clear — puts the chat straight back on the board. Admin only.
+  router.post('/api/admin/unanswered/restore', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const chatJid = String((req.body && req.body.chatJid) || (req.query && req.query.chatJid) || '').trim();
+      if (!chatJid) return res.status(400).json({ error: 'chatJid חסר.' });
+      const restored = await ingestDb.undismissChat(chatJid, (req.session && req.session.email) || null);
+      invalidateBoardCache();
+      audit(req, 'whatsapp.board.restore', chatJid, { chatJid, restored });
+      res.json({ ok: true, chatJid, restored });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to restore chat.', detail: e.message });
     }
   });
 

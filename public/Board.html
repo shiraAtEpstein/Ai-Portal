@@ -11,13 +11,15 @@
     }
     *{box-sizing:border-box}
     body{margin:0;background:var(--bg);font-family:Arial,Helvetica,sans-serif;color:var(--ink);direction:rtl;}
-    .wrap{max-width:820px;margin:0 auto;padding:24px 16px 56px;}
-    .card{background:var(--card);border:1px solid #e2e3e7;border-radius:12px;overflow:hidden;}
+    .wrap{max-width:980px;margin:0 auto;padding:24px 16px 56px;}
+    .card{background:var(--card);border:1px solid #e2e3e7;border-radius:12px;overflow:hidden;margin-bottom:18px;}
     header{background:var(--dark);padding:22px 26px;display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px;}
     header .kicker{color:#9aa1ac;font-size:12px;letter-spacing:.3px;margin-bottom:6px;}
     header h1{color:#fff;font-size:20px;margin:0;font-weight:bold;}
+    header .btns{display:flex;gap:8px;flex-wrap:wrap;}
     header button{font:inherit;border-radius:6px;border:1px solid #4a4f59;background:#3a3f49;color:#e8eaee;padding:7px 14px;cursor:pointer;}
     header button:hover{background:#454b56;}
+    header button:disabled{opacity:.55;cursor:default;}
     .counts{display:flex;gap:14px;padding:14px 26px 4px;font-size:13px;color:var(--muted);flex-wrap:wrap;}
     .counts b{color:var(--ink);}
     table{width:100%;border-collapse:collapse;}
@@ -30,15 +32,26 @@
     .client{font-size:13px;color:var(--clientteal);margin-top:2px;}
     .resp{font-size:13px;color:#565a62;}
     .addr{color:#0a7cff;font-size:11px;font-weight:bold;margin-inline-start:6px;white-space:nowrap;}
+    .manual{color:#6e8b7c;font-size:11px;font-weight:bold;margin-inline-start:6px;white-space:nowrap;}
     .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:bold;color:#fff;}
     .b-required{background:var(--red);}
     .b-potential{background:var(--amber);}
     .b-pending{background:#9aa0a8;}
     .b-voice{background:#5b6bd0;}
+    select{font:inherit;font-size:13px;border:1px solid #d9dce1;border-radius:6px;padding:5px 8px;background:#fff;color:var(--ink);max-width:190px;}
+    select:disabled{opacity:.5;}
+    tr.saving{opacity:.45;}
+    tr.done{opacity:0;transition:opacity .35s ease;}
+    .rowerr{color:var(--red);font-size:12px;margin-top:5px;}
     .state{padding:38px 26px;text-align:center;color:var(--muted);font-size:15px;line-height:1.7;}
     .empty{padding:44px 26px;text-align:center;color:#3f8f6a;font-size:16px;}
     .foot{padding:14px 26px 22px;font-size:11.5px;color:#aab0b8;line-height:1.7;border-top:1px solid var(--line);}
     .err{color:var(--red);}
+    .panelhead{padding:16px 26px 6px;font-size:15px;font-weight:bold;color:var(--ink);}
+    .panelsub{padding:0 26px 12px;font-size:12px;color:var(--muted);line-height:1.6;}
+    .restore{font:inherit;font-size:12px;border:1px solid #d9dce1;background:#f6f7f8;border-radius:6px;padding:4px 10px;cursor:pointer;color:var(--ink);}
+    .restore:hover{background:#eceef1;}
+    .hidden{display:none;}
   </style>
 </head>
 <body>
@@ -49,14 +62,24 @@
           <div class="kicker">משרד אפשטיין · Lawly</div>
           <h1>לוח בקרה — הודעות שממתינות למענה</h1>
         </div>
-        <button id="refresh" type="button">רענון</button>
+        <div class="btns">
+          <button id="toggleCleared" type="button" class="hidden">מה נוקה</button>
+          <button id="refresh" type="button">רענון</button>
+        </div>
       </header>
       <div class="counts" id="counts"></div>
       <div id="content"><div class="state">טוען…</div></div>
       <div class="foot">
         כל שיחה שלא נענתה מופיעה כאן עם הסטטוס, זמן ההמתנה, והאחראי. ברגע שמישהו במשרד עונה בוואטסאפ — היא נעלמת מהלוח.
+        אפשר גם לסמן ידנית «נענה» או «לא דורש מענה», ולשנות אחראי. אם הלקוח יכתוב שוב, השיחה תחזור לרשימה.
         <span id="updated"></span>
       </div>
+    </div>
+
+    <div class="card hidden" id="clearedCard">
+      <div class="panelhead">שיחות שנוקו מהלוח</div>
+      <div class="panelsub">מי הסיר, מתי ולמה. אפשר להחזיר שיחה לרשימה אם נוקתה בטעות.</div>
+      <div id="clearedContent"><div class="state">טוען…</div></div>
     </div>
   </div>
 
@@ -68,18 +91,125 @@
     }
     function waitColor(h){ var n=Number(h)||0; if(n>=72) return 'var(--red)'; if(n>=24) return 'var(--amber)'; return 'var(--teal)'; }
     function el(t,c,x){ var e=document.createElement(t); if(c)e.className=c; if(x!=null)e.textContent=x; return e; }
+    function fmtTime(ts){
+      if(!ts) return '';
+      var d = new Date(ts); if(isNaN(d.getTime())) return '';
+      return String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + ' ' +
+             String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+    }
 
     var content = document.getElementById('content');
     var countsEl = document.getElementById('counts');
     var updatedEl = document.getElementById('updated');
     var refreshBtn = document.getElementById('refresh');
+    var toggleClearedBtn = document.getElementById('toggleCleared');
+    var clearedCard = document.getElementById('clearedCard');
+    var clearedContent = document.getElementById('clearedContent');
     var loading = false;
+    var meta = { statuses: [], staff: [], isAdmin: false, email: null };
 
     function badge(status){
-      var map = { required:['🔴 דורש מענה','b-required'], potential:['🟡 אולי דורש','b-potential'], voice:['🎤 הודעה קולית','b-voice'], pending:['⏳ בבדיקה','b-pending'] };
+      var map = { required:['🔴 ממתין למענה','b-required'], potential:['🟡 אולי דורש מענה','b-potential'], voice:['🎤 הודעה קולית','b-voice'], pending:['⏳ בבדיקה','b-pending'] };
       var m = map[status] || map.pending;
-      var s = el('span','badge ' + m[1], m[0]);
-      return s;
+      return el('span','badge ' + m[1], m[0]);
+    }
+
+    // POST helper — rejects with the server's Hebrew message when there is one.
+    function post(url, body){
+      return fetch(url, {
+        method:'POST', credentials:'include', cache:'no-store',
+        headers:{ 'Content-Type':'application/json', Accept:'application/json' },
+        body: JSON.stringify(body)
+      }).then(function(r){
+        return r.json().catch(function(){ return {}; }).then(function(j){
+          if(!r.ok) throw new Error((j && j.error) || ('שגיאה (HTTP ' + r.status + ')'));
+          return j;
+        });
+      });
+    }
+
+    function loadMeta(){
+      return fetch('/api/board/meta', { credentials:'include', cache:'no-store', headers:{ Accept:'application/json' } })
+        .then(function(r){ if(!r.ok) throw new Error('meta'); return r.json(); })
+        .then(function(m){
+          meta = m || meta;
+          if(meta.isAdmin) toggleClearedBtn.classList.remove('hidden');
+          return meta;
+        })
+        .catch(function(){ return meta; }); // board still renders read-only if meta fails
+    }
+
+    function setRowDisabled(tr, on){
+      var sels = tr.querySelectorAll('select');
+      for(var i=0;i<sels.length;i++) sels[i].disabled = !!on;
+    }
+
+    // "Change status" dropdown: only the hand-settable statuses (the ones that
+    // clear the row). The AI statuses are shown as the badge and are not settable
+    // by hand — the classifier owns them.
+    function statusSelect(it, tr, errBox){
+      var sel = document.createElement('select');
+      var ph = document.createElement('option');
+      ph.value = ''; ph.textContent = 'שינוי סטטוס…'; sel.appendChild(ph);
+      meta.statuses.filter(function(s){ return s.setBy === 'staff' && s.clears; }).forEach(function(s){
+        var o = document.createElement('option');
+        o.value = s.key; o.textContent = (s.icon ? s.icon + ' ' : '') + s.label;
+        sel.appendChild(o);
+      });
+      sel.addEventListener('change', function(){
+        if(!sel.value) return;
+        var chosen = sel.value;
+        sel.value = '';
+        errBox.textContent = '';
+        tr.classList.add('saving');
+        setRowDisabled(tr, true);
+        post('/api/board/status', { chatJid: it.chatJid, status: chosen })
+          .then(function(){ tr.classList.add('done'); setTimeout(load, 400); })
+          .catch(function(e){
+            tr.classList.remove('saving'); setRowDisabled(tr, false);
+            errBox.textContent = e.message || 'לא ניתן לעדכן.';
+          });
+      });
+      return sel;
+    }
+
+    // אחראי dropdown: every staff member, plus (when the chat was assigned by
+    // hand) an option to drop the override and return to automatic routing.
+    function responsibleSelect(it, tr, errBox){
+      var sel = document.createElement('select');
+      var cur = (it.responsibleEmails && it.responsibleEmails.length === 1) ? it.responsibleEmails[0] : '';
+      var known = meta.staff.some(function(s){ return s.email === cur; });
+      if(!cur || !known){
+        var keep = document.createElement('option');
+        keep.value = '__keep__';
+        keep.textContent = it.responsibleName || '—';
+        sel.appendChild(keep);
+      }
+      meta.staff.forEach(function(s){
+        var o = document.createElement('option');
+        o.value = s.email; o.textContent = s.name;
+        if(s.email === cur) o.selected = true;
+        sel.appendChild(o);
+      });
+      if(it.manualAssigned){
+        var clr = document.createElement('option');
+        clr.value = '__clear__'; clr.textContent = '↺ חזרה לשיוך אוטומטי';
+        sel.appendChild(clr);
+      }
+      sel.addEventListener('change', function(){
+        var v = sel.value;
+        if(v === '__keep__') return;
+        errBox.textContent = '';
+        tr.classList.add('saving');
+        setRowDisabled(tr, true);
+        post('/api/board/responsible', { chatJid: it.chatJid, email: v === '__clear__' ? '' : v })
+          .then(function(){ setTimeout(load, 200); })
+          .catch(function(e){
+            tr.classList.remove('saving'); setRowDisabled(tr, false);
+            errBox.textContent = e.message || 'לא ניתן לשנות אחראי.';
+          });
+      });
+      return sel;
     }
 
     function render(d){
@@ -87,11 +217,10 @@
       var nReq = items.filter(function(x){return x.status==='required';}).length;
       var nPot = items.filter(function(x){return x.status==='potential';}).length;
       var nVoice = items.filter(function(x){return x.status==='voice';}).length;
-      var nPen = items.filter(function(x){return x.status==='pending';}).length;
       countsEl.innerHTML = '';
       countsEl.appendChild(el('span', null, 'סה״כ ממתינות: '));
-      var b = el('b', null, String(items.length)); countsEl.appendChild(b);
-      countsEl.appendChild(el('span', null, '  ·  🔴 ' + nReq + '   🟡 ' + nPot + '   🎤 ' + nVoice + '   ⏳ ' + nPen));
+      countsEl.appendChild(el('b', null, String(items.length)));
+      countsEl.appendChild(el('span', null, '  ·  🔴 ' + nReq + '   🟡 ' + nPot + '   🎤 ' + nVoice));
 
       content.innerHTML = '';
       if(!items.length){ content.appendChild(el('div','empty','אין כרגע הודעות שממתינות למענה 🎉')); stamp(); return; }
@@ -101,18 +230,38 @@
       hr.appendChild(el('th', 'status', 'סטטוס'));
       hr.appendChild(el('th', 'time', 'ממתין'));
       hr.appendChild(el('th', null, 'אחראי'));
+      hr.appendChild(el('th', null, 'פעולה'));
       table.appendChild(hr);
+
       items.forEach(function(it){
         var tr = el('tr');
+        var errBox = el('div','rowerr');
+
         var nameTd = el('td');
         nameTd.appendChild(el('div','label', it.label || ''));
         if(it.clientName) nameTd.appendChild(el('div','client', it.clientName));
+        nameTd.appendChild(errBox);
         tr.appendChild(nameTd);
+
         var stTd = el('td','status'); stTd.appendChild(badge(it.status)); tr.appendChild(stTd);
-        var tmTd = el('td','time', waitLabel(it.hoursWaiting)); tmTd.style.color = waitColor(it.hoursWaiting); tr.appendChild(tmTd);
-        var respTd = el('td','resp'); respTd.appendChild(document.createTextNode(it.responsibleName || '—'));
+
+        var tmTd = el('td','time', waitLabel(it.hoursWaiting));
+        tmTd.style.color = waitColor(it.hoursWaiting); tr.appendChild(tmTd);
+
+        var respTd = el('td','resp');
+        if(meta.staff && meta.staff.length){
+          respTd.appendChild(responsibleSelect(it, tr, errBox));
+        } else {
+          respTd.appendChild(document.createTextNode(it.responsibleName || '—'));
+        }
         if(it.addressed){ respTd.appendChild(el('span','addr','↩ פנייה בשם')); }
+        if(it.manualAssigned){ respTd.appendChild(el('span','manual','✎ שויך ידנית')); }
         tr.appendChild(respTd);
+
+        var actTd = el('td');
+        if(meta.statuses && meta.statuses.length){ actTd.appendChild(statusSelect(it, tr, errBox)); }
+        tr.appendChild(actTd);
+
         table.appendChild(tr);
       });
       content.appendChild(table);
@@ -134,8 +283,57 @@
         .then(function(){ loading=false; refreshBtn.disabled=false; refreshBtn.textContent='רענון'; });
     }
 
+    function renderCleared(d){
+      var rows = d.rows || [];
+      clearedContent.innerHTML = '';
+      if(!rows.length){ clearedContent.appendChild(el('div','state','לא נוקו שיחות עדיין.')); return; }
+      var table = el('table');
+      var hr = el('tr');
+      hr.appendChild(el('th', null, 'שיחה'));
+      hr.appendChild(el('th', null, 'סיבה'));
+      hr.appendChild(el('th', null, 'מי'));
+      hr.appendChild(el('th', null, 'מתי'));
+      hr.appendChild(el('th', null, ''));
+      table.appendChild(hr);
+      rows.forEach(function(r){
+        var tr = el('tr');
+        tr.appendChild(el('td', null, r.label || r.chatJid));
+        tr.appendChild(el('td', null, r.reasonLabel || '—'));
+        tr.appendChild(el('td', null, r.dismissedBy || '—'));
+        tr.appendChild(el('td', null, fmtTime(r.dismissedAt)));
+        var actTd = el('td');
+        var btn = el('button','restore','↩ החזרה לרשימה');
+        btn.type = 'button';
+        btn.addEventListener('click', function(){
+          btn.disabled = true; btn.textContent = 'מחזיר…';
+          post('/api/admin/unanswered/restore', { chatJid: r.chatJid })
+            .then(function(){ loadCleared(); load(); })
+            .catch(function(e){ btn.disabled=false; btn.textContent='↩ החזרה לרשימה'; alert(e.message || 'לא ניתן להחזיר.'); });
+        });
+        actTd.appendChild(btn);
+        tr.appendChild(actTd);
+        table.appendChild(tr);
+      });
+      clearedContent.appendChild(table);
+    }
+
+    function loadCleared(){
+      clearedContent.innerHTML = '';
+      clearedContent.appendChild(el('div','state','טוען…'));
+      fetch('/api/admin/unanswered/dismissed?limit=100', { credentials:'include', cache:'no-store', headers:{ Accept:'application/json' } })
+        .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(renderCleared)
+        .catch(function(){ clearedContent.innerHTML=''; clearedContent.appendChild(el('div','state err','לא ניתן לטעון.')); });
+    }
+
+    toggleClearedBtn.addEventListener('click', function(){
+      var hidden = clearedCard.classList.toggle('hidden');
+      toggleClearedBtn.textContent = hidden ? 'מה נוקה' : 'סגירה';
+      if(!hidden) loadCleared();
+    });
+
     refreshBtn.addEventListener('click', load);
-    load();
+    loadMeta().then(load);
     setInterval(load, 180 * 1000); // every 3 min (each load runs AI triage)
   </script>
 </body>

@@ -34,6 +34,7 @@
     .b-required{background:var(--red);}
     .b-potential{background:var(--amber);}
     .b-pending{background:#9aa0a8;}
+    .b-voice{background:#5b6bd0;}
     .state{padding:38px 26px;text-align:center;color:var(--muted);font-size:15px;line-height:1.7;}
     .empty{padding:44px 26px;text-align:center;color:#3f8f6a;font-size:16px;}
     .foot{padding:14px 26px 22px;font-size:11.5px;color:#aab0b8;line-height:1.7;border-top:1px solid var(--line);}
@@ -75,7 +76,7 @@
     var loading = false;
 
     function badge(status){
-      var map = { required:['🔴 דורש מענה','b-required'], potential:['🟡 אולי דורש','b-potential'], pending:['⏳ בבדיקה','b-pending'] };
+      var map = { required:['🔴 דורש מענה','b-required'], potential:['🟡 אולי דורש','b-potential'], voice:['🎤 הודעה קולית','b-voice'], pending:['⏳ בבדיקה','b-pending'] };
       var m = map[status] || map.pending;
       var s = el('span','badge ' + m[1], m[0]);
       return s;
@@ -85,11 +86,12 @@
       var items = d.items || [];
       var nReq = items.filter(function(x){return x.status==='required';}).length;
       var nPot = items.filter(function(x){return x.status==='potential';}).length;
+      var nVoice = items.filter(function(x){return x.status==='voice';}).length;
       var nPen = items.filter(function(x){return x.status==='pending';}).length;
       countsEl.innerHTML = '';
       countsEl.appendChild(el('span', null, 'סה״כ ממתינות: '));
       var b = el('b', null, String(items.length)); countsEl.appendChild(b);
-      countsEl.appendChild(el('span', null, '  ·  🔴 ' + nReq + '   🟡 ' + nPot + '   ⏳ ' + nPen));
+      countsEl.appendChild(el('span', null, '  ·  🔴 ' + nReq + '   🟡 ' + nPot + '   🎤 ' + nVoice + '   ⏳ ' + nPen));
 
       content.innerHTML = '';
       if(!items.length){ content.appendChild(el('div','empty','אין כרגע הודעות שממתינות למענה 🎉')); stamp(); return; }

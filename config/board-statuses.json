@@ -1,0 +1,45 @@
+{
+  "_comment": "Statuses shown on לוח בקרה — הודעות שממתינות למענה. setBy 'ai' = assigned automatically by the triage (lib/needs-reply.js) and NOT selectable by hand. setBy 'staff' = chosen by a person on the board; those carry clears:true, which removes the chat from the list (recorded in unanswered_dismissals with this key as the reason). Edit labels/icons/order here — no deploy needed beyond a restart, since this file is read on each board build. Do NOT change an existing 'key': the keys are stored in the database.",
+  "statuses": [
+    {
+      "key": "answered",
+      "label": "נענה",
+      "icon": "✅",
+      "setBy": "staff",
+      "clears": true,
+      "help": "השיחה נענתה — יורדת מהרשימה. אם הלקוח יכתוב שוב, היא תחזור."
+    },
+    {
+      "key": "no_reply_needed",
+      "label": "לא דורש מענה",
+      "icon": "⚪",
+      "setBy": "staff",
+      "clears": true,
+      "help": "לא נדרשת תשובה — יורדת מהרשימה. אם הלקוח יכתוב שוב, היא תחזור."
+    },
+    {
+      "key": "required",
+      "label": "ממתין למענה",
+      "icon": "🔴",
+      "setBy": "ai",
+      "clears": false,
+      "help": "זוהתה כדורשת מענה."
+    },
+    {
+      "key": "potential",
+      "label": "אולי דורש מענה",
+      "icon": "🟡",
+      "setBy": "ai",
+      "clears": false,
+      "help": "ייתכן שנדרשת תשובה — לבדיקה."
+    },
+    {
+      "key": "voice",
+      "label": "הודעה קולית",
+      "icon": "🎤",
+      "setBy": "ai",
+      "clears": false,
+      "help": "הלקוח שלח הודעה קולית."
+    }
+  ]
+}

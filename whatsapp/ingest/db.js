@@ -165,6 +165,24 @@ async function ensureTables() {
       dismissed_by TEXT
     );
   `);
+  // WHY a chat was cleared: the staff-set status key from config/board-statuses.json
+  // ('answered' = נענה, 'no_reply_needed' = לא דורש מענה). Rows written before this
+  // column existed stay NULL, which the admin view renders as "לא ידוע".
+  await p.query(`ALTER TABLE unanswered_dismissals ADD COLUMN IF NOT EXISTS reason TEXT;`);
+  // Manual אחראי override, set from the control board. Deliberately a SEPARATE
+  // table from whatsapp_groups.responsible_email: that column is auto-filled from
+  // monday by lib/responsible.resolveAndStore() and would overwrite a person's
+  // choice on the next resolve. Keeping the override here means the portal's
+  // decision always wins, and monday stays READ-ONLY — we never write back to it.
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS chat_responsible_override (
+      chat_jid TEXT PRIMARY KEY,
+      email    TEXT NOT NULL,
+      name     TEXT,
+      set_by   TEXT,
+      set_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
   ensured = true;
 }
 
@@ -279,18 +297,106 @@ async function setMessageCategory(id, category) {
 // Mark a chat "handled" now (manual dismiss). Idempotent — re-dismissing just
 // bumps the timestamp, which also re-hides a chat that reappeared and was
 // handled again.
-async function dismissChat(chatJid, byEmail) {
+// `reason` is the staff status key from config/board-statuses.json ('answered' /
+// 'no_reply_needed'). It is recorded only so the admin "מה נוקה" view can show WHY
+// a chat left the list; the detector's hide logic depends on the timestamp alone,
+// so both reasons behave identically.
+async function dismissChat(chatJid, byEmail, reason = null) {
   await ensureTables();
   const p = getPool();
   if (!p || !chatJid) return false;
   await p.query(
-    `INSERT INTO unanswered_dismissals (chat_jid, dismissed_at, dismissed_by)
-     VALUES ($1, now(), $2)
-     ON CONFLICT (chat_jid) DO UPDATE SET dismissed_at = now(), dismissed_by = EXCLUDED.dismissed_by`,
-    [chatJid, byEmail || null]
+    `INSERT INTO unanswered_dismissals (chat_jid, dismissed_at, dismissed_by, reason)
+     VALUES ($1, now(), $2, $3)
+     ON CONFLICT (chat_jid) DO UPDATE
+       SET dismissed_at = now(),
+           dismissed_by = EXCLUDED.dismissed_by,
+           reason       = EXCLUDED.reason`,
+    [chatJid, byEmail || null, reason || null]
   );
-  console.log(`[unanswered/dismiss] "${chatJid}" marked handled by ${byEmail || 'unknown'}`);
+  console.log(`[unanswered/dismiss] "${chatJid}" cleared by ${byEmail || 'unknown'} (reason=${reason || '-'})`);
   return true;
+}
+
+// Undo a dismissal — puts the chat back on the list immediately. Used by the
+// admin "מה נוקה" view when something was cleared by mistake.
+async function undismissChat(chatJid, byEmail) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !chatJid) return false;
+  const r = await p.query(`DELETE FROM unanswered_dismissals WHERE chat_jid = $1`, [chatJid]);
+  console.log(`[unanswered/dismiss] "${chatJid}" restored by ${byEmail || 'unknown'} (${r.rowCount} row(s))`);
+  return r.rowCount > 0;
+}
+
+// Recently cleared chats, newest first — the audit view. Joined to the group and
+// contact rows only to recover a human-readable label; no message text is read.
+async function listDismissals({ limit = 100 } = {}) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return [];
+  const n = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500);
+  // Label comes from whatsapp_groups only. wa_contacts is keyed by phone and is
+  // reached through a message row's contact_id, so there is no chat_jid -> contact
+  // join available here; a 1:1 chat falls back to its jid, which still identifies it.
+  const { rows } = await p.query(
+    `SELECT d.chat_jid, d.dismissed_at, d.dismissed_by, d.reason,
+            COALESCE(g.name, d.chat_jid) AS label
+       FROM unanswered_dismissals d
+       LEFT JOIN whatsapp_groups g
+              ON g.provider_group_jid = d.chat_jid AND g.removed_at IS NULL
+      ORDER BY d.dismissed_at DESC
+      LIMIT $1`,
+    [n]
+  );
+  return rows.map((r) => ({
+    chatJid: r.chat_jid,
+    label: r.label,
+    dismissedAt: r.dismissed_at,
+    dismissedBy: r.dismissed_by,
+    reason: r.reason,
+  }));
+}
+
+// Set (or clear) the manual אחראי for a chat. Passing a falsy email REMOVES the
+// override, so the chat falls back to the normal monday/in-group resolution.
+// Never writes to monday — monday stays read-only.
+async function setResponsibleOverride(chatJid, email, name, byEmail) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !chatJid) return false;
+  if (!email) {
+    await p.query(`DELETE FROM chat_responsible_override WHERE chat_jid = $1`, [chatJid]);
+    console.log(`[unanswered/responsible] "${chatJid}" override removed by ${byEmail || 'unknown'}`);
+    return true;
+  }
+  await p.query(
+    `INSERT INTO chat_responsible_override (chat_jid, email, name, set_by, set_at)
+     VALUES ($1, $2, $3, $4, now())
+     ON CONFLICT (chat_jid) DO UPDATE
+       SET email  = EXCLUDED.email,
+           name   = EXCLUDED.name,
+           set_by = EXCLUDED.set_by,
+           set_at = now()`,
+    [chatJid, email, name || null, byEmail || null]
+  );
+  console.log(`[unanswered/responsible] "${chatJid}" -> ${email} (manual, by ${byEmail || 'unknown'})`);
+  return true;
+}
+
+// All manual אחראי overrides for the given chats -> Map<chat_jid, {email, name}>.
+// Called once per board build, so a manual choice costs no extra query per row.
+async function getResponsibleOverrides(chatJids = []) {
+  await ensureTables();
+  const p = getPool();
+  const out = new Map();
+  if (!p || !chatJids.length) return out;
+  const { rows } = await p.query(
+    `SELECT chat_jid, email, name FROM chat_responsible_override WHERE chat_jid = ANY($1)`,
+    [chatJids]
+  );
+  for (const r of rows) out.set(r.chat_jid, { email: r.email, name: r.name });
+  return out;
 }
 
 const ITEM_NEEDS = ['response', 'action', 'none'];
@@ -999,6 +1105,10 @@ module.exports = {
   getOpenItemsForDeal,
   applyTaskUpdate,
   listUnansweredChats,
+  undismissChat,
+  listDismissals,
+  setResponsibleOverride,
+  getResponsibleOverrides,
   ITEM_CATEGORIES,
   ITEM_NEEDS,
   stats,

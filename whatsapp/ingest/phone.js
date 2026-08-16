@@ -33,9 +33,31 @@ function isLidJid(jid) {
   return jidDomain(jid) === 'lid';
 }
 
+// WhatsApp nests the real content inside wrapper envelopes — disappearing
+// (ephemeralMessage), view-once, edited, and device-sent messages all carry a
+// `.message` one (or more) levels down. Peel them so type detection sees the
+// actual audioMessage/imageMessage/etc. instead of the wrapper.
+function unwrapMessage(message) {
+  let cur = message;
+  let guard = 0;
+  while (cur && typeof cur === 'object' && guard++ < 6) {
+    const w =
+      cur.ephemeralMessage ||
+      cur.viewOnceMessage ||
+      cur.viewOnceMessageV2 ||
+      cur.viewOnceMessageV2Extension ||
+      cur.documentWithCaptionMessage ||
+      cur.editedMessage ||
+      cur.deviceSentMessage;
+    if (w && w.message) { cur = w.message; continue; }
+    break;
+  }
+  return cur || message;
+}
+
 function textPreview(message) {
   if (!message || typeof message !== 'object') return '';
-  const m = message;
+  const m = unwrapMessage(message);
   const raw =
     m.conversation ||
     (m.extendedTextMessage && m.extendedTextMessage.text) ||

@@ -35,6 +35,8 @@ const { createAuthStore } = require('./auth-store');
 const db = require('./db');
 const ingestDb = require('../ingest/db');
 const { senderFromMessage, normalizePhone, jidUser, isLidJid } = require('../ingest/phone');
+const { loadDirectory } = require('../../lib/routing');
+const { matchStaffByName } = require('../../lib/responsible');
 const { pickDealByGroupName } = require('../ingest/match');
 const { pickDealByGroupNameAI } = require('../ingest/ai-match');
 const monday = require('../../lib/monday');
@@ -52,6 +54,20 @@ const MAX_BACKOFF_MS = 600_000;          // 10 min ceiling (was 30s)
 const MAX_RECONNECT_ATTEMPTS = 15;       // ~1h of backed-off tries, then stop
 const STABLE_MS = 60_000;                // stay connected this long before the
                                          // backoff counter is forgiven (see 'open')
+
+// Resolve the staff member who sent a message — by phone number, else by the
+// display name WhatsApp attaches (pushName). The name path recovers staff who
+// appear as an anonymous @lid (no phone), so their replies count as firm
+// replies. Returns the staffer's canonical phone9, or null for a client sender.
+function resolveSenderStaff(info, msg) {
+  const dir = loadDirectory();
+  const staff = (dir && dir.staff) || [];
+  const ph = info && info.phone_normalized ? normalizePhone(info.phone_normalized) : '';
+  if (ph) { const s = staff.find((x) => normalizePhone(x.phone9) === ph); if (s) return s.phone9; }
+  const pushName = msg && (msg.pushName || msg.verifiedBizName);
+  if (pushName) { const s = matchStaffByName(pushName, dir); if (s) return s.phone9; }
+  return null;
+}
 
 class BaileysGroupsProvider extends EventEmitter {
   constructor(accountId) {
@@ -347,6 +363,7 @@ class BaileysGroupsProvider extends EventEmitter {
           is_group: info.is_group,
           direction: info.direction,
           sender_phone: info.phone_normalized || null,
+          sender_staff_phone9: resolveSenderStaff(info, msg), // staffer by phone OR name; null for clients
           contact_id: contact ? contact.id : null,
           deal_id: dealId,
           payloadObj: msg,

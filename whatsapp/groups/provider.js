@@ -239,6 +239,49 @@ class BaileysGroupsProvider extends EventEmitter {
         console.error('[whatsapp/ingest] upsert handler failed:', e.message);
       }
     });
+
+    // "Delete for everyone" (revoke) does NOT always arrive on messages.upsert.
+    // WhatsApp frequently surfaces it as a messages.update (the message content
+    // is cleared / a REVOKE stub is set) or as a dedicated messages.delete event.
+    // Wire both so a revoked message drops off the board however Baileys delivers
+    // it. Each just marks the referenced message deleted (safe, idempotent).
+    this.sock.ev.on('messages.update', async (updates) => {
+      try {
+        for (const u of (Array.isArray(updates) ? updates : [])) {
+          const key = u && u.key;
+          const upd = (u && u.update) || {};
+          const proto = upd.message && upd.message.protocolMessage;
+          const isRevoke =
+            upd.message === null ||                                   // content cleared by a revoke
+            upd.messageStubType === 1 || upd.messageStubType === 'REVOKE' ||
+            (proto && (proto.type === 0 || proto.type === 'REVOKE'));
+          if (isRevoke && key && key.id) {
+            try {
+              await ingestDb.markMessageDeleted(String(key.id));
+              console.log(`[whatsapp/ingest] revoke via messages.update -> ${key.id}`);
+            } catch (_) {}
+          }
+        }
+      } catch (e) {
+        console.error('[whatsapp/ingest] messages.update handler failed:', e.message);
+      }
+    });
+
+    this.sock.ev.on('messages.delete', async (item) => {
+      try {
+        const keys = item && Array.isArray(item.keys) ? item.keys : [];
+        for (const key of keys) {
+          if (key && key.id) {
+            try {
+              await ingestDb.markMessageDeleted(String(key.id));
+              console.log(`[whatsapp/ingest] revoke via messages.delete -> ${key.id}`);
+            } catch (_) {}
+          }
+        }
+      } catch (e) {
+        console.error('[whatsapp/ingest] messages.delete handler failed:', e.message);
+      }
+    });
   }
 
   async _ingest({ messages, type }) {

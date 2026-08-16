@@ -748,7 +748,9 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
       try {
         const json = enc.decrypt(pe || '');
         const msg = json ? JSON.parse(json) : null;
-        const t = textPreview(msg && msg.message) || '';
+        // Baileys payloads carry the content under .message; Cloud-API/history
+        // payloads ARE the message (type/text at top level) — pass whichever.
+        const t = textPreview(msg && (msg.message || msg)) || '';
         if (t) parts.push(t);
       } catch (_) { /* skip this message's text */ }
     }

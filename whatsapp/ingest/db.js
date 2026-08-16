@@ -77,6 +77,10 @@ async function ensureTables() {
   // ambiguous senders stay null and land in the review queue).
   await p.query(`ALTER TABLE processing_jobs ADD COLUMN IF NOT EXISTS deal_id UUID;`);
   await p.query(`ALTER TABLE wa_contacts ADD COLUMN IF NOT EXISTS deal_id UUID;`);
+  // The staff member who SENT this message, resolved at ingest by phone OR by
+  // display name (recovers staff who appear as an anonymous @lid). NULL = a
+  // client / non-staff sender. Drives firm-reply detection and reply-speed.
+  await p.query(`ALTER TABLE processing_jobs ADD COLUMN IF NOT EXISTS sender_staff_phone9 TEXT;`);
   // Phase 4B: structured fields the processor extracts alongside the prose
   // summary, so cross-deal questions ("most urgent", "waiting on documents",
   // "overdue payments") are DB queries, not a scan of every summary.
@@ -320,6 +324,7 @@ async function enqueueJob({
   is_group,
   direction,
   sender_phone,
+  sender_staff_phone9, // the staffer who sent it (phone9), resolved by phone OR name; null for clients
   contact_id,
   deal_id,
   payloadObj,
@@ -340,9 +345,9 @@ async function enqueueJob({
   const sentSeconds = Number.isFinite(tsNum) && tsNum > 0 ? tsNum : null;
   const r = await p.query(
     `INSERT INTO processing_jobs
-       (source, source_item_id, chat_jid, is_group, direction, sender_phone, contact_id, deal_id, payload_encrypted, sent_at)
-     VALUES ('whatsapp', $1, $2, $3, $4, $5, $6, $7, $8,
-             CASE WHEN $9::double precision IS NULL THEN NULL ELSE to_timestamp($9::double precision) END)
+       (source, source_item_id, chat_jid, is_group, direction, sender_phone, sender_staff_phone9, contact_id, deal_id, payload_encrypted, sent_at)
+     VALUES ('whatsapp', $1, $2, $3, $4, $5, $6, $7, $8, $9,
+             CASE WHEN $10::double precision IS NULL THEN NULL ELSE to_timestamp($10::double precision) END)
      ON CONFLICT (source, source_item_id) DO NOTHING
      RETURNING id`,
     [
@@ -351,6 +356,7 @@ async function enqueueJob({
       !!is_group,
       direction || null,
       sender_phone || null,
+      sender_staff_phone9 || null,
       contact_id || null,
       deal_id || null,
       payloadEncrypted,
@@ -648,19 +654,26 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
      -- ingest time (created_at). All wait/answer timing uses this, so a message
      -- redelivered late after a reconnect is still timed from when it was SENT.
      base AS (
-       SELECT chat_jid, direction, sender_phone, payload_encrypted, contact_id, is_group,
+       SELECT chat_jid, direction, sender_phone, sender_staff_phone9, payload_encrypted, contact_id, is_group,
               COALESCE(sent_at, created_at) AS eff_at
        FROM processing_jobs
        WHERE source = 'whatsapp' AND chat_jid IS NOT NULL AND deleted_at IS NULL
      ),
+     -- "firm side" = the message was sent by a staffer: an outbound Lawly-line
+     -- message, a resolved staff sender (by phone OR display name), or a raw
+     -- staff phone (covers rows not yet backfilled). Everything else inbound is
+     -- a client. Using sender_staff_phone9 is what catches staff who reply as an
+     -- anonymous @lid — those were previously mistaken for client messages.
      per_chat AS (
        SELECT chat_jid,
               MAX(eff_at) FILTER (
                 WHERE direction = 'in'
+                  AND sender_staff_phone9 IS NULL
                   AND (sender_phone IS NULL OR sender_phone NOT IN (SELECT phone9 FROM staff))
               ) AS last_client_at,
               MAX(eff_at) FILTER (
-                WHERE direction = 'out' OR sender_phone IN (SELECT phone9 FROM staff)
+                WHERE direction = 'out' OR sender_staff_phone9 IS NOT NULL
+                  OR sender_phone IN (SELECT phone9 FROM staff)
               ) AS last_firm_at
        FROM base
        GROUP BY chat_jid
@@ -673,6 +686,7 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
        FROM base b
        JOIN per_chat pc ON pc.chat_jid = b.chat_jid
        WHERE b.direction = 'in'
+         AND b.sender_staff_phone9 IS NULL
          AND (b.sender_phone IS NULL OR b.sender_phone NOT IN (SELECT phone9 FROM staff))
          AND (pc.last_firm_at IS NULL OR b.eff_at > pc.last_firm_at)
      ),

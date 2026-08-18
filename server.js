@@ -28,6 +28,7 @@ const createDailyRouter = require('./routes/daily');
 const createWhatsappGroupsRouter = require('./routes/whatsapp-groups');
 const createUnansweredRouter = require('./routes/unanswered');
 const createStaffResponseRouter = require('./routes/staff-response');
+const createSynopsisRouter = require('./routes/synopsis');
 const whatsappGroups = require('./whatsapp/groups/bootstrap');
 const unansweredScheduler = require('./lib/scheduler');
 
@@ -101,6 +102,8 @@ app.use(createDailyRouter());
 app.use(createWhatsappGroupsRouter());
 // Unanswered client chats — deterministic detection + digest (WhatsApp).
 app.use(createUnansweredRouter());
+// Synopsis generator — deal picker, monday facts, missing-field write-back. No model.
+app.use(createSynopsisRouter());
 // Staff response-time dashboard (Yaacov) — /api/admin/staff-response.
 app.use(createStaffResponseRouter());
 // Health check — also reports whether the database is reachable.

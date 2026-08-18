@@ -10,8 +10,8 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { buildFacts, findMissing } = require('../lib/synopsis/missing-fields');
-const { applyWrite, ALLOWED_ACTIONS, formatValue } = require('../lib/synopsis/write-gate');
+
+const { buildFacts, findMissing, applyWrite, ALLOWED_ACTIONS, formatValue } = require('../lib/synopsis');
 
 const MAP = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'synopsis-columns.json'), 'utf8'));
 

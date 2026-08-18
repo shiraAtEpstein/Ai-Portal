@@ -20,9 +20,8 @@ const fs = require('fs');
 const path = require('path');
 const { authenticate } = require('../lib/sessions');
 const { can } = require('../lib/permissions');
-const read = require('../lib/synopsis/read');
-const { buildFacts, findMissing } = require('../lib/synopsis/missing-fields');
-const { applyWrite, READ_ONLY } = require('../lib/synopsis/write-gate');
+const synopsis = require('../lib/synopsis');
+const { buildFacts, findMissing, applyWrite, READ_ONLY } = synopsis;
 
 const MAP = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'synopsis-columns.json'), 'utf8'));
 const MAPPED_COLUMNS = [...new Set(MAP.fields.map(f => f.columnId).filter(Boolean))];
@@ -33,7 +32,7 @@ const newRunId = () => 'syn-' + Date.now().toString(36) + '-' + Math.random().to
 
 /** Read a deal and work out what the synopsis still needs. */
 async function loadDeal(dealId) {
-  const item = await read.getDeal(dealId, MAPPED_COLUMNS);
+  const item = await synopsis.getDeal(dealId, MAPPED_COLUMNS);
   const { values, sources } = buildFacts(MAP, item);
   const { missing, present } = findMissing(MAP, values);
   return {
@@ -55,7 +54,7 @@ module.exports = function createSynopsisRouter() {
         return res.status(403).json({ error: 'Your roles may not read the monday boards.' });
       const q = String(req.query.q || '').trim();
       if (q.length < 2) return res.json({ deals: [] });
-      res.json({ deals: await read.searchDealsByName(q, MAP.dealBoards) });
+      res.json({ deals: await synopsis.searchDealsByName(q, MAP.dealBoards) });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -68,7 +67,7 @@ module.exports = function createSynopsisRouter() {
       if (!dealId) return res.status(400).json({ error: 'dealId is required' });
 
       const d = await loadDeal(dealId);
-      const options = await read.optionsFor(MAP.boards.deal.id);
+      const options = await synopsis.optionsFor(MAP.boards.deal.id);
       for (const f of d.missing) f.options = options[f.columnId] || null;
 
       const runId = newRunId();

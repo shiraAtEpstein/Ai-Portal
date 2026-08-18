@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>הפקת סינופסיס · LAWLY</title>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#f5f2ec; --card:#fffefb; --ink:#24211c; --ink2:#4a463c; --ink3:#8b8478;
+    --line:#e8e2d6; --line2:#e2d9c6; --shade:#faf8f3;
+    --gold:#b28a3c; --green:#6f8a55; --red:#9c3b28; --blue:#4a6a8a;
+    --mono:'IBM Plex Mono',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:'Heebo',-apple-system,sans-serif;
+       font-size:15px;line-height:1.65;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px;margin:0 auto;padding:26px 24px 80px}
+
+  header{display:flex;align-items:center;justify-content:space-between;
+         border-bottom:1px solid var(--line);padding-bottom:15px;margin-bottom:26px}
+  .brand{font-size:22px;font-weight:700;letter-spacing:.02em}
+  .brand span{color:var(--gold)}
+  .who{font-family:var(--mono);font-size:11px;color:var(--ink3);direction:ltr}
+  .mode{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+        padding:3px 8px;border-radius:5px;background:#f7ecd8;color:#8a6520;margin-inline-start:8px}
+  .mode.live{background:#eef2e8;color:#47603a}
+
+  h1{font-size:29px;font-weight:600;margin:0 0 5px}
+  .sub{color:var(--ink2);font-size:14.5px;margin:0 0 24px}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:22px 24px;margin-bottom:16px}
+
+  label.fl{display:block;font-size:12.5px;font-weight:500;color:var(--ink2);margin-bottom:6px}
+  .fl.reqf{font-weight:600}
+  .req{font-family:var(--mono);font-size:8.5px;letter-spacing:.07em;background:#f6e2dd;color:#8a2f1c;
+       padding:2px 6px;border-radius:4px;margin-inline-start:6px;vertical-align:2px}
+  .opt{font-family:var(--mono);font-size:8.5px;letter-spacing:.07em;background:#efece6;color:#5d564a;
+       padding:2px 6px;border-radius:4px;margin-inline-start:6px;vertical-align:2px}
+  .own{font-family:var(--mono);font-size:8.5px;letter-spacing:.05em;background:#e6eef5;color:#2f5474;
+       padding:2px 6px;border-radius:4px;margin-inline-start:6px;vertical-align:2px;direction:rtl}
+  .own.mirror{background:#f7ecd8;color:#8a6520}
+
+  input.inp,select.inp,textarea.inp{width:100%;border:1px solid var(--line2);background:var(--shade);
+    border-radius:8px;padding:10px 12px;font-family:inherit;font-size:14.5px;color:var(--ink);outline:none}
+  input.inp:focus,select.inp:focus,textarea.inp:focus{border-color:var(--gold);background:#fff}
+  input.inp.err{border-color:var(--red);background:#fdf6f4}
+  input[type=date].inp,input[type=number].inp{direction:ltr;text-align:right}
+
+  .btn{font-size:13.5px;font-weight:500;background:var(--ink);color:#fdfcf8;border:none;border-radius:999px;
+       padding:10px 26px;cursor:pointer;font-family:inherit}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .btn.ghost{background:transparent;color:var(--ink2);border:1px solid var(--line2)}
+  .btn.gold{background:var(--gold);color:#fff}
+  .btnrow{display:flex;gap:10px;align-items:center;margin-top:22px;flex-wrap:wrap}
+
+  .results{border:1px solid var(--line2);border-top:none;border-radius:0 0 8px 8px;background:#fff;overflow:hidden}
+  .res{padding:10px 13px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;
+       justify-content:space-between;align-items:center;gap:10px}
+  .res:last-child{border-bottom:none}
+  .res:hover{background:var(--shade)}
+  .res .bd{font-family:var(--mono);font-size:10px;color:var(--ink3)}
+
+  .steps{margin:8px 0}
+  .step{display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
+  .step:last-child{border-bottom:none}
+  .tick{width:18px;flex:none;font-family:var(--mono);font-size:14px;color:var(--ink3)}
+  .tick.ok{color:var(--green)} .tick.no{color:var(--red)}
+  .step .meta{margin-inline-start:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
+  .bar{height:5px;background:var(--line2);border-radius:999px;overflow:hidden;margin:16px 0 4px}
+  .bar span{display:block;height:100%;width:0;background:var(--green);border-radius:999px;transition:width .4s ease}
+
+  .summary{display:flex;gap:22px;flex-wrap:wrap;padding:14px 0 2px;border-top:1px solid var(--line);margin-top:14px}
+  .stat{display:flex;flex-direction:column}
+  .stat b{font-size:24px;font-weight:600;line-height:1.15}
+  .stat span{font-size:11.5px;color:var(--ink3)}
+  .stat.warn b{color:var(--red)}
+
+  .grp{margin-top:22px}
+  .grph{font-size:12px;font-weight:600;letter-spacing:.06em;color:var(--gold);
+        padding-bottom:7px;border-bottom:1px solid var(--line2);margin-bottom:15px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px 20px}
+  @media (max-width:700px){.grid{grid-template-columns:1fr}}
+  .hint{font-size:11.5px;color:var(--ink3);margin-top:5px}
+  .hint.mirror{color:#8a6520}
+
+  .known{margin-top:8px;font-size:13px;color:var(--ink2);background:var(--shade);
+         border:1px solid var(--line);border-radius:10px;padding:13px 15px}
+  .known b{color:var(--ink)}
+  .kv{display:inline-block;margin-inline-end:14px;white-space:nowrap}
+  .kv i{font-style:normal;color:var(--ink3)}
+
+  .note{background:#f7f0e0;border:1px solid #e6d3a8;border-radius:10px;padding:13px 16px;
+        margin-top:16px;font-size:13.5px;color:#6b5318}
+  .note b{color:#4f3d0f}
+  .err{background:#fdf6f4;border:1px solid #dcbdb4;border-radius:10px;padding:13px 16px;
+       margin-top:16px;font-size:13.5px;color:#8a2f1c}
+  .ok{background:#f2f6ec;border:1px solid #cfdcc0;border-radius:10px;padding:13px 16px;
+      margin-top:16px;font-size:13.5px;color:#46603a}
+  .hidden{display:none}
+  .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line2);
+        border-top-color:var(--gold);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand"><a href="/" style="color:inherit;text-decoration:none">LAW<span>LY</span></a></div>
+    <div class="who"><span id="userName">—</span> · <span id="userRole">—</span>
+      <button id="toPortal" style="margin-inline-start:12px;background:none;border:1px solid var(--line2);border-radius:999px;padding:4px 12px;font-family:inherit;font-size:11px;color:var(--ink2);cursor:pointer">← לפורטל</button></div>
+  </header>
+
+  <!-- ========== 1. deal picker ========== -->
+  <section id="view-pick">
+    <h1>הפקת סינופסיס</h1>
+    <p class="sub">בחרי את העסקה. כל השאר נמשך אוטומטית ממנדיי.</p>
+    <div class="card">
+      <label class="fl">שם העסקה</label>
+      <input class="inp" id="q" autocomplete="off" placeholder="התחילי להקליד…">
+      <div class="results hidden" id="results"></div>
+      <div class="btnrow"><button class="btn" id="go" disabled>התחל</button>
+        <span class="hint" id="pickHint">בחרי עסקה מהרשימה</span></div>
+    </div>
+  </section>
+
+  <!-- ========== 2. loading ========== -->
+  <section id="view-load" class="hidden">
+    <h1 id="loadDeal">—</h1>
+    <p class="sub">מושך את כל מה שידוע במנדיי…</p>
+    <div class="card">
+      <div class="bar"><span id="bar"></span></div>
+      <div class="steps" id="steps"></div>
+    </div>
+  </section>
+
+  <!-- ========== 3. gaps ========== -->
+  <section id="view-miss" class="hidden">
+    <h1>השלמת פרטים חסרים</h1>
+    <p class="sub" id="missSub">—</p>
+
+    <div class="card">
+      <div class="summary" style="border-top:none;margin-top:0;padding-top:0">
+        <div class="stat"><b id="sFilled">—</b><span>שדות מלאים במנדיי</span></div>
+        <div class="stat warn"><b id="sEmpty">—</b><span>חסרים</span></div>
+        <div class="stat warn"><b id="sReq">—</b><span>חובה</span></div>
+        <div class="stat"><b id="sTotal">—</b><span>סה״כ שדות לסינופסיס</span></div>
+      </div>
+      <div class="known" id="known"></div>
+    </div>
+
+    <form id="missForm"><div id="missGroups"></div>
+      <div class="note"><b>מה שתמלאי כאן נשמר למנדיי</b> על שמך, לפני שמתחילים לנסח. בפעם הבאה
+        שמישהו יפתח את העסקה — הלוח כבר יידע.</div>
+      <div id="msg"></div>
+      <div class="btnrow">
+        <button type="submit" class="btn gold" id="save">שמור למנדיי והמשך</button>
+        <button type="button" class="btn ghost" id="back">חזרה</button>
+      </div>
+    </form>
+  </section>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+
+/* Session travels in the httpOnly portal_session cookie — same as settings.html. */
+async function jget(url) {
+  const r = await fetch(url, { credentials: 'include' });
+  if (r.status === 401) { location.href = '/'; throw new Error('not signed in'); }
+  return r.json();
+}
+async function jpost(url, body) {
+  const r = await fetch(url, { method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  if (r.status === 401) { location.href = '/'; throw new Error('not signed in'); }
+  return r.json();
+}
+let picked = null, run = null;
+
+/* ---------- 1. picker ---------- */
+let t;
+$('#q').addEventListener('input', e => {
+  clearTimeout(t); picked = null; $('#go').disabled = true;
+  const q = e.target.value.trim();
+  if (q.length < 2) { $('#results').classList.add('hidden'); return; }
+  t = setTimeout(async () => {
+    const r = await jget('/api/synopsis/deals?q=' + encodeURIComponent(q));
+    const box = $('#results');
+    if (!r.deals || !r.deals.length) {
+      box.innerHTML = '<div class="res" style="cursor:default;color:var(--ink3)">לא נמצאה עסקה בשם הזה</div>';
+    } else {
+      box.innerHTML = r.deals.map(d =>
+        `<div class="res" data-id="${d.id}" data-board="${d.boardId}" data-name="${d.name}">
+           <span>${d.name}</span><span class="bd">${d.boardName}</span></div>`).join('');
+      box.querySelectorAll('.res[data-id]').forEach(el => el.onclick = () => {
+        picked = { id: el.dataset.id, boardId: el.dataset.board, name: el.dataset.name };
+        $('#q').value = picked.name; box.classList.add('hidden');
+        $('#go').disabled = false; $('#pickHint').textContent = 'מוכן';
+      });
+    }
+    box.classList.remove('hidden');
+  }, 200);
+});
+
+/* ---------- 2. loading ---------- */
+const LOAD_STEPS = [
+  ['רשומת העסקה', 'לידים / עסקאות קבלן'],
+  ['רשומת הלקוח', 'לקוחות'],
+  ['רשומת הפרויקט', 'פרוייקטים'],
+  ['לוח התשלומים', 'תשלומים'],
+  ['בדיקת שדות מול מפת העמודות', 'column map']
+];
+
+$('#go').onclick = async () => {
+  show('load'); $('#loadDeal').textContent = picked.name;
+  $('#steps').innerHTML = LOAD_STEPS.map((s, i) =>
+    `<div class="step" id="st${i}"><span class="tick">◌</span><span>${s[0]}</span><span class="meta">${s[1]}</span></div>`).join('');
+  let i = 0;
+  const tick = setInterval(() => {
+    if (i < LOAD_STEPS.length) { const el = $('#st' + i); el.querySelector('.tick').textContent = '✓';
+      el.querySelector('.tick').classList.add('ok'); i++; $('#bar').style.width = (i / LOAD_STEPS.length * 100) + '%'; }
+  }, 260);
+
+  try {
+    const r = await jpost('/api/synopsis/facts', { dealId: picked.id, boardId: picked.boardId }).then(r => r.json());
+    if (r.error) throw new Error(r.error);
+    run = r;
+    setTimeout(() => { clearInterval(tick); $('#bar').style.width = '100%'; renderMissing(r); show('miss'); },
+      Math.max(0, LOAD_STEPS.length * 280 - 400));
+  } catch (e) {
+    clearInterval(tick);
+    $('#steps').insertAdjacentHTML('beforeend',
+      `<div class="step"><span class="tick no">✕</span><span>${e.message}</span></div>`);
+  }
+};
+
+/* ---------- 3. gaps ---------- */
+function field(g) {
+  const req = g.required ? '<span class="req">חובה</span>' : '<span class="opt">רשות</span>';
+  const flc = g.required ? 'fl reqf' : 'fl';
+  const own = (g.owner === 'deal')
+    ? `<span class="own">${g.ownerBoard}</span>`
+    : `<span class="own mirror">${g.ownerBoard}</span>`;
+  let input;
+  if (!g.writable) {
+    input = `<input class="inp" disabled value="" placeholder="לקריאה בלבד">`;
+  } else if (g.options && g.options.length) {
+    input = `<select class="inp" name="${g.key}"><option value="">—</option>` +
+      g.options.map(o => `<option value="${o}">${o}</option>`).join('') + '</select>';
+  } else if (g.type === 'date') {
+    input = `<input class="inp" type="date" name="${g.key}">`;
+  } else if (g.type === 'numbers') {
+    input = `<input class="inp" type="number" step="any" name="${g.key}" placeholder="—">`;
+  } else if (g.type === 'long_text') {
+    input = `<textarea class="inp" rows="3" name="${g.key}" placeholder="—"></textarea>`;
+  } else {
+    input = `<input class="inp" type="text" name="${g.key}" placeholder="—">`;
+  }
+  let hint = '';
+  if (!g.writable) hint = `<div class="hint mirror">לקריאה בלבד — מקורו ב־${g.ownerBoard}.</div>`;
+  else if (g.owner !== 'deal') hint = `<div class="hint mirror">נשמר לפריט ב־${g.ownerBoard}, לא לעסקה — שם השדה באמת יושב.</div>`;
+  else if (g.controlsBlock) hint = `<div class="hint">קובע אם ${g.controlsBlock} נכנס למכתב</div>`;
+  else if (g.derived) hint = `<div class="hint">מחושב: ${g.derived}</div>`;
+  else if (g.note) hint = `<div class="hint">${g.note}</div>`;
+  return `<div><label class="${flc}">${g.label}${req}${own}</label>${input}${hint}</div>`;
+}
+
+function renderMissing(r) {
+  $('#missSub').textContent = `${r.deal.name} · ${r.deal.board}`;
+  $('#sFilled').textContent = r.counts.filled;
+  $('#sEmpty').textContent = r.counts.empty;
+  $('#sReq').textContent = r.counts.requiredEmpty;
+  $('#sTotal').textContent = r.counts.total;
+
+  const show = ['purchase_price','delivery_date','contractor_loan','index_linked','tax_profile',
+                'apartment_no','floor','rooms','company_lawyer_fee'];
+  const fmt = v => /^-?\d+(\.\d+)?$/.test(v) && Math.abs(+v) >= 1000
+    ? Number(v).toLocaleString('en-US') : v;
+  const known = r.present.filter(p => show.includes(p.key));
+  $('#known').innerHTML = '<b>לא נשאל עליהם — הלוח כבר יודע:</b><br>' +
+    known.map(k => `<span class="kv"><i>${k.label}:</i> ${fmt(k.value)}</span>`).join('');
+
+  const byGroup = {};
+  for (const g of r.missing) (byGroup[g.group] ||= []).push(g);
+  for (const k in byGroup) byGroup[k].sort((a, b) => (b.required - a.required) || (b.writable - a.writable));
+  $('#missGroups').innerHTML = r.groups.filter(gr => byGroup[gr.key]).map(gr =>
+    `<div class="grp"><div class="grph">${gr.label}</div>
+       <div class="grid">${byGroup[gr.key].map(field).join('')}</div></div>`).join('');
+}
+
+$('#missForm').onsubmit = async ev => {
+  ev.preventDefault();
+  $('#save').disabled = true; $('#msg').innerHTML = '<div class="note"><span class="spin"></span> שומר…</div>';
+  const values = {};
+  new FormData(ev.target).forEach((v, k) => { if (String(v).trim()) values[k] = v; });
+  const r = await jpost('/api/synopsis/fill', { dealId: run.deal.id, runId: run.runId, values });
+
+  let html = '';
+  if (r.written.length) html += `<div class="ok">נשמרו ${r.written.length} שדות למנדיי` +
+    (r.readOnlyMode ? ' <b>(מצב קריאה בלבד — לא נשלח למנדיי)</b>' : '') + '.</div>';
+  if (r.rejected.length) html += '<div class="err"><b>נדחו:</b><br>' +
+    r.rejected.map(x => `${x.fieldKey} — ${x.reason}`).join('<br>') + '</div>';
+  if (!r.canContinue) html += '<div class="err"><b>עדיין חסרים שדות חובה:</b> ' +
+    r.blockedBy.filter(b => b.writable).map(b => b.label).join(' · ') + '</div>';
+  else html += '<div class="ok">כל שדות החובה מלאים. אפשר להמשיך לשלב הבא.</div>';
+  const mirrors = r.blockedBy.filter(b => !b.writable);
+  if (mirrors.length) html += '<div class="note"><b>שדות חובה שמקורם בלוח אחר:</b> ' +
+    mirrors.map(b => `${b.label} (${b.board})`).join(' · ') + ' — יש לעדכן שם.</div>';
+  $('#msg').innerHTML = html; $('#save').disabled = false;
+};
+
+$('#back').onclick = () => show('pick');
+document.getElementById('toPortal')?.addEventListener('click', () => location.href = '/');
+function show(v) { for (const n of ['pick','load','miss'])
+  document.getElementById('view-' + n).classList.toggle('hidden', n !== v); }
+
+jget('/api/me').then(h => {
+  $('#userName').textContent = h.name || h.email || '';
+  $('#userRole').textContent = (h.roles || []).join(', ');
+}).catch(() => {});
+</script>
+</body>
+</html>

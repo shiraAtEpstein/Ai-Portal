@@ -224,7 +224,7 @@ $('#go').onclick = async () => {
   }, 260);
 
   try {
-    const r = await jpost('/api/synopsis/facts', { dealId: picked.id, boardId: picked.boardId }).then(r => r.json());
+const r = await jpost('/api/synopsis/facts', { dealId: picked.id, boardId: picked.boardId });
     if (r.error) throw new Error(r.error);
     run = r;
     setTimeout(() => { clearInterval(tick); $('#bar').style.width = '100%'; renderMissing(r); show('miss'); },

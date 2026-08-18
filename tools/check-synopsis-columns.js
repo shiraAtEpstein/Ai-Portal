@@ -16,7 +16,7 @@
  */
 
 const fs = require('fs'), path = require('path');
-const read = require('../lib/synopsis/read');
+const synopsis = require('../lib/synopsis');
 
 const MAP = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'synopsis-columns.json'), 'utf8'));
 
@@ -25,7 +25,7 @@ const MAP = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'syn
 
   const schemas = {};
   for (const [key, board] of Object.entries(MAP.boards)) {
-    const cols = await read.boardColumns(board.id);
+    const cols = await synopsis.boardColumns(board.id);
     schemas[key] = new Map(cols.map(c => [c.id, c]));
     console.log(`  ${board.name} (${board.id}) — ${cols.length} columns`);
   }

@@ -298,6 +298,26 @@ test('values are validated against the owning column type', async () => {
   assert.deepStrictEqual(formatValue('date', '2028-08-31'), { date: '2028-08-31' });
 });
 
+test('every successful write is recorded, and a logging fault never fails the write', async () => {
+  const logged = [];
+  const c = { ...ctx(), log: e => logged.push(e) };
+  const r = await applyWrite({ action: 'update_column', fieldKey: 'direction', value: 'צפון' }, c);
+  assert.strictEqual(r.ok, true);
+  assert.strictEqual(logged.length, 1, 'the write must be recorded');
+  assert.strictEqual(logged[0].after, 'צפון');
+  assert.strictEqual(logged[0].user, 'shayna@epsteinlaw.co.il');
+
+  // a broken logger must not turn a completed write into a reported failure
+  const bad = { ...ctx(), log: () => { throw new Error('db down'); } };
+  const r2 = await applyWrite({ action: 'update_column', fieldKey: 'direction', value: 'דרום' }, bad);
+  assert.strictEqual(r2.ok, true, 'the write succeeded; logging failing must not undo that');
+
+  // nor must a missing logger
+  const none = { ...ctx() }; delete none.log;
+  const r3 = await applyWrite({ action: 'update_column', fieldKey: 'direction', value: 'מערב' }, none);
+  assert.strictEqual(r3.ok, true);
+});
+
 test('a write lands on the board that owns the field, never on the mirror', async () => {
   const c = await applyWrite({ action: 'update_column', fieldKey: 'buyer_1_name_en', value: 'Avi Chaim Rosalimsky' }, ctx());
   assert.strictEqual(String(c.boardId), '1603266147', 'buyer name must go to לקוחות');

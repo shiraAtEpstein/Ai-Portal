@@ -1,5 +1,5 @@
 {
- "version": "0.8",
+ "version": "0.9",
  "reviewedBy": null,
  "note": "T8 deliverable. Every synopsis field -> the board that OWNS it, the column that holds it, and (for mirrors) the column on the owning board that the write must target. columnId = where the value is READ from the deal item. ownerColumnId = where it is WRITTEN. All column ids, titles and types below were read from the live boards on 18/08/2026. 'required' is a judgement from reading two synopses and is NOT verified — Shira must review.",
  "boards": {
@@ -59,6 +59,10 @@
   {
    "key": "project",
    "label": "פרויקט"
+  },
+  {
+   "key": "payments",
+   "label": "לוח תשלומים"
   }
  ],
  "fields": [
@@ -1075,5 +1079,56 @@
   "Project/client fields are now read from the linked item directly, not through a mirror on the deal board — so a field with no mirror (רחוב, סטטוס הבניה, חברה מוכרת אנגלית) reads correctly.",
   "סטטוס הבניה removed: it is a property of the project's base synopsis, not a per-deal question. If the building status changes, the base synopsis is updated."
  ],
- "_comment": "Synopsis field -> monday column map. Read by lib/synopsis/* only.\ncolumnId      = the column on the DEAL board the value is READ from (a mirror, for client/project fields).\nownerColumnId = the column on the OWNING board a write must TARGET. Writing to a mirror does nothing.\nAll column ids/titles/types were read from the live boards on 18/08/2026.\n'required' is a judgement from reading two real synopses and is NOT confirmed by the firm — review it.\nNOTE vs config/monday-boards.json: that file maps WORKFLOW columns (status, paralegal, milestone dates) for the daily/alert agents. This one maps DEAL CONTENT for the letter. They overlap on exactly two columns — date81__1 (registrationDeadline / signing_deadline) and date58__1 (contractSignActualDate / signing_date). Kept separate on purpose: different consumers, different lifecycles."
+ "_comment": "Synopsis field -> monday column map. Read by lib/synopsis/* only.\ncolumnId      = the column on the DEAL board the value is READ from (a mirror, for client/project fields).\nownerColumnId = the column on the OWNING board a write must TARGET. Writing to a mirror does nothing.\nAll column ids/titles/types were read from the live boards on 18/08/2026.\n'required' is a judgement from reading two real synopses and is NOT confirmed by the firm — review it.\nNOTE vs config/monday-boards.json: that file maps WORKFLOW columns (status, paralegal, milestone dates) for the daily/alert agents. This one maps DEAL CONTENT for the letter. They overlap on exactly two columns — date81__1 (registrationDeadline / signing_deadline) and date58__1 (contractSignActualDate / signing_date). Kept separate on purpose: different consumers, different lifecycles.",
+ "payments": {
+  "board": 1727614456,
+  "boardName": "תשלומים",
+  "linkColumn": "link_to________1__1",
+  "group": "payments",
+  "columns": [
+   {
+    "id": "dropdown_mkm04cr6",
+    "label": "תיאור התשלום",
+    "type": "dropdown",
+    "required": true,
+    "writable": false
+   },
+   {
+    "id": "numbers__1",
+    "label": "סכום כולל מע\"מ",
+    "type": "numbers",
+    "required": true,
+    "writable": true
+   },
+   {
+    "id": "text_1_mkkaz45d",
+    "label": "אחוז",
+    "type": "text",
+    "required": true,
+    "writable": true
+   },
+   {
+    "id": "date4",
+    "label": "תאריך לתשלום",
+    "type": "date",
+    "required": true,
+    "writable": true
+   },
+   {
+    "id": "text_mkmc7qnc",
+    "label": "מועד לתשלום (עברית)",
+    "type": "text",
+    "required": true,
+    "writable": true
+   },
+   {
+    "id": "text_mktra0z3",
+    "label": "מועד תשלום באנגלית",
+    "type": "text",
+    "required": true,
+    "writable": true,
+    "note": "המשפט שנכנס למכתב באנגלית"
+   }
+  ]
+ }
 }

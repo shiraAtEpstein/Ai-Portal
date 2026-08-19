@@ -83,7 +83,7 @@
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px 20px}
   @media (max-width:700px){.grid{grid-template-columns:1fr}}
   .grid > .wide{grid-column:1 / -1}
-  textarea.inp.big{min-height:340px;line-height:1.75;resize:vertical;font-size:15px}
+  textarea.inp.big{min-height:170px;line-height:1.75;resize:vertical;font-size:15px}
   .rel{position:relative}
   .rel .results{position:absolute;inset-inline:0;z-index:5;border-radius:0 0 8px 8px;max-height:220px;overflow:auto}
   .rel-q.picked{border-color:var(--green);background:#fff}
@@ -289,7 +289,7 @@ function field(g) {
   } else if (t === 'numbers') {
     input = `<input class="inp" type="number" step="any" name="${g.key}" placeholder="—">`;
   } else if (g.ui === 'textarea' || t === 'long_text') {
-    input = `<textarea class="inp big" rows="14" name="${g.key}" placeholder="—"></textarea>`;
+    input = `<textarea class="inp big" rows="7" name="${g.key}" placeholder="—"></textarea>`;
   } else if (t === 'email') {
     input = `<input class="inp" type="email" name="${g.key}" placeholder="—" style="direction:ltr;text-align:right">`;
   } else if (t === 'phone') {

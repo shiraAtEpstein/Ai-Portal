@@ -157,6 +157,26 @@ test('every writable field knows which column the write targets, and no mirror t
   }
 });
 
+test('only the apartment schedule is taken from לוח תשלומים', () => {
+  const { paymentRows } = require('../lib/synopsis');
+  const linked = [
+    { id:'1', name:'שכ"ט מתווך',   group:'אנשי מקצוע',  cells:{ dropdown_mkm04cr6:'שכ"ט מתווך', numbers__1:'59000' } },
+    { id:'2', name:'תשלום 1',      group:'תשלומי דירה', cells:{ dropdown_mkm04cr6:'תשלום 1', numbers__1:'100000' } },
+    { id:'3', name:'אימות חתימה',  group:'הוצאות',      cells:{ dropdown_mkm04cr6:'אימות חתימה', numbers__1:'350' } },
+    { id:'4', name:'תשלום 2',      group:'תשלומי דירה', cells:{ dropdown_mkm04cr6:'תשלום 2', numbers__1:'400000' } }
+  ];
+  const rows = paymentRows(MAP, linked);
+  assert.strictEqual(rows.length, 2, 'fees and expenses are not part of the letter schedule');
+  assert.deepStrictEqual(rows.map(r => r.title), ['תשלום 1', 'תשלום 2']);
+});
+
+test('הנחות / תנאים is not shown at all when the answer is לא', () => {
+  const keys = run(deal({ single_select93__1: 'לא' })).missing.map(f => f.key);
+  assert.ok(!keys.includes('special_terms'), 'not even as optional');
+  assert.ok(run(deal({ single_select93__1: 'כן' })).missing.some(f => f.key === 'special_terms'),
+    'and it IS asked once the answer is כן');
+});
+
 // ---- the module boundary --------------------------------------------------
 
 test('everything routes/synopsis.js takes off lib/synopsis actually exists there', () => {

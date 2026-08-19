@@ -157,6 +157,64 @@ test('every writable field knows which column the write targets, and no mirror t
   }
 });
 
+// ---- the module boundary --------------------------------------------------
+
+test('everything routes/synopsis.js takes off lib/synopsis actually exists there', () => {
+  // routes reach the feature through one entry point. If a helper is added to a
+  // file inside the folder and not re-exported, the route fails at RUN time with
+  // "x is not a function" — which is exactly how it broke in production once.
+  const barrel = require('../lib/synopsis');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'synopsis.js'), 'utf8');
+
+  const destructured = (src.match(/const \{([^}]*)\} = synopsis;/) || [, ''])[1]
+    .split(',').map(x => x.trim()).filter(Boolean);
+  const dotted = [...src.matchAll(/\bsynopsis\.(\w+)\s*\(/g)].map(m => m[1]);
+
+  const used = [...new Set([...destructured, ...dotted])];
+  assert.ok(used.length >= 8, 'expected the route to use several exports, found ' + used.length);
+  for (const name of used)
+    assert.ok(name in barrel, `lib/synopsis does not export "${name}" — routes/synopsis.js uses it`);
+});
+
+// ---- computed values ------------------------------------------------------
+
+test('fees and tax are computed from the price, never asked for', () => {
+  const { derive, compare } = require('../lib/synopsis/derive');
+  const v = { purchase_price: '2500000', attorney_fee_pct: '0.75', broker_fee_pct: '2',
+              tax_profile: 'תושב חוץ - 8%' };
+  const c = derive(MAP, v);
+  assert.strictEqual(c.attorney_fee_incl_vat.value, '22125');   // 0.75% + VAT
+  assert.strictEqual(c.broker_fee_incl_vat.value, '59000');     // 2% + VAT
+  assert.strictEqual(c.purchase_tax.value, '200000');           // 8%, non-resident
+
+  // and none of them is ever put on the form
+  const r = run(deal());
+  for (const k of Object.keys(MAP.derive))
+    assert.ok(!r.missing.some(f => f.key === k), k + ' must be computed, not asked');
+});
+
+test('a computed value that disagrees with the board is surfaced', () => {
+  const { derive, compare } = require('../lib/synopsis/derive');
+  // the real Rosalimsky letter states 200,545 where 8% of 2,500,000 is 200,000
+  const v = { purchase_price: '2500000', tax_profile: 'תושב חוץ - 8%', purchase_tax: '200545' };
+  const bad = compare(derive(MAP, v), v).find(r => r.key === 'purchase_tax');
+  assert.strictEqual(bad.agrees, false, 'the discrepancy must be reported');
+  assert.strictEqual(bad.computed, 200000);
+  assert.strictEqual(bad.onBoard, 200545);
+});
+
+test('nothing is computed from an ambiguous tax profile', () => {
+  const { derive } = require('../lib/synopsis/derive');
+  const v = { purchase_price: '2500000', tax_profile: 'מס לפי שומה עצמית' };
+  assert.ok(!derive(MAP, v).purchase_tax, 'a bracket is not a flat rate — do not guess');
+});
+
+test('fields that appear in no real synopsis are not on the map', () => {
+  for (const k of ['property_address', 'plot', 'num_payments', 'has_mortgage',
+                   'who_signs', 'company_lawyer_fee_default'])
+    assert.ok(!MAP.fields.some(f => f.key === k), k + ' should have been removed');
+});
+
 // ---- what this feature may do to monday ----------------------------------
 
 test('update_column is the only action, and no destructive mutation exists in the code', () => {

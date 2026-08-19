@@ -10,7 +10,8 @@ const path = require('path');
 const fs = require('fs');
 
 const db = require('./db');
-const { createDbSession } = require('./lib/sessions');
+const { createDbSession, authenticate } = require('./lib/sessions');
+const { can } = require('./lib/permissions');
 const { agentsConfig } = require('./lib/access');
 const createGoogleAuthRouter = require('./google-auth');
 const createAuthRouter = require('./routes/auth');
@@ -58,6 +59,24 @@ app.get(['/', '/index.html'], (req, res, next) => {
   res.type('html').send(INDEX_HTML);
 });
 
+// The synopsis page is served only to a signed-in user who holds the capability.
+// Registered BEFORE express.static so the file cannot be fetched directly, and
+// so unhiding the sidebar button in devtools reaches a 403 rather than a page.
+app.get('/synopsis.html', authenticate, (req, res, next) => {
+  if (!can(req.session.roles, 'synopsis', 'use')) {
+    console.log('[synopsis]', JSON.stringify({ event: 'page.denied', ok: false,
+      user: req.session.email, roles: req.session.roles, at: new Date().toISOString() }));
+    return res.status(403).type('html').send(
+      '<!doctype html><html lang="he" dir="rtl"><meta charset="utf-8">' +
+      '<body style="font-family:Heebo,sans-serif;background:#f5f2ec;color:#24211c;' +
+      'display:flex;align-items:center;justify-content:center;height:100vh;margin:0">' +
+      '<div style="text-align:center"><h1 style="font-weight:600">אין הרשאה</h1>' +
+      '<p style="color:#4a463c">הפקת סינופסיס פתוחה לפרליגל, אדמין וטק בלבד.</p>' +
+      '<a href="/" style="color:#b28a3c">חזרה לפורטל</a></div></body></html>');
+  }
+  next();
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // --- users.json staff file helpers ---
@@ -102,10 +121,10 @@ app.use(createDailyRouter());
 app.use(createWhatsappGroupsRouter());
 // Unanswered client chats — deterministic detection + digest (WhatsApp).
 app.use(createUnansweredRouter());
-// Synopsis generator — deal picker, monday facts, missing-field write-back. No model.
-app.use(createSynopsisRouter());
 // Staff response-time dashboard (Yaacov) — /api/admin/staff-response.
 app.use(createStaffResponseRouter());
+// Synopsis generator — deal picker, monday facts, missing-field write-back. No model.
+app.use(createSynopsisRouter());
 // Health check — also reports whether the database is reachable.
 app.get('/healthz', async (req, res) => {
   let database = false;

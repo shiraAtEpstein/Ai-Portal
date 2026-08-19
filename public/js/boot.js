@@ -72,6 +72,14 @@ async function applySavedLanguage() {
 
   fetch('/api/me')
     .then(res => res.ok ? res.json() : null)
-    .then(d => { if (d) enterPortal(d.name || 'User', (d.roles || []).join(', ')); else showLogin(); })
+    .then(d => {
+      if (!d) return showLogin();
+      // Synopsis is open to admin, tech and paralegal — decided by
+      // config/permissions.json, never by a role list written in the front-end.
+      const canSynopsis = (((d.capabilities || {}).synopsis) || []).includes('use');
+      const synBtn = document.getElementById('synopsis-open-btn');
+      if (synBtn) synBtn.style.display = canSynopsis ? 'block' : 'none';
+      enterPortal(d.name || 'User', (d.roles || []).join(', '));
+    })
     .catch(showLogin);
 })();

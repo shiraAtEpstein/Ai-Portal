@@ -136,6 +136,37 @@ test('every writable field knows which column the write targets, and no mirror t
   }
 });
 
+// ---- what this feature may do to monday ----------------------------------
+
+test('update_column is the only action, and no destructive mutation exists in the code', () => {
+  assert.deepStrictEqual([...ALLOWED_ACTIONS], ['update_column']);
+
+  const dir = path.join(__dirname, '..', 'lib', 'synopsis');
+  const src = fs.readdirSync(dir).filter(f => f.endsWith('.js'))
+    .map(f => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n') +
+    fs.readFileSync(path.join(__dirname, '..', 'routes', 'synopsis.js'), 'utf8');
+
+  const forbidden = ['delete_item', 'delete_board', 'delete_column', 'delete_group',
+                     'archive_item', 'archive_board', 'archive_group',
+                     'move_item_to_board', 'move_item_to_group',
+                     'duplicate_item', 'duplicate_board', 'create_item', 'create_board'];
+  for (const m of forbidden)
+    assert.ok(!src.includes(m), 'the synopsis feature must never contain "' + m + '"');
+
+  // exactly one mutation, and it is the column update
+  const mutations = src.match(/mutation\s*\(/g) || [];
+  assert.strictEqual(mutations.length, 1, 'expected exactly one GraphQL mutation in the feature');
+  assert.ok(src.includes('change_column_value'), 'the one mutation must be change_column_value');
+});
+
+test('only admin, tech and paralegal may open the synopsis generator', () => {
+  const { can } = require('../lib/permissions');
+  for (const r of ['admin', 'tech', 'paralegal']) assert.ok(can([r], 'synopsis', 'use'), r + ' should have it');
+  for (const r of ['lawyer', 'accountant', 'notary', 'marketing', 'law_intern', 'team_manager'])
+    assert.ok(!can([r], 'synopsis', 'use'), r + ' must NOT have it');
+  assert.ok(!can([], 'synopsis', 'use'), 'no roles means no access');
+});
+
 // ---- the write gate ------------------------------------------------------
 
 const sent = [];

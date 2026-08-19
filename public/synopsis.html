@@ -155,6 +155,9 @@
   .paytable td.cellmiss{background:#fdf9f4}
   .paytable .inp{padding:6px 9px;font-size:13.5px}
   .cellval{margin-inline-end:8px}
+  .paytable td.cellpend{background:#f7f0e0}
+  .pend{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;background:#f7f0e0;
+        color:#8a6520;padding:3px 8px;border-radius:5px;white-space:nowrap}
   .editbtn.tiny{font-size:10.5px;padding:2px 9px}
   .calcbox{margin-top:7px;font-size:12.5px;color:var(--ink2);background:#faf8f3;
            border:1px solid var(--line2);border-radius:8px;padding:8px 11px;
@@ -346,6 +349,11 @@ const fmtNum = (v, key) => (MONEY.has(key) || /סכום|מחיר|תמורה|שכ
 
 let ALL = [], BOARD = {}, DRAFT = {}, PAYMENTS = [], CHECKS = {}, EDITING = {}, OPEN = {}, MISMATCH = [];
 
+/* What a field holds right now: what you typed if you have typed, else the board.
+   Re-rendering must never lose an entry — the form redraws whenever an answer
+   unlocks another field, and that can happen while you are half way through. */
+const current = (key, boardValue) => (DRAFT[key] !== undefined ? DRAFT[key] : boardValue);
+
 const CARDS = [
   { owner: 'deal',     title: 'העסקה' },
   { owner: 'client',   title: 'כרטיס הלקוח' },
@@ -390,24 +398,25 @@ function hintFor(f) {
 }
 
 /* one line: label · value or input · edit */
-function rowFor(f, value) {
-  const empty = isBlank(value);
+function rowFor(f, boardValue) {
+  // Empty is decided by the BOARD, not by what has been typed. Otherwise the
+  // moment you type, the field would count as filled and turn back into text.
+  const emptyOnBoard = isBlank(boardValue);
+  const value = current(f.key, boardValue);
   const editing = EDITING[f.key];
-  // A value that can also be worked out from the price: show what monday holds,
-  // the arithmetic underneath, and where they disagree say so — but never
-  // overwrite the board's figure. It is what a person recorded.
+  const req = f.required ? '<span class="req">חובה</span>' : '';
+  const cannot = f.blockedReason || !f.writable;
+
   const calc = f.computedFormula ? {
     value: f.computedValue, formula: f.computedFormula, agrees: f.computedAgrees
   } : null;
-  const req = f.required ? '<span class="req">חובה</span>' : '';
-  const cannot = f.blockedReason || !f.writable;
 
   let mid, side = '', calcLine = '';
   if (calc) {
     if (calc.agrees === false) {
       calcLine = `<div class="calcbox bad"><b>החישוב נותן ${esc(fmtNum(calc.value, f.key))}</b>
         <span class="calcf">${esc(calc.formula)}</span>
-        <div class="calcwarn">סתירה — במנדיי רשום ${esc(fmtNum(value, f.key))}. בדקי מה נכון וערכי אם צריך.</div></div>`;
+        <div class="calcwarn">סתירה — במנדיי רשום ${esc(fmtNum(boardValue, f.key))}. בדקי מה נכון וערכי אם צריך.</div></div>`;
     } else if (calc.agrees === true) {
       calcLine = `<div class="calcbox ok">✓ תואם את החישוב <span class="calcf">${esc(calc.formula)}</span></div>`;
     } else {
@@ -416,17 +425,19 @@ function rowFor(f, value) {
         <button type="button" class="editbtn tiny" data-usecalc="${f.key}" data-val="${esc(calc.value)}">השתמש בחישוב</button></div>`;
     }
   }
+
   if (cannot) {
-    mid = empty ? `<div class="rval" style="color:var(--ink3)">—</div>`
-                : `<div class="rval">${esc(fmtNum(value, f.key))}</div>`;
-  } else if (empty || editing) {
-    mid = inputFor(f, editing ? value : '');
+    mid = emptyOnBoard ? `<div class="rval" style="color:var(--ink3)">—</div>`
+                       : `<div class="rval">${esc(fmtNum(boardValue, f.key))}</div>`;
+  } else if (emptyOnBoard || editing) {
+    mid = inputFor(f, value);                       // keeps what you typed
     if (editing) side = `<button type="button" class="editbtn" data-cancel="${f.key}">ביטול</button>`;
+    else if (!isBlank(value)) side = `<span class="pend">ייכתב בשמירה</span>`;
   } else {
-    mid = `<div class="rval">${esc(fmtNum(value, f.key))}</div>`;
+    mid = `<div class="rval">${esc(fmtNum(boardValue, f.key))}</div>`;
     side = `<button type="button" class="editbtn" data-edit="${f.key}">ערוך</button>`;
   }
-  return `<div class="row${(empty && !cannot) || calc?.agrees === false ? ' miss' : ''}">
+  return `<div class="row${(emptyOnBoard && !cannot && isBlank(value)) || calc?.agrees === false ? ' miss' : ''}">
       <div class="rlabel"><b>${esc(f.label)}</b>${req}</div>
       <div>${mid}${calcLine}${hintFor(f)}</div>
       <div class="rside">${side}</div></div>`;
@@ -441,9 +452,10 @@ function paymentBody() {
     const first = p.cells[0];
     const tds = p.cells.slice(1).map(c => {
       const f = { ...c, ownerBoard: 'תשלומים', key: c.key };
+      const val = current(c.key, c.value);
       if (!c.writable) return `<td>${esc(fmtNum(c.value, c.label))}</td>`;
       if (isBlank(c.value) || EDITING[c.key])
-        return `<td class="cellmiss">${inputFor(f, EDITING[c.key] ? c.value : '')}</td>`;
+        return `<td class="${isBlank(val) ? 'cellmiss' : 'cellpend'}">${inputFor(f, val)}</td>`;
       return `<td><span class="cellval">${esc(fmtNum(c.value, c.label))}</span>` +
              `<button type="button" class="editbtn tiny" data-edit="${c.key}">ערוך</button></td>`;
     }).join('');
@@ -473,18 +485,19 @@ function renderCards() {
       const cells = PAYMENTS.flatMap(p => p.cells);
       total = cells.length;
       if (!total) return '';
-      missCount = cells.filter(c => !c.value && c.writable).length;
-      reqCount  = cells.filter(c => !c.value && c.required && c.writable).length;
+      missCount = cells.filter(c => isBlank(current(c.key, c.value)) && c.writable).length;
+      reqCount  = cells.filter(c => isBlank(current(c.key, c.value)) && c.required && c.writable).length;
       body = paymentBody();
     } else {
       const mine = shown.filter(f => f.owner === card.owner);
       if (!mine.length) return '';
       total = mine.length;
-      missCount = mine.filter(f => !f.computed && isBlank(eff[f.key]) && f.writable && !f.blockedReason).length;
-      reqCount  = mine.filter(f => !f.computed && isBlank(eff[f.key]) && f.required && f.writable && !f.blockedReason).length;
+      const stillBlank = f => isBlank(current(f.key, BOARD[f.key]));
+      missCount = mine.filter(f => stillBlank(f) && f.writable && !f.blockedReason).length;
+      reqCount  = mine.filter(f => stillBlank(f) && f.required && f.writable && !f.blockedReason).length;
       body = mine
-        .sort((a, b) => (isBlank(eff[b.key]) - isBlank(eff[a.key])) || (b.required - a.required))
-        .map(f => rowFor(f, eff[f.key])).join('');
+        .sort((a, b) => (isBlank(BOARD[b.key]) - isBlank(BOARD[a.key])) || (b.required - a.required))
+        .map(f => rowFor(f, BOARD[f.key])).join('');
     }
     const open = OPEN[card.owner] !== undefined ? OPEN[card.owner] : reqCount > 0;
     OPEN[card.owner] = open;
@@ -520,10 +533,11 @@ function renderCards() {
   });
   wireRelations($('#cards'));
 
-  const missTotal = shown.filter(f => !f.computed && isBlank(eff[f.key]) && f.writable && !f.blockedReason).length +
-                    PAYMENTS.flatMap(p => p.cells).filter(c => !c.value && c.writable).length;
-  const reqTotal  = shown.filter(f => !f.computed && isBlank(eff[f.key]) && f.required && f.writable && !f.blockedReason).length +
-                    PAYMENTS.flatMap(p => p.cells).filter(c => !c.value && c.required && c.writable).length;
+  const blank = (k, v) => isBlank(current(k, v));
+  const missTotal = shown.filter(f => blank(f.key, BOARD[f.key]) && f.writable && !f.blockedReason).length +
+                    PAYMENTS.flatMap(p => p.cells).filter(c => blank(c.key, c.value) && c.writable).length;
+  const reqTotal  = shown.filter(f => blank(f.key, BOARD[f.key]) && f.required && f.writable && !f.blockedReason).length +
+                    PAYMENTS.flatMap(p => p.cells).filter(c => blank(c.key, c.value) && c.required && c.writable).length;
   $('#sEmpty').textContent = missTotal;
   $('#sReq').textContent = reqTotal;
 }
@@ -535,6 +549,14 @@ function readDraft() {
 }
 
 /* a change can unlock another field — re-render only when the visible set moves */
+// Keep the draft current on every keystroke. Re-rendering rebuilds the inputs,
+// so anything not captured here would be lost the moment another answer changes
+// what is on screen — or when a card is collapsed.
+document.addEventListener('input', ev => {
+  const el = ev.target;
+  if (!el.name || !el.closest || !el.closest('#missForm')) return;
+  DRAFT[el.name] = el.value;
+});
 document.addEventListener('change', ev => {
   if (!ev.target.closest || !ev.target.closest('#missForm')) return;
   const before = shownFields().map(f => f.key).join(',');

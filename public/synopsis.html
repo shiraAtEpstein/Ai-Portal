@@ -143,9 +143,21 @@
   .editbtn{font-family:inherit;font-size:11.5px;font-weight:600;color:var(--gold);background:#fff;
            border:1.5px solid var(--gold);border-radius:999px;padding:3px 12px;cursor:pointer;white-space:nowrap}
   .editbtn:hover{background:#faf4e8}
-  .paytitle{font-size:14px;font-weight:600;color:var(--gold);margin:16px 0 2px;
-            padding-bottom:5px;border-bottom:1px solid var(--line2)}
-  .paytitle:first-child{margin-top:0}
+  .paywrap{overflow-x:auto;margin-top:6px}
+  .paytable{width:100%;border-collapse:collapse;font-size:13.5px;min-width:720px}
+  .paytable th{text-align:right;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;
+               color:var(--ink3);font-weight:500;padding:9px 10px;background:#faf8f3;
+               border-bottom:1px solid var(--line2);white-space:nowrap}
+  .paytable td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+  .paytable th.payname{font-family:inherit;font-size:14px;font-weight:600;color:var(--ink);
+                       background:transparent;white-space:nowrap;border-bottom:1px solid var(--line)}
+  .paytable tr:last-child td,.paytable tr:last-child th{border-bottom:none}
+  .paytable td.cellmiss{background:#fdf9f4}
+  .paytable .inp{padding:6px 9px;font-size:13.5px}
+  .cellval{margin-inline-end:8px}
+  .editbtn.tiny{font-size:10.5px;padding:2px 9px}
+  .paysum th{font-family:inherit;font-size:13.5px;font-weight:600;color:var(--ink);background:#faf8f3}
+  .paysum td{background:#faf8f3;font-size:13.5px}
   .checkline2{display:flex;gap:16px;flex-wrap:wrap;font-size:13.5px;margin-top:14px;
               padding-top:12px;border-top:1px solid var(--line)}
   .chk{display:inline-flex;gap:6px;align-items:center}
@@ -316,10 +328,15 @@ function condHolds(c, vals) {
 }
 const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const fmtNum = v => /^-?\d+(\.\d+)?$/.test(String(v)) && Math.abs(+v) >= 1000
+/* Only money gets thousand separators. An ID, a phone, a גוש or a ח.פ. is a
+   string of digits, not a quantity — 972,532,744,740 is not a phone number. */
+const MONEY = new Set(['purchase_price','attorney_fee_incl_vat','broker_fee_incl_vat',
+  'purchase_tax','purchase_tax_alt','company_lawyer_fee','payment_amount']);
+const fmtNum = (v, key) => (MONEY.has(key) || /סכום|מחיר|תמורה|שכ"ט|מס$/.test(String(key || '')))
+  && /^-?\d+(\.\d+)?$/.test(String(v))
   ? Number(v).toLocaleString('en-US') : v;
 
-let ALL = [], BOARD = {}, DRAFT = {}, PAYMENTS = [], CHECKS = {}, EDITING = {}, OPEN = {};
+let ALL = [], BOARD = {}, DRAFT = {}, PAYMENTS = [], CHECKS = {}, EDITING = {}, OPEN = {}, MISMATCH = [];
 
 const CARDS = [
   { owner: 'deal',     title: 'העסקה' },
@@ -368,18 +385,28 @@ function hintFor(f) {
 function rowFor(f, value) {
   const empty = isBlank(value);
   const editing = EDITING[f.key];
+  if (f.computed) {
+    const mm = (MISMATCH || []).find(x => x.key === f.key);
+    return `<div class="row${mm ? ' miss' : ''}">
+      <div class="rlabel"><b>${esc(f.label)}</b><span class="opt">מחושב</span></div>
+      <div><div class="rval">${esc(fmtNum(value, f.key))}</div>
+        <div class="hint">${esc(f.derived || '')}</div>
+        ${mm ? `<div class="hint" style="color:var(--red);font-weight:600">
+             במנדיי רשום ${esc(fmtNum(String(mm.onBoard), f.key))} — לא תואם את החישוב</div>` : ''}</div>
+      <div class="rside"></div></div>`;
+  }
   const req = f.required ? '<span class="req">חובה</span>' : '';
   const cannot = f.blockedReason || !f.writable;
 
   let mid, side = '';
   if (cannot) {
     mid = empty ? `<div class="rval" style="color:var(--ink3)">—</div>`
-                : `<div class="rval">${esc(fmtNum(value))}</div>`;
+                : `<div class="rval">${esc(fmtNum(value, f.key))}</div>`;
   } else if (empty || editing) {
     mid = inputFor(f, editing ? value : '');
     if (editing) side = `<button type="button" class="editbtn" data-cancel="${f.key}">ביטול</button>`;
   } else {
-    mid = `<div class="rval">${esc(fmtNum(value))}</div>`;
+    mid = `<div class="rval">${esc(fmtNum(value, f.key))}</div>`;
     side = `<button type="button" class="editbtn" data-edit="${f.key}">ערוך</button>`;
   }
   return `<div class="row${empty && !cannot ? ' miss' : ''}">
@@ -389,15 +416,35 @@ function rowFor(f, value) {
 }
 
 function paymentBody() {
-  if (!PAYMENTS.length) return '<p class="hint">אין תשלומים מקושרים לעסקה.</p>';
-  let html = PAYMENTS.map(p => `<div class="paytitle">${esc(p.title)}</div>` +
-    p.cells.map(c => rowFor({ ...c, ownerBoard: 'תשלומים' }, c.value)).join('')).join('');
+  if (!PAYMENTS.length) return '<p class="hint">אין תשלומי דירה מקושרים לעסקה.</p>';
+  const cols = PAYMENTS[0].cells.map(c => c.label);
+  const head = '<tr><th>תשלום</th>' + cols.slice(1).map(l => `<th>${esc(l)}</th>`).join('') + '</tr>';
+
+  const body = PAYMENTS.map(p => {
+    const first = p.cells[0];
+    const tds = p.cells.slice(1).map(c => {
+      const f = { ...c, ownerBoard: 'תשלומים', key: c.key };
+      if (!c.writable) return `<td>${esc(fmtNum(c.value, c.label))}</td>`;
+      if (isBlank(c.value) || EDITING[c.key])
+        return `<td class="cellmiss">${inputFor(f, EDITING[c.key] ? c.value : '')}</td>`;
+      return `<td><span class="cellval">${esc(fmtNum(c.value, c.label))}</span>` +
+             `<button type="button" class="editbtn tiny" data-edit="${c.key}">ערוך</button></td>`;
+    }).join('');
+    return `<tr><th class="payname">${esc(first.value || p.title)}</th>${tds}</tr>`;
+  }).join('');
+
   const c = CHECKS || {};
-  html += `<div class="checkline2">
-    <span class="chk ${c.sumOk ? 'ok' : 'bad'}">${c.sumOk ? '✓' : '✕'} סכום התשלומים ${fmtNum(c.sum || 0)} מול מחיר הדירה ${fmtNum(c.price || 0)}</span>
-    <span class="chk ${c.pctOk ? 'ok' : 'bad'}">${c.pctOk ? '✓' : '✕'} אחוזים ${c.pct || 0}%</span>
-    <span class="chk">${c.count || 0} תשלומים</span></div>`;
-  return html;
+  const foot = `<tr class="paysum"><th>סה״כ</th>
+      <td><b>${fmtNum(c.sum || 0, 'purchase_price')}</b>
+        <span class="chk ${c.sumOk ? 'ok' : 'bad'}">${c.sumOk ? '✓ = מחיר הדירה' : '✕ ≠ ' + fmtNum(c.price || 0, 'purchase_price')}</span></td>
+      <td><b>${c.pct || 0}%</b>
+        <span class="chk ${c.pctOk ? 'ok' : 'bad'}">${c.pctOk ? '✓' : '✕'}</span></td>
+      <td colspan="3"></td></tr>`;
+
+  return `<div class="paywrap"><table class="paytable">
+      <thead>${head}</thead><tbody>${body}${foot}</tbody></table></div>
+    <p class="hint" style="margin-top:10px">נלקחות רק שורות מקבוצת <b>תשלומי דירה</b>.
+      שכר טרחה והוצאות נמצאים באותו לוח בקבוצות אחרות ואינם חלק מלוח התשלומים במכתב.</p>`;
 }
 
 function renderCards() {
@@ -416,8 +463,8 @@ function renderCards() {
       const mine = shown.filter(f => f.owner === card.owner);
       if (!mine.length) return '';
       total = mine.length;
-      missCount = mine.filter(f => isBlank(eff[f.key]) && f.writable && !f.blockedReason).length;
-      reqCount  = mine.filter(f => isBlank(eff[f.key]) && f.required && f.writable && !f.blockedReason).length;
+      missCount = mine.filter(f => !f.computed && isBlank(eff[f.key]) && f.writable && !f.blockedReason).length;
+      reqCount  = mine.filter(f => !f.computed && isBlank(eff[f.key]) && f.required && f.writable && !f.blockedReason).length;
       body = mine
         .sort((a, b) => (isBlank(eff[b.key]) - isBlank(eff[a.key])) || (b.required - a.required))
         .map(f => rowFor(f, eff[f.key])).join('');
@@ -450,9 +497,9 @@ function renderCards() {
   });
   wireRelations($('#cards'));
 
-  const missTotal = shown.filter(f => isBlank(eff[f.key]) && f.writable && !f.blockedReason).length +
+  const missTotal = shown.filter(f => !f.computed && isBlank(eff[f.key]) && f.writable && !f.blockedReason).length +
                     PAYMENTS.flatMap(p => p.cells).filter(c => !c.value && c.writable).length;
-  const reqTotal  = shown.filter(f => isBlank(eff[f.key]) && f.required && f.writable && !f.blockedReason).length +
+  const reqTotal  = shown.filter(f => !f.computed && isBlank(eff[f.key]) && f.required && f.writable && !f.blockedReason).length +
                     PAYMENTS.flatMap(p => p.cells).filter(c => !c.value && c.required && c.writable).length;
   $('#sEmpty').textContent = missTotal;
   $('#sReq').textContent = reqTotal;
@@ -501,7 +548,7 @@ function wireRelations(root) {
 function renderMissing(r) {
   $('#missSub').textContent = `${r.deal.name} · ${r.deal.board}`;
   ALL = r.fields || []; BOARD = r.values || {};
-  PAYMENTS = r.payments || []; CHECKS = r.checks || {};
+  PAYMENTS = r.payments || []; CHECKS = r.checks || {}; MISMATCH = r.mismatches || [];
   DRAFT = {}; EDITING = {}; OPEN = {};
   $('#sFilled').textContent = r.counts.filled;
   $('#sTotal').textContent = r.counts.total;

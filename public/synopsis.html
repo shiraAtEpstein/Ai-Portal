@@ -97,7 +97,16 @@
   .srcline:first-of-type{border-top:none}
   .srcname{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;
            background:#e6eef5;color:#2f5474;padding:2px 7px;border-radius:4px;margin-inline-end:10px}
-  .kv{display:inline-block;margin-inline-end:14px;white-space:nowrap}
+  .kv{display:inline-block;margin-inline-end:14px;max-width:100%;
+      white-space:normal;overflow-wrap:anywhere;vertical-align:top}
+  .kv.long{display:block;margin:6px 0 0;white-space:pre-wrap;line-height:1.6}
+  .knownhead{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none}
+  .knownhead .chev{font-family:var(--mono);font-size:11px;color:var(--ink3);transition:transform .15s}
+  .knownhead.open .chev{transform:rotate(90deg)}
+  .knownbody{display:none;margin-top:4px}
+  .knownbody.open{display:block}
+  .more{font-family:var(--mono);font-size:10px;color:var(--gold);cursor:pointer;
+        border:none;background:none;padding:0 4px}
   .kv i{font-style:normal;color:var(--ink3)}
 
   .note{background:#f7f0e0;border:1px solid #e6d3a8;border-radius:10px;padding:13px 16px;
@@ -425,12 +434,35 @@ function renderMissing(r) {
   const LABEL = { deal: 'העסקה', client: 'כרטיס הלקוח', client2: 'כרטיס לקוח 2', project: 'כרטיס הפרויקט' };
   const bySrc = {};
   for (const p of r.present) (bySrc[p.owner] ||= []).push(p);
+  const esc = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const cell = k => {
+    const v = String(fmt(k.value));
+    if (v.length <= 90) return `<span class="kv"><i>${k.label}:</i> ${esc(v)}</span>`;
+    const id = 'kv' + Math.random().toString(36).slice(2, 8);
+    return `<span class="kv long"><i>${k.label}:</i> ` +
+           `<span id="${id}s">${esc(v.slice(0, 90))}…</span>` +
+           `<span id="${id}f" style="display:none">${esc(v)}</span>` +
+           `<button type="button" class="more" data-full="${id}">הצג הכל</button></span>`;
+  };
+  const total = r.present.length;
   $('#known').innerHTML =
-    '<b>לא נשאל עליהם — כבר קיימים במנדיי:</b>' +
+    `<div class="knownhead" id="knownToggle"><span class="chev">▸</span>` +
+    `<b>${total} שדות כבר קיימים במנדיי — לא נשאל עליהם</b>` +
+    `<span style="color:var(--ink3);font-size:12px">לחצי להצגה</span></div>` +
+    `<div class="knownbody" id="knownBody">` +
     ['deal','client','client2','project'].filter(o => bySrc[o]).map(o =>
       `<div class="srcline"><span class="srcname">${LABEL[o]} · ${bySrc[o].length}</span>` +
-      bySrc[o].map(k => `<span class="kv"><i>${k.label}:</i> ${fmt(k.value)}</span>`).join('') +
-      '</div>').join('');
+      bySrc[o].map(cell).join('') + '</div>').join('') + '</div>';
+
+  const head = document.getElementById('knownToggle'), body = document.getElementById('knownBody');
+  head.onclick = () => { head.classList.toggle('open'); body.classList.toggle('open'); };
+  $('#known').querySelectorAll('.more').forEach(b => b.onclick = ev => {
+    ev.stopPropagation();
+    const id = b.dataset.full;
+    document.getElementById(id + 's').style.display = 'none';
+    document.getElementById(id + 'f').style.display = 'inline';
+    b.remove();
+  });
 
   const byGroup = {};
   for (const g of r.missing) (byGroup[g.group] ||= []).push(g);
@@ -450,20 +482,38 @@ $('#missForm').onsubmit = async ev => {
   $('#save').disabled = true; $('#msg').innerHTML = '<div class="note"><span class="spin"></span> שומר…</div>';
   const values = {};
   new FormData(ev.target).forEach((v, k) => { if (String(v).trim()) values[k] = v; });
+  if (!Object.keys(values).length && !visibleNow().some(f => f.required)) {
+    $('#msg').innerHTML = '<div class="ok"><b>אין מה לעדכן — הלוח כבר מלא.</b><br>' +
+      'השלב הבא (קריאת הסינופסיס הקודם, החלטת השינויים ואישורם) עדיין לא נבנה.</div>';
+    $('#save').disabled = true; $('#save').textContent = 'הלוח מלא ✓';
+    return;
+  }
   const r = await jpost('/api/synopsis/fill', { dealId: run.deal.id, runId: run.runId, values });
 
   let html = '';
-  if (r.written.length) html += `<div class="ok">נשמרו ${r.written.length} שדות למנדיי` +
-    (r.readOnlyMode ? ' <b>(מצב קריאה בלבד — לא נשלח למנדיי)</b>' : '') + '.</div>';
-  if (r.rejected.length) html += '<div class="err"><b>נדחו:</b><br>' +
+  if (r.written.length) html += `<div class="ok"><b>נשמרו ${r.written.length} שדות למנדיי</b>` +
+    (r.readOnlyMode ? ' <b>(מצב קריאה בלבד — לא נשלח למנדיי)</b>' : '') + '<br>' +
+    r.written.map(w => `${w.fieldKey} → ${w.board || ''}`).join(' · ') + '</div>';
+  if (r.rejected.length) html += '<div class="err"><b>לא נשמרו:</b><br>' +
     r.rejected.map(x => `${x.fieldKey} — ${x.reason}`).join('<br>') + '</div>';
-  if (!r.canContinue) html += '<div class="err"><b>עדיין חסרים שדות חובה:</b> ' +
-    r.blockedBy.filter(b => b.writable).map(b => b.label).join(' · ') + '</div>';
-  else html += '<div class="ok">כל שדות החובה מלאים. אפשר להמשיך לשלב הבא.</div>';
+
+  if (!r.canContinue) {
+    html += '<div class="err"><b>עדיין חסרים שדות חובה:</b> ' +
+      r.blockedBy.filter(b => b.writable).map(b => b.label).join(' · ') + '</div>';
+  } else {
+    // Say plainly what happens next — and what does not happen yet.
+    html += '<div class="ok"><b>הלוח מעודכן. כל שדות החובה מלאים.</b><br>' +
+      'מכאן השלב הבא הוא: קריאת הסינופסיס של הלקוח הקודם בפרויקט, החלטה מה צריך להשתנות, ' +
+      'הצגת השינויים לאישורך, ורק אחר כך בניית הקובץ.<br>' +
+      '<b>השלבים האלה עדיין לא נבנו</b> — נכון להיום התהליך נעצר כאן, והלוח מעודכן ומוכן להם.</div>';
+    document.getElementById('save').textContent = 'הלוח מעודכן ✓';
+    document.getElementById('save').disabled = true;
+  }
   const mirrors = r.blockedBy.filter(b => !b.writable);
   if (mirrors.length) html += '<div class="note"><b>שדות חובה שמקורם בלוח אחר:</b> ' +
     mirrors.map(b => `${b.label} (${b.board})`).join(' · ') + ' — יש לעדכן שם.</div>';
-  $('#msg').innerHTML = html; $('#save').disabled = false;
+  $('#msg').innerHTML = html;
+  if (!r.canContinue) $('#save').disabled = false;
 };
 
 $('#back').onclick = () => show('pick');

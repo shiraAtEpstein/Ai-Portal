@@ -122,6 +122,34 @@
        margin-top:16px;font-size:13.5px;color:#8a2f1c}
   .ok{background:#f2f6ec;border:1px solid #cfdcc0;border-radius:10px;padding:13px 16px;
       margin-top:16px;font-size:13.5px;color:#46603a}
+  .cardsec{background:var(--card);border:1px solid var(--line);border-radius:13px;margin-bottom:14px;overflow:hidden}
+  .cardhead{display:flex;align-items:center;gap:12px;padding:15px 20px;cursor:pointer;user-select:none;
+            border-bottom:1px solid transparent}
+  .cardhead.open{border-bottom-color:var(--line)}
+  .cardhead h3{margin:0;font-size:17px;font-weight:600;flex:1}
+  .cardcount{font-family:var(--mono);font-size:10px;letter-spacing:.06em;padding:3px 9px;border-radius:5px;
+             background:#eef2e8;color:#47603a;white-space:nowrap}
+  .cardcount.warn{background:#f6e2dd;color:#8a2f1c}
+  .cardbody{display:none;padding:6px 20px 18px}
+  .cardbody.open{display:block}
+  .row{display:grid;grid-template-columns:minmax(150px,230px) 1fr auto;gap:14px;align-items:start;
+       padding:11px 0;border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:none}
+  .row.miss{background:#fdf9f4;margin:0 -12px;padding-inline:12px;border-radius:8px}
+  .rlabel{font-size:14.5px;color:var(--ink2);padding-top:8px}
+  .rlabel b{color:var(--ink);font-weight:600}
+  .rval{font-size:15px;padding-top:8px;overflow-wrap:anywhere;white-space:pre-wrap;line-height:1.6}
+  .rside{display:flex;gap:6px;align-items:center;padding-top:6px}
+  .editbtn{font-family:inherit;font-size:11.5px;font-weight:600;color:var(--gold);background:#fff;
+           border:1.5px solid var(--gold);border-radius:999px;padding:3px 12px;cursor:pointer;white-space:nowrap}
+  .editbtn:hover{background:#faf4e8}
+  .paytitle{font-size:14px;font-weight:600;color:var(--gold);margin:16px 0 2px;
+            padding-bottom:5px;border-bottom:1px solid var(--line2)}
+  .paytitle:first-child{margin-top:0}
+  .checkline2{display:flex;gap:16px;flex-wrap:wrap;font-size:13.5px;margin-top:14px;
+              padding-top:12px;border-top:1px solid var(--line)}
+  .chk{display:inline-flex;gap:6px;align-items:center}
+  .chk.ok{color:var(--green)} .chk.bad{color:var(--red);font-weight:600}
   .hidden{display:none}
   .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line2);
         border-top-color:var(--gold);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
@@ -162,22 +190,21 @@
 
   <!-- ========== 3. gaps ========== -->
   <section id="view-miss" class="hidden">
-    <h1>השלמת פרטים חסרים</h1>
+    <h1>נתוני העסקה</h1>
     <p class="sub" id="missSub">—</p>
 
     <div class="card">
       <div class="summary" style="border-top:none;margin-top:0;padding-top:0">
-        <div class="stat"><b id="sFilled">—</b><span>שדות מלאים במנדיי</span></div>
+        <div class="stat"><b id="sFilled">—</b><span>מלאים במנדיי</span></div>
         <div class="stat warn"><b id="sEmpty">—</b><span>חסרים</span></div>
         <div class="stat warn"><b id="sReq">—</b><span>חובה</span></div>
-        <div class="stat"><b id="sTotal">—</b><span>סה״כ שדות לסינופסיס</span></div>
+        <div class="stat"><b id="sTotal">—</b><span>סה״כ שדות</span></div>
       </div>
-      <div class="known" id="known"></div>
+      <div id="checks"></div>
     </div>
 
-    <form id="missForm"><div id="missGroups"></div>
-      <div class="note"><b>מה שתמלאי כאן נשמר למנדיי</b> על שמך, לפני שמתחילים לנסח. בפעם הבאה
-        שמישהו יפתח את העסקה — הלוח כבר יידע.</div>
+    <form id="missForm"><div id="cards"></div>
+      <div class="note"><b>מה שתמלאי או תערכי כאן נשמר למנדיי</b> על שמך, לכרטיס שבו השדה באמת יושב.</div>
       <div id="msg"></div>
       <div class="btnrow">
         <button type="submit" class="btn gold" id="save">שמור למנדיי והמשך</button>
@@ -270,58 +297,180 @@ $('#go').onclick = async () => {
   }
 };
 
-/* ---------- 3. gaps ---------- */
-function field(g) {
-  const req = g.required ? '<span class="req">חובה</span>' : '<span class="opt">רשות</span>';
-  const flc = g.required ? 'fl reqf' : 'fl';
-  const own = (g.owner === 'deal')
-    ? `<span class="own">${g.ownerBoard}</span>`
-    : `<span class="own mirror">${g.ownerBoard}</span>`;
+/* ---------- 3. every field the synopsis needs, by card ---------- */
 
-  const t = g.inputType || g.type;      // the OWNING column's type, not the mirror's
-  let input, hint = '';
-
-  if (g.blockedReason) {
-    input = `<input class="inp" disabled placeholder="${g.blockedReason}">`;
-    hint = `<div class="hint mirror">${g.blockedReason} — יש לקשר קודם.</div>`;
-  } else if (!g.writable) {
-    input = `<input class="inp" disabled placeholder="לקריאה בלבד">`;
-    hint = `<div class="hint mirror">לקריאה בלבד — מקורו ב־${g.ownerBoard}.</div>`;
-  } else if (g.ui === 'relation') {
-    input = `<div class="rel" data-key="${g.key}" data-board="${g.lookupBoard}">
-        <input class="inp rel-q" autocomplete="off" placeholder="חיפוש ב${g.ownerBoard}…">
-        <input type="hidden" name="${g.key}">
-        <div class="results hidden rel-res"></div></div>`;
-    hint = `<div class="hint">בחרי פריט מ${g.ownerBoard} כדי לקשר</div>`;
-  } else if (t === 'file') {
-    input = `<input class="inp" type="file" disabled>`;
-    hint = `<div class="hint mirror">קבצים מועלים בפריט עצמו במנדיי, לא מכאן.</div>`;
-  } else if (g.options && g.options.length) {
-    input = `<select class="inp" name="${g.key}"><option value="">—</option>` +
-      g.options.map(o => `<option value="${o}">${o}</option>`).join('') + '</select>';
-  } else if (t === 'date') {
-    input = `<input class="inp" type="date" name="${g.key}">`;
-  } else if (t === 'numbers') {
-    input = `<input class="inp" type="number" step="any" name="${g.key}" placeholder="—">`;
-  } else if (g.ui === 'textarea' || t === 'long_text') {
-    input = `<textarea class="inp big" rows="7" name="${g.key}" placeholder="—"></textarea>`;
-  } else if (t === 'email') {
-    input = `<input class="inp" type="email" name="${g.key}" placeholder="—" style="direction:ltr;text-align:right">`;
-  } else if (t === 'phone') {
-    input = `<input class="inp" type="tel" name="${g.key}" placeholder="—" style="direction:ltr;text-align:right">`;
-  } else {
-    input = `<input class="inp" type="text" name="${g.key}" placeholder="—">`;
-  }
-
-  if (!hint) {
-    if (g.owner !== 'deal') hint = `<div class="hint mirror">נשמר לפריט ב־${g.ownerBoard} — שם השדה באמת יושב.</div>`;
-    else if (g.controlsBlock) hint = `<div class="hint">קובע אם ${g.controlsBlock} נכנס למכתב</div>`;
-    else if (g.derived) hint = `<div class="hint">מחושב: ${g.derived}</div>`;
-    else if (g.note) hint = `<div class="hint">${g.note}</div>`;
-  }
-  const wide = (g.ui === 'textarea' || t === 'long_text') ? ' class="wide"' : '';
-  return `<div${wide}><label class="${flc}">${g.label}${req}${own}</label>${input}${hint}</div>`;
+/* Board values + what has been typed. Conditions read the combination, so
+   answering a question reveals what it unlocks without saving first. The server
+   stays authoritative: on save it recomputes from monday. */
+function isBlank(v) {
+  if (v === null || v === undefined) return true;
+  const t = String(v).trim();
+  return t === '' || t === '-' || t === 'N/A' || t === 'n/a';
 }
+function condHolds(c, vals) {
+  if (c.anyOf) return c.anyOf.some(x => condHolds(x, vals));
+  const other = vals[c.field];
+  if (c.empty) return isBlank(other);
+  if (c.notEmpty) return !isBlank(other);
+  return !isBlank(other) && String(other).trim() === c.equals;
+}
+const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const fmtNum = v => /^-?\d+(\.\d+)?$/.test(String(v)) && Math.abs(+v) >= 1000
+  ? Number(v).toLocaleString('en-US') : v;
+
+let ALL = [], BOARD = {}, DRAFT = {}, PAYMENTS = [], CHECKS = {}, EDITING = {}, OPEN = {};
+
+const CARDS = [
+  { owner: 'deal',     title: 'העסקה' },
+  { owner: 'client',   title: 'כרטיס הלקוח' },
+  { owner: 'client2',  title: 'כרטיס לקוח 2' },
+  { owner: 'project',  title: 'כרטיס הפרויקט' },
+  { owner: 'payments', title: 'לוח תשלומים' }
+];
+
+function shownFields() {
+  const eff = Object.assign({}, BOARD, DRAFT);
+  return ALL.filter(f => f.ask !== false && (!f.showIf || condHolds(f.showIf, eff)));
+}
+
+/* one input, typed by the OWNING column */
+function inputFor(f, value) {
+  const t = f.inputType || f.type;
+  const v = value == null ? '' : String(value);
+  if (f.ui === 'relation')
+    return `<div class="rel" data-key="${f.key}" data-board="${f.lookupBoard}">
+      <input class="inp rel-q" autocomplete="off" placeholder="חיפוש ב${esc(f.ownerBoard)}…" value="${esc(v)}">
+      <input type="hidden" name="${f.key}"><div class="results hidden rel-res"></div></div>`;
+  if (t === 'file') return `<input class="inp" type="file" disabled>`;
+  if (f.options && f.options.length)
+    return `<select class="inp" name="${f.key}"><option value="">—</option>` +
+      f.options.map(o => `<option value="${esc(o)}"${o === v ? ' selected' : ''}>${esc(o)}</option>`).join('') +
+      '</select>';
+  if (t === 'date')     return `<input class="inp" type="date" name="${f.key}" value="${esc(v)}">`;
+  if (t === 'numbers')  return `<input class="inp" type="number" step="any" name="${f.key}" value="${esc(v)}" placeholder="—">`;
+  if (f.ui === 'textarea' || t === 'long_text')
+    return `<textarea class="inp big" rows="7" name="${f.key}" placeholder="—">${esc(v)}</textarea>`;
+  if (t === 'email')    return `<input class="inp" type="email" name="${f.key}" value="${esc(v)}" style="direction:ltr;text-align:right">`;
+  if (t === 'phone')    return `<input class="inp" type="tel" name="${f.key}" value="${esc(v)}" style="direction:ltr;text-align:right">`;
+  return `<input class="inp" type="text" name="${f.key}" value="${esc(v)}" placeholder="—">`;
+}
+
+function hintFor(f) {
+  if (f.blockedReason) return `<div class="hint mirror">${esc(f.blockedReason)} — יש לקשר קודם.</div>`;
+  if (f.controlsBlock) return `<div class="hint">קובע אם ${esc(f.controlsBlock)} נכנס למכתב</div>`;
+  if (f.derived)       return `<div class="hint">מחושב: ${esc(f.derived)}</div>`;
+  if (f.note)          return `<div class="hint">${esc(f.note)}</div>`;
+  return '';
+}
+
+/* one line: label · value or input · edit */
+function rowFor(f, value) {
+  const empty = isBlank(value);
+  const editing = EDITING[f.key];
+  const req = f.required ? '<span class="req">חובה</span>' : '';
+  const cannot = f.blockedReason || !f.writable;
+
+  let mid, side = '';
+  if (cannot) {
+    mid = empty ? `<div class="rval" style="color:var(--ink3)">—</div>`
+                : `<div class="rval">${esc(fmtNum(value))}</div>`;
+  } else if (empty || editing) {
+    mid = inputFor(f, editing ? value : '');
+    if (editing) side = `<button type="button" class="editbtn" data-cancel="${f.key}">ביטול</button>`;
+  } else {
+    mid = `<div class="rval">${esc(fmtNum(value))}</div>`;
+    side = `<button type="button" class="editbtn" data-edit="${f.key}">ערוך</button>`;
+  }
+  return `<div class="row${empty && !cannot ? ' miss' : ''}">
+      <div class="rlabel"><b>${esc(f.label)}</b>${req}</div>
+      <div>${mid}${hintFor(f)}</div>
+      <div class="rside">${side}</div></div>`;
+}
+
+function paymentBody() {
+  if (!PAYMENTS.length) return '<p class="hint">אין תשלומים מקושרים לעסקה.</p>';
+  let html = PAYMENTS.map(p => `<div class="paytitle">${esc(p.title)}</div>` +
+    p.cells.map(c => rowFor({ ...c, ownerBoard: 'תשלומים' }, c.value)).join('')).join('');
+  const c = CHECKS || {};
+  html += `<div class="checkline2">
+    <span class="chk ${c.sumOk ? 'ok' : 'bad'}">${c.sumOk ? '✓' : '✕'} סכום התשלומים ${fmtNum(c.sum || 0)} מול מחיר הדירה ${fmtNum(c.price || 0)}</span>
+    <span class="chk ${c.pctOk ? 'ok' : 'bad'}">${c.pctOk ? '✓' : '✕'} אחוזים ${c.pct || 0}%</span>
+    <span class="chk">${c.count || 0} תשלומים</span></div>`;
+  return html;
+}
+
+function renderCards() {
+  const eff = Object.assign({}, BOARD, DRAFT);
+  const shown = shownFields();
+  const html = CARDS.map(card => {
+    let body, total, missCount, reqCount;
+    if (card.owner === 'payments') {
+      const cells = PAYMENTS.flatMap(p => p.cells);
+      total = cells.length;
+      if (!total) return '';
+      missCount = cells.filter(c => !c.value && c.writable).length;
+      reqCount  = cells.filter(c => !c.value && c.required && c.writable).length;
+      body = paymentBody();
+    } else {
+      const mine = shown.filter(f => f.owner === card.owner);
+      if (!mine.length) return '';
+      total = mine.length;
+      missCount = mine.filter(f => isBlank(eff[f.key]) && f.writable && !f.blockedReason).length;
+      reqCount  = mine.filter(f => isBlank(eff[f.key]) && f.required && f.writable && !f.blockedReason).length;
+      body = mine
+        .sort((a, b) => (isBlank(eff[b.key]) - isBlank(eff[a.key])) || (b.required - a.required))
+        .map(f => rowFor(f, eff[f.key])).join('');
+    }
+    const open = OPEN[card.owner] !== undefined ? OPEN[card.owner] : reqCount > 0;
+    OPEN[card.owner] = open;
+    const badge = missCount
+      ? `<span class="cardcount warn">${missCount} חסרים${reqCount ? ` · ${reqCount} חובה` : ''}</span>`
+      : `<span class="cardcount">מלא</span>`;
+    return `<div class="cardsec">
+      <div class="cardhead${open ? ' open' : ''}" data-card="${card.owner}">
+        <button type="button" class="toggle${open ? ' open' : ''}" tabindex="-1">
+          <span class="chev">▸</span><span>${open ? 'הסתר' : 'הצג'}</span></button>
+        <h3>${card.title}</h3>
+        <span class="cardcount">${total} שדות</span>${badge}
+      </div>
+      <div class="cardbody${open ? ' open' : ''}">${body}</div>
+    </div>`;
+  }).join('');
+  $('#cards').innerHTML = html;
+
+  document.querySelectorAll('.cardhead').forEach(h => h.onclick = () => {
+    OPEN[h.dataset.card] = !OPEN[h.dataset.card]; renderCards();
+  });
+  document.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => {
+    EDITING[b.dataset.edit] = true; renderCards();
+  });
+  document.querySelectorAll('[data-cancel]').forEach(b => b.onclick = () => {
+    delete EDITING[b.dataset.cancel]; delete DRAFT[b.dataset.cancel]; renderCards();
+  });
+  wireRelations($('#cards'));
+
+  const missTotal = shown.filter(f => isBlank(eff[f.key]) && f.writable && !f.blockedReason).length +
+                    PAYMENTS.flatMap(p => p.cells).filter(c => !c.value && c.writable).length;
+  const reqTotal  = shown.filter(f => isBlank(eff[f.key]) && f.required && f.writable && !f.blockedReason).length +
+                    PAYMENTS.flatMap(p => p.cells).filter(c => !c.value && c.required && c.writable).length;
+  $('#sEmpty').textContent = missTotal;
+  $('#sReq').textContent = reqTotal;
+}
+
+function readDraft() {
+  const form = document.getElementById('missForm');
+  if (!form) return;
+  form.querySelectorAll('[name]').forEach(el => { DRAFT[el.name] = el.value; });
+}
+
+/* a change can unlock another field — re-render only when the visible set moves */
+document.addEventListener('change', ev => {
+  if (!ev.target.closest || !ev.target.closest('#missForm')) return;
+  const before = shownFields().map(f => f.key).join(',');
+  readDraft();
+  if (shownFields().map(f => f.key).join(',') !== before) renderCards();
+});
 
 /* Link picker for board_relation fields — searches the owning board by name. */
 function wireRelations(root) {
@@ -336,13 +485,12 @@ function wireRelations(root) {
       timer = setTimeout(async () => {
         const r = await jget(`/api/synopsis/lookup?board=${box.dataset.board}&q=${encodeURIComponent(term)}`);
         res.innerHTML = (r.items || []).length
-          ? r.items.map(i => `<div class="res" data-id="${i.id}">${i.name}</div>`).join('')
+          ? r.items.map(i => `<div class="res" data-id="${i.id}">${esc(i.name)}</div>`).join('')
           : '<div class="res" style="cursor:default;color:var(--ink3)">לא נמצא</div>';
         res.querySelectorAll('.res[data-id]').forEach(el => el.onclick = () => {
           hidden.value = el.dataset.id; q.value = el.textContent;
           res.classList.add('hidden'); q.classList.add('picked');
-          // choosing a client answers a condition — reveal what it unlocks now
-          readDraft(); DRAFT[hidden.name] = el.dataset.id; renderFields();
+          readDraft(); DRAFT[hidden.name] = el.dataset.id; renderCards();
         });
         res.classList.remove('hidden');
       }, 200);
@@ -350,154 +498,32 @@ function wireRelations(root) {
   });
 }
 
-/* ------------------------------------------------------------------
-   The form re-evaluates as you answer.
-
-   Answering "האם יש לקוח 2" = כן must reveal the link straight away, and
-   choosing a client must reveal his card — without saving and reloading twice.
-   So the server sends every field with its condition and the board's current
-   values, and this mirrors the same matcher against (board values + what you
-   have typed so far).
-
-   The server stays authoritative: on save it recomputes from monday and
-   returns what is still blocking. This copy only decides what is on screen.
-------------------------------------------------------------------- */
-function isBlank(v) {
-  if (v === null || v === undefined) return true;
-  const t = String(v).trim();
-  return t === '' || t === '-' || t === 'N/A' || t === 'n/a';
-}
-function condHolds(c, vals) {
-  if (c.anyOf) return c.anyOf.some(x => condHolds(x, vals));
-  const other = vals[c.field];
-  if (c.empty) return isBlank(other);
-  if (c.notEmpty) return !isBlank(other);
-  return !isBlank(other) && String(other).trim() === c.equals;
-}
-
-let ALL = [], BOARD = {}, DRAFT = {};
-
-/** What the form should show right now, given the board plus what has been typed. */
-function visibleNow() {
-  const eff = Object.assign({}, BOARD, DRAFT);
-  return ALL.filter(f => f.ask !== false && f.emptyOnBoard && (!f.showIf || condHolds(f.showIf, eff)));
-}
-
-function readDraft() {
-  const form = document.getElementById('missForm');
-  if (!form) return;
-  new FormData(form).forEach((v, k) => { DRAFT[k] = v; });
-  // an unticked select still needs clearing
-  form.querySelectorAll('[name]').forEach(el => {
-    if (el.value === '' ) DRAFT[el.name] = '';
-  });
-}
-
-function renderFields() {
-  const list = visibleNow();
-  const byGroup = {};
-  for (const g of list) (byGroup[g.group] ||= []).push(g);
-  for (const k in byGroup) byGroup[k].sort((a, b) => (b.required - a.required) || (b.writable - a.writable));
-  const GRPNOTE = {
-    buyers:  'שדות שחסרים בכרטיס הלקוח עצמו. מה שכבר רשום שם לא מופיע כאן.',
-    project: 'שדות שחסרים בכרטיס הפרויקט עצמו. מה שכבר רשום שם לא מופיע כאן.'
-  };
-  $('#missGroups').innerHTML = GROUPS.filter(gr => byGroup[gr.key]).map(gr =>
-    `<div class="grp"><div class="grph">${gr.label}${GRPNOTE[gr.key] ? `<span class="grpnote">${GRPNOTE[gr.key]}</span>` : ''}</div>
-       <div class="grid">${byGroup[gr.key].map(field).join('')}</div></div>`).join('');
-
-  // restore what was already typed, then keep watching for changes
-  const form = document.getElementById('missForm');
-  form.querySelectorAll('[name]').forEach(el => {
-    if (DRAFT[el.name] !== undefined && DRAFT[el.name] !== '') el.value = DRAFT[el.name];
-  });
-  wireRelations($('#missGroups'));
-  $('#sEmpty').textContent = list.length;
-  $('#sReq').textContent = list.filter(f => f.required).length;
-}
-
-/* Any change can unlock or hide another field, so re-evaluate on every change. */
-document.addEventListener('change', ev => {
-  if (!ev.target.closest || !ev.target.closest('#missForm')) return;
-  readDraft();
-  const before = visibleNow().map(f => f.key).join(',');
-  DRAFT[ev.target.name] = ev.target.value;
-  const after = visibleNow().map(f => f.key).join(',');
-  if (before !== after) renderFields();
-});
-
-let GROUPS = [];
-
 function renderMissing(r) {
   $('#missSub').textContent = `${r.deal.name} · ${r.deal.board}`;
+  ALL = r.fields || []; BOARD = r.values || {};
+  PAYMENTS = r.payments || []; CHECKS = r.checks || {};
+  DRAFT = {}; EDITING = {}; OPEN = {};
   $('#sFilled').textContent = r.counts.filled;
-  $('#sEmpty').textContent = r.counts.empty;
-  $('#sReq').textContent = r.counts.requiredEmpty;
   $('#sTotal').textContent = r.counts.total;
-
-  const fmt = v => /^-?\d+(\.\d+)?$/.test(v) && Math.abs(+v) >= 1000
-    ? Number(v).toLocaleString('en-US') : v;
-  const LABEL = { deal: 'העסקה', client: 'כרטיס הלקוח', client2: 'כרטיס לקוח 2', project: 'כרטיס הפרויקט' };
-  const bySrc = {};
-  for (const p of r.present) (bySrc[p.owner] ||= []).push(p);
-  const esc = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-  const cell = k => {
-    const v = String(fmt(k.value));
-    if (v.length <= 90) return `<span class="kv"><i>${k.label}:</i> ${esc(v)}</span>`;
-    const id = 'kv' + Math.random().toString(36).slice(2, 8);
-    return `<span class="kv long"><i>${k.label}:</i> ` +
-           `<span id="${id}s">${esc(v.slice(0, 90))}…</span>` +
-           `<span id="${id}f" style="display:none">${esc(v)}</span>` +
-           `<button type="button" class="more" data-full="${id}" data-open="0">הצג הכל</button></span>`;
-  };
-  const total = r.present.length;
-  $('#known').innerHTML =
-    `<div class="knownhead">` +
-    `<button type="button" class="toggle" id="knownToggle">` +
-    `<span class="chev">▸</span><span id="knownToggleLabel">הצג</span></button>` +
-    `<b>${total} שדות כבר קיימים במנדיי — לא נשאל עליהם</b></div>` +
-    `<div class="knownbody" id="knownBody">` +
-    ['deal','client','client2','project'].filter(o => bySrc[o]).map(o =>
-      `<div class="srcline"><span class="srcname">${LABEL[o]} · ${bySrc[o].length}</span>` +
-      bySrc[o].map(cell).join('') + '</div>').join('') + '</div>';
-
-  const head = document.getElementById('knownToggle'),
-        body = document.getElementById('knownBody'),
-        lbl  = document.getElementById('knownToggleLabel');
-  head.onclick = () => {
-    const open = head.classList.toggle('open');
-    body.classList.toggle('open', open);
-    lbl.textContent = open ? 'הסתר' : 'הצג';
-  };
-  // every expansion closes again
-  $('#known').querySelectorAll('.more').forEach(b => b.onclick = ev => {
-    ev.stopPropagation();
-    const id = b.dataset.full, open = b.dataset.open === '1';
-    document.getElementById(id + 's').style.display = open ? 'inline' : 'none';
-    document.getElementById(id + 'f').style.display = open ? 'none' : 'inline';
-    b.dataset.open = open ? '0' : '1';
-    b.textContent = open ? 'הצג הכל' : 'הצג פחות';
-  });
-
-  const byGroup = {};
-  for (const g of r.missing) (byGroup[g.group] ||= []).push(g);
-  for (const k in byGroup) byGroup[k].sort((a, b) => (b.required - a.required) || (b.writable - a.writable));
-  const GRPNOTE = {
-    buyers:  'שדות שחסרים בכרטיס הלקוח עצמו. מה שכבר רשום שם לא מופיע כאן.',
-    project: 'שדות שחסרים בכרטיס הפרויקט עצמו. מה שכבר רשום שם לא מופיע כאן.'
-  };
-  $('#missGroups').innerHTML = r.groups.filter(gr => byGroup[gr.key]).map(gr =>
-    `<div class="grp"><div class="grph">${gr.label}${GRPNOTE[gr.key] ? `<span class="grpnote">${GRPNOTE[gr.key]}</span>` : ''}</div>
-       <div class="grid">${byGroup[gr.key].map(field).join('')}</div></div>`).join('');
-  wireRelations($('#missGroups'));
+  const c = CHECKS;
+  $('#checks').innerHTML = PAYMENTS.length ? `<div class="checkline2">
+      <span class="chk ${c.sumOk ? 'ok' : 'bad'}">${c.sumOk ? '✓' : '✕'} תשלומים = מחיר הדירה</span>
+      <span class="chk ${c.pctOk ? 'ok' : 'bad'}">${c.pctOk ? '✓' : '✕'} אחוזים = 100</span>
+    </div>` : '';
+  renderCards();
 }
 
 $('#missForm').onsubmit = async ev => {
   ev.preventDefault();
   $('#save').disabled = true; $('#msg').innerHTML = '<div class="note"><span class="spin"></span> שומר…</div>';
   const values = {};
-  new FormData(ev.target).forEach((v, k) => { if (String(v).trim()) values[k] = v; });
-  if (!Object.keys(values).length && !visibleNow().some(f => f.required)) {
+  new FormData(ev.target).forEach((v, k) => {
+    const t = String(v).trim();
+    if (!t) return;
+    if (String(BOARD[k] == null ? '' : BOARD[k]).trim() === t) return;   // unchanged — do not write
+    values[k] = t;
+  });
+  if (!Object.keys(values).length && !shownFields().some(f => f.required && isBlank(BOARD[f.key]))) {
     $('#msg').innerHTML = '<div class="ok"><b>אין מה לעדכן — הלוח כבר מלא.</b><br>' +
       'השלב הבא (קריאת הסינופסיס הקודם, החלטת השינויים ואישורם) עדיין לא נבנה.</div>';
     $('#save').disabled = true; $('#save').textContent = 'הלוח מלא ✓';

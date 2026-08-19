@@ -79,14 +79,24 @@
   .grp{margin-top:22px}
   .grph{font-size:12px;font-weight:600;letter-spacing:.06em;color:var(--gold);
         padding-bottom:7px;border-bottom:1px solid var(--line2);margin-bottom:15px}
+  .grpnote{font-weight:400;color:var(--ink3);font-size:11.5px;letter-spacing:0;margin-inline-start:10px}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px 20px}
   @media (max-width:700px){.grid{grid-template-columns:1fr}}
+  .grid > .wide{grid-column:1 / -1}
+  textarea.inp.big{min-height:340px;line-height:1.75;resize:vertical;font-size:15px}
+  .rel{position:relative}
+  .rel .results{position:absolute;inset-inline:0;z-index:5;border-radius:0 0 8px 8px;max-height:220px;overflow:auto}
+  .rel-q.picked{border-color:var(--green);background:#fff}
   .hint{font-size:11.5px;color:var(--ink3);margin-top:5px}
   .hint.mirror{color:#8a6520}
 
   .known{margin-top:8px;font-size:13px;color:var(--ink2);background:var(--shade);
          border:1px solid var(--line);border-radius:10px;padding:13px 15px}
   .known b{color:var(--ink)}
+  .srcline{padding:8px 0;border-top:1px solid var(--line2);margin-top:8px}
+  .srcline:first-of-type{border-top:none}
+  .srcname{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;
+           background:#e6eef5;color:#2f5474;padding:2px 7px;border-radius:4px;margin-inline-end:10px}
   .kv{display:inline-block;margin-inline-end:14px;white-space:nowrap}
   .kv i{font-style:normal;color:var(--ink3)}
 
@@ -166,9 +176,18 @@
 const $ = s => document.querySelector(s);
 
 /* Session travels in the httpOnly portal_session cookie — same as settings.html. */
+function denied(msg) {
+  document.querySelector('.wrap').innerHTML =
+    '<div class="card" style="margin-top:40px"><div style="font-size:20px;font-weight:600;margin-bottom:6px">אין הרשאה</div>' +
+    '<p style="color:var(--ink2);margin:0 0 16px">' + msg + '</p>' +
+    '<button class="btn ghost" onclick="location.href=\'/\'">← חזרה לפורטל</button></div>';
+}
 async function jget(url) {
   const r = await fetch(url, { credentials: 'include' });
   if (r.status === 401) { location.href = '/'; throw new Error('not signed in'); }
+  if (r.status === 403) { const j = await r.json().catch(() => ({}));
+    denied(j.error || 'התפקיד שלך אינו מאפשר גישה ללוחות מנדיי. פנה למנהל המערכת.');
+    throw new Error('forbidden'); }
   return r.json();
 }
 async function jpost(url, body) {
@@ -224,7 +243,7 @@ $('#go').onclick = async () => {
   }, 260);
 
   try {
-const r = await jpost('/api/synopsis/facts', { dealId: picked.id, boardId: picked.boardId });
+    const r = await jpost('/api/synopsis/facts', { dealId: picked.id, boardId: picked.boardId });
     if (r.error) throw new Error(r.error);
     run = r;
     setTimeout(() => { clearInterval(tick); $('#bar').style.width = '100%'; renderMissing(r); show('miss'); },
@@ -243,28 +262,75 @@ function field(g) {
   const own = (g.owner === 'deal')
     ? `<span class="own">${g.ownerBoard}</span>`
     : `<span class="own mirror">${g.ownerBoard}</span>`;
-  let input;
-  if (!g.writable) {
-    input = `<input class="inp" disabled value="" placeholder="לקריאה בלבד">`;
+
+  const t = g.inputType || g.type;      // the OWNING column's type, not the mirror's
+  let input, hint = '';
+
+  if (g.blockedReason) {
+    input = `<input class="inp" disabled placeholder="${g.blockedReason}">`;
+    hint = `<div class="hint mirror">${g.blockedReason} — יש לקשר קודם.</div>`;
+  } else if (!g.writable) {
+    input = `<input class="inp" disabled placeholder="לקריאה בלבד">`;
+    hint = `<div class="hint mirror">לקריאה בלבד — מקורו ב־${g.ownerBoard}.</div>`;
+  } else if (g.ui === 'relation') {
+    input = `<div class="rel" data-key="${g.key}" data-board="${g.lookupBoard}">
+        <input class="inp rel-q" autocomplete="off" placeholder="חיפוש ב${g.ownerBoard}…">
+        <input type="hidden" name="${g.key}">
+        <div class="results hidden rel-res"></div></div>`;
+    hint = `<div class="hint">בחרי פריט מ${g.ownerBoard} כדי לקשר</div>`;
+  } else if (t === 'file') {
+    input = `<input class="inp" type="file" disabled>`;
+    hint = `<div class="hint mirror">קבצים מועלים בפריט עצמו במנדיי, לא מכאן.</div>`;
   } else if (g.options && g.options.length) {
     input = `<select class="inp" name="${g.key}"><option value="">—</option>` +
       g.options.map(o => `<option value="${o}">${o}</option>`).join('') + '</select>';
-  } else if (g.type === 'date') {
+  } else if (t === 'date') {
     input = `<input class="inp" type="date" name="${g.key}">`;
-  } else if (g.type === 'numbers') {
+  } else if (t === 'numbers') {
     input = `<input class="inp" type="number" step="any" name="${g.key}" placeholder="—">`;
-  } else if (g.type === 'long_text') {
-    input = `<textarea class="inp" rows="3" name="${g.key}" placeholder="—"></textarea>`;
+  } else if (g.ui === 'textarea' || t === 'long_text') {
+    input = `<textarea class="inp big" rows="14" name="${g.key}" placeholder="—"></textarea>`;
+  } else if (t === 'email') {
+    input = `<input class="inp" type="email" name="${g.key}" placeholder="—" style="direction:ltr;text-align:right">`;
+  } else if (t === 'phone') {
+    input = `<input class="inp" type="tel" name="${g.key}" placeholder="—" style="direction:ltr;text-align:right">`;
   } else {
     input = `<input class="inp" type="text" name="${g.key}" placeholder="—">`;
   }
-  let hint = '';
-  if (!g.writable) hint = `<div class="hint mirror">לקריאה בלבד — מקורו ב־${g.ownerBoard}.</div>`;
-  else if (g.owner !== 'deal') hint = `<div class="hint mirror">נשמר לפריט ב־${g.ownerBoard}, לא לעסקה — שם השדה באמת יושב.</div>`;
-  else if (g.controlsBlock) hint = `<div class="hint">קובע אם ${g.controlsBlock} נכנס למכתב</div>`;
-  else if (g.derived) hint = `<div class="hint">מחושב: ${g.derived}</div>`;
-  else if (g.note) hint = `<div class="hint">${g.note}</div>`;
-  return `<div><label class="${flc}">${g.label}${req}${own}</label>${input}${hint}</div>`;
+
+  if (!hint) {
+    if (g.owner !== 'deal') hint = `<div class="hint mirror">נשמר לפריט ב־${g.ownerBoard} — שם השדה באמת יושב.</div>`;
+    else if (g.controlsBlock) hint = `<div class="hint">קובע אם ${g.controlsBlock} נכנס למכתב</div>`;
+    else if (g.derived) hint = `<div class="hint">מחושב: ${g.derived}</div>`;
+    else if (g.note) hint = `<div class="hint">${g.note}</div>`;
+  }
+  const wide = (g.ui === 'textarea' || t === 'long_text') ? ' class="wide"' : '';
+  return `<div${wide}><label class="${flc}">${g.label}${req}${own}</label>${input}${hint}</div>`;
+}
+
+/* Link picker for board_relation fields — searches the owning board by name. */
+function wireRelations(root) {
+  root.querySelectorAll('.rel').forEach(box => {
+    const q = box.querySelector('.rel-q'), hidden = box.querySelector('input[type=hidden]'),
+          res = box.querySelector('.rel-res');
+    let timer;
+    q.addEventListener('input', () => {
+      clearTimeout(timer); hidden.value = '';
+      const term = q.value.trim();
+      if (term.length < 2) { res.classList.add('hidden'); return; }
+      timer = setTimeout(async () => {
+        const r = await jget(`/api/synopsis/lookup?board=${box.dataset.board}&q=${encodeURIComponent(term)}`);
+        res.innerHTML = (r.items || []).length
+          ? r.items.map(i => `<div class="res" data-id="${i.id}">${i.name}</div>`).join('')
+          : '<div class="res" style="cursor:default;color:var(--ink3)">לא נמצא</div>';
+        res.querySelectorAll('.res[data-id]').forEach(el => el.onclick = () => {
+          hidden.value = el.dataset.id; q.value = el.textContent;
+          res.classList.add('hidden'); q.classList.add('picked');
+        });
+        res.classList.remove('hidden');
+      }, 200);
+    });
+  });
 }
 
 function renderMissing(r) {
@@ -274,20 +340,29 @@ function renderMissing(r) {
   $('#sReq').textContent = r.counts.requiredEmpty;
   $('#sTotal').textContent = r.counts.total;
 
-  const show = ['purchase_price','delivery_date','contractor_loan','index_linked','tax_profile',
-                'apartment_no','floor','rooms','company_lawyer_fee'];
   const fmt = v => /^-?\d+(\.\d+)?$/.test(v) && Math.abs(+v) >= 1000
     ? Number(v).toLocaleString('en-US') : v;
-  const known = r.present.filter(p => show.includes(p.key));
-  $('#known').innerHTML = '<b>לא נשאל עליהם — הלוח כבר יודע:</b><br>' +
-    known.map(k => `<span class="kv"><i>${k.label}:</i> ${fmt(k.value)}</span>`).join('');
+  const LABEL = { deal: 'העסקה', client: 'כרטיס הלקוח', client2: 'כרטיס לקוח 2', project: 'כרטיס הפרויקט' };
+  const bySrc = {};
+  for (const p of r.present) (bySrc[p.owner] ||= []).push(p);
+  $('#known').innerHTML =
+    '<b>לא נשאל עליהם — כבר קיימים במנדיי:</b>' +
+    ['deal','client','client2','project'].filter(o => bySrc[o]).map(o =>
+      `<div class="srcline"><span class="srcname">${LABEL[o]} · ${bySrc[o].length}</span>` +
+      bySrc[o].map(k => `<span class="kv"><i>${k.label}:</i> ${fmt(k.value)}</span>`).join('') +
+      '</div>').join('');
 
   const byGroup = {};
   for (const g of r.missing) (byGroup[g.group] ||= []).push(g);
   for (const k in byGroup) byGroup[k].sort((a, b) => (b.required - a.required) || (b.writable - a.writable));
+  const GRPNOTE = {
+    buyers:  'שדות שחסרים בכרטיס הלקוח עצמו. מה שכבר רשום שם לא מופיע כאן.',
+    project: 'שדות שחסרים בכרטיס הפרויקט עצמו. מה שכבר רשום שם לא מופיע כאן.'
+  };
   $('#missGroups').innerHTML = r.groups.filter(gr => byGroup[gr.key]).map(gr =>
-    `<div class="grp"><div class="grph">${gr.label}</div>
+    `<div class="grp"><div class="grph">${gr.label}${GRPNOTE[gr.key] ? `<span class="grpnote">${GRPNOTE[gr.key]}</span>` : ''}</div>
        <div class="grid">${byGroup[gr.key].map(field).join('')}</div></div>`).join('');
+  wireRelations($('#missGroups'));
 }
 
 $('#missForm').onsubmit = async ev => {

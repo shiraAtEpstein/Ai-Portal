@@ -21,7 +21,8 @@ const path = require('path');
 const { authenticate } = require('../lib/sessions');
 const { can } = require('../lib/permissions');
 const synopsis = require('../lib/synopsis');
-const { buildFacts, findMissing, applyWrite, READ_ONLY } = synopsis;
+const { buildFacts, findMissing, paymentRows, paymentChecks, derive, compare,
+        applyWrite, READ_ONLY } = synopsis;
 
 const MAP = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'config', 'synopsis-columns.json'), 'utf8'));
 const MAX_VALUES = 80;
@@ -42,7 +43,8 @@ const newRunId = () => 'syn-' + Date.now().toString(36) + '-' + Math.random().to
 
 /** Columns to fetch per board, derived from the map — nothing else is read. */
 const DEAL_COLUMNS  = [...new Set(MAP.fields.filter(f => f.readFrom === 'deal').map(f => f.columnId).filter(Boolean))]
-                        .concat(['connect_boards_165__1', 'connect_boards94__1', 'link_to_______2__1']);
+                        .concat(['connect_boards_165__1', 'connect_boards94__1', 'link_to_______2__1',
+                                 MAP.payments.linkColumn]);
 const ownerCols = owner => [...new Set(
   MAP.fields.filter(f => f.readFrom === 'owner' && f.owner === owner).map(f => f.ownerColumnId).filter(Boolean))];
 const OWNER_COLUMNS = { client: ownerCols('client'), client2: ownerCols('client2'), project: ownerCols('project') };
@@ -79,11 +81,24 @@ async function loadDeal(dealId) {
     synopsis.getItemColumns(ownerItemIds.client2, OWNER_COLUMNS.client2),
     synopsis.getItemColumns(ownerItemIds.project, OWNER_COLUMNS.project)
   ]);
+  // The payment schedule, from the linked לוח תשלומים rows.
+  const payIds = (item.column_values[MAP.payments.linkColumn]?.linked || []).map(l => l.id);
+  const payCols = MAP.payments.columns.map(c => c.id);
+  const payments = paymentRows(MAP, await synopsis.getPayments(payIds, payCols));
+
   const { values, sources, linkedIds } = buildFacts(MAP, item, { client, client2, project });
+
+  // Fees and tax are a percentage of the price — computed, never typed. Where the
+  // board also holds a figure, a disagreement is surfaced rather than hidden.
+  const computed = derive(MAP, values);
+  const mismatches = compare(computed, values).filter(r => r.agrees === false);
+  for (const [k, c] of Object.entries(computed)) values[k] = c.value;
   const context = { clientLinked: !!ownerItemIds.client, client2Linked: !!ownerItemIds.client2,
                     projectLinked: !!ownerItemIds.project };
   const { missing, present, hidden, fields } = findMissing(MAP, values, context);
-  return { item, values, sources, linkedIds, missing, present, hidden, fields, ownerItemIds, context };
+  const checks = paymentChecks(payments, values.purchase_price);
+  return { item, values, sources, linkedIds, missing, present, hidden, fields,
+           payments, checks, computed, mismatches, ownerItemIds, context };
 }
 
 module.exports = function createSynopsisRouter() {
@@ -126,6 +141,8 @@ module.exports = function createSynopsisRouter() {
         deal: { id: d.item.id, name: d.item.name, board: d.item.boardName, boardId: d.item.boardId },
         groups: MAP.groups, present: d.present, missing: d.missing,
         fields: d.fields, values: d.values,
+        payments: d.payments, checks: d.checks,
+        computed: d.computed, mismatches: d.mismatches,
         counts: {
           total: MAP.fields.length, filled: d.present.length, empty: d.missing.length,
           requiredEmpty: d.missing.filter(f => f.required).length,
@@ -184,14 +201,17 @@ module.exports = function createSynopsisRouter() {
         }
       }
 
-      const { missing } = findMissing(MAP, d.values);
-      const stillRequired = missing.filter(f => f.required);
+      const after = await loadDeal(dealId);          // re-read: the board is the truth
+      const stillRequired = after.missing.filter(f => f.required).concat(
+        after.payments.flatMap(p => p.cells.filter(c => c.required && c.writable && !c.value)
+          .map(c => ({ label: p.title + ' · ' + c.label, ownerBoard: MAP.payments.boardName, writable: true }))));
       res.json({
         runId,
         hidden: d.hidden,
         linked: d.context, written, rejected,
-        remaining: missing.length,
+        remaining: after.missing.length,
         remainingRequired: stillRequired.length,
+        checks: after.checks,
         canContinue: stillRequired.filter(f => f.writable).length === 0,
         blockedBy: stillRequired.map(f => ({ label: f.label, board: f.ownerBoard, writable: f.writable })),
         readOnlyMode: READ_ONLY

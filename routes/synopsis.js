@@ -82,8 +82,8 @@ async function loadDeal(dealId) {
   const { values, sources, linkedIds } = buildFacts(MAP, item, { client, client2, project });
   const context = { clientLinked: !!ownerItemIds.client, client2Linked: !!ownerItemIds.client2,
                     projectLinked: !!ownerItemIds.project };
-  const { missing, present, hidden } = findMissing(MAP, values, context);
-  return { item, values, sources, linkedIds, missing, present, hidden, ownerItemIds, context };
+  const { missing, present, hidden, fields } = findMissing(MAP, values, context);
+  return { item, values, sources, linkedIds, missing, present, hidden, fields, ownerItemIds, context };
 }
 
 module.exports = function createSynopsisRouter() {
@@ -110,7 +110,7 @@ module.exports = function createSynopsisRouter() {
 
       const d = await loadDeal(dealId);
       const options = await loadOptions();
-      for (const f of d.missing) f.options = options[f.owner]?.[f.columnId] || null;
+      for (const f of d.fields) f.options = options[f.owner]?.[f.columnId] || null;
 
       const runId = newRunId();
       audit.record({ runId, event: 'run.open', ok: true, dealId, dealName: d.item.name,
@@ -125,6 +125,7 @@ module.exports = function createSynopsisRouter() {
         linked: d.context,
         deal: { id: d.item.id, name: d.item.name, board: d.item.boardName, boardId: d.item.boardId },
         groups: MAP.groups, present: d.present, missing: d.missing,
+        fields: d.fields, values: d.values,
         counts: {
           total: MAP.fields.length, filled: d.present.length, empty: d.missing.length,
           requiredEmpty: d.missing.filter(f => f.required).length,
@@ -170,7 +171,10 @@ module.exports = function createSynopsisRouter() {
           const entry = await applyWrite({ action: 'update_column', fieldKey, value }, {
             map: MAP, dealId: d.item.id, dealBoardId: d.item.boardId,
             ownerItemIds: d.ownerItemIds, session: req.session, runId,
-            before: d.values, log: audit
+            before: d.values,
+            // the recorder itself, with the deal stamped on every line
+            log: entry => audit.record({ ...entry, event: 'write.ok',
+                                         dealId: d.item.id, dealName: d.item.name })
           });
           d.values[fieldKey] = value;
           written.push({ fieldKey, label: entry.proposal.fieldKey, board: entry.board });

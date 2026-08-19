@@ -41,6 +41,18 @@ function requireSynopsis(req, res, next) {
 }
 const newRunId = () => 'syn-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
 
+/** A field key in words, for the screen and the log. */
+function labelFor(key, d) {
+  if (String(key).startsWith('payment:')) {
+    const [, itemId, columnId] = String(key).split(':');
+    const row = (d.payments || []).find(p => String(p.id) === String(itemId));
+    const col = MAP.payments.columns.find(c => c.id === columnId);
+    return `${row ? row.title : 'תשלום'} · ${col ? col.label : columnId}`;
+  }
+  const f = MAP.fields.find(x => x.key === key);
+  return f ? f.label : key;
+}
+
 /** Columns to fetch per board, derived from the map — nothing else is read. */
 const DEAL_COLUMNS  = [...new Set(MAP.fields.filter(f => f.readFrom === 'deal').map(f => f.columnId).filter(Boolean))]
                         .concat(['connect_boards_165__1', 'connect_boards94__1', 'link_to_______2__1',
@@ -183,10 +195,17 @@ module.exports = function createSynopsisRouter() {
         return res.status(403).json({ error: 'Your roles may not write to monday.' });
 
       const d = await loadDeal(dealId);            // re-read: before-values are what monday holds now
-      const written = [], rejected = [];
+      const written = [], rejected = [], unchanged = [];
 
       for (const [fieldKey, value] of entries) {
         if (value === null || value === undefined || String(value).trim() === '') continue;
+        // Identical to what monday already holds: nothing to do, but say so —
+        // "I sent it and nothing happened" must never look like "it saved".
+        const before = d.values[fieldKey];
+        if (before !== undefined && String(before).trim() === String(value).trim()) {
+          unchanged.push({ fieldKey, label: labelFor(fieldKey, d), value });
+          continue;
+        }
         try {
           const entry = await applyWrite({ action: 'update_column', fieldKey, value }, {
             map: MAP, dealId: d.item.id, dealBoardId: d.item.boardId,
@@ -197,16 +216,30 @@ module.exports = function createSynopsisRouter() {
                                          dealId: d.item.id, dealName: d.item.name })
           });
           d.values[fieldKey] = value;
-          written.push({ fieldKey, label: entry.proposal.fieldKey, board: entry.board });
+          written.push({ fieldKey, label: labelFor(fieldKey, d), board: entry.board,
+                         before: entry.before, after: value });
         } catch (e) {
           if (e.audit) audit(e.audit);
-          rejected.push({ fieldKey, reason: e.message });
+          rejected.push({ fieldKey, label: labelFor(fieldKey, d), reason: e.message });
         }
       }
 
-      const after = await loadDeal(dealId);          // re-read: the board is the truth
+      // d.values already carries every successful write, and the page re-reads
+      // the deal straight after this call — so recompute in memory rather than
+      // spending another five monday calls on a second read.
+      const after = findMissing(MAP, d.values, d.context, derive(MAP, d.values));
+      const paymentValue = c => {
+        const v = pendingPayments[`payment:${c._row}:${c.columnId}`];
+        return v !== undefined ? v : c.value;
+      };
+      const pendingPayments = {};
+      for (const w of written) if (String(w.fieldKey).startsWith('payment:')) {
+        const [, itemId, columnId] = w.fieldKey.split(':');
+        pendingPayments[`payment:${itemId}:${columnId}`] = w.after;
+      }
       const stillRequired = after.missing.filter(f => f.required).concat(
-        after.payments.flatMap(p => p.cells.filter(c => c.required && c.writable && !c.value)
+        d.payments.flatMap(p => p.cells
+          .filter(c => c.required && c.writable && !paymentValue({ ...c, _row: p.id }))
           .map(c => ({ label: p.title + ' · ' + c.label, ownerBoard: MAP.payments.boardName, writable: true }))));
       res.json({
         runId,
@@ -214,7 +247,7 @@ module.exports = function createSynopsisRouter() {
         linked: d.context, written, rejected,
         remaining: after.missing.length,
         remainingRequired: stillRequired.length,
-        checks: after.checks,
+        checks: d.checks,
         canContinue: stillRequired.filter(f => f.writable).length === 0,
         blockedBy: stillRequired.map(f => ({ label: f.label, board: f.ownerBoard, writable: f.writable })),
         readOnlyMode: READ_ONLY

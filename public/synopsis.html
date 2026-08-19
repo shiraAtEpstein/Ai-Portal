@@ -326,12 +326,92 @@ function wireRelations(root) {
         res.querySelectorAll('.res[data-id]').forEach(el => el.onclick = () => {
           hidden.value = el.dataset.id; q.value = el.textContent;
           res.classList.add('hidden'); q.classList.add('picked');
+          // choosing a client answers a condition — reveal what it unlocks now
+          readDraft(); DRAFT[hidden.name] = el.dataset.id; renderFields();
         });
         res.classList.remove('hidden');
       }, 200);
     });
   });
 }
+
+/* ------------------------------------------------------------------
+   The form re-evaluates as you answer.
+
+   Answering "האם יש לקוח 2" = כן must reveal the link straight away, and
+   choosing a client must reveal his card — without saving and reloading twice.
+   So the server sends every field with its condition and the board's current
+   values, and this mirrors the same matcher against (board values + what you
+   have typed so far).
+
+   The server stays authoritative: on save it recomputes from monday and
+   returns what is still blocking. This copy only decides what is on screen.
+------------------------------------------------------------------- */
+function isBlank(v) {
+  if (v === null || v === undefined) return true;
+  const t = String(v).trim();
+  return t === '' || t === '-' || t === 'N/A' || t === 'n/a';
+}
+function condHolds(c, vals) {
+  if (c.anyOf) return c.anyOf.some(x => condHolds(x, vals));
+  const other = vals[c.field];
+  if (c.empty) return isBlank(other);
+  if (c.notEmpty) return !isBlank(other);
+  return !isBlank(other) && String(other).trim() === c.equals;
+}
+
+let ALL = [], BOARD = {}, DRAFT = {};
+
+/** What the form should show right now, given the board plus what has been typed. */
+function visibleNow() {
+  const eff = Object.assign({}, BOARD, DRAFT);
+  return ALL.filter(f => f.ask !== false && f.emptyOnBoard && (!f.showIf || condHolds(f.showIf, eff)));
+}
+
+function readDraft() {
+  const form = document.getElementById('missForm');
+  if (!form) return;
+  new FormData(form).forEach((v, k) => { DRAFT[k] = v; });
+  // an unticked select still needs clearing
+  form.querySelectorAll('[name]').forEach(el => {
+    if (el.value === '' ) DRAFT[el.name] = '';
+  });
+}
+
+function renderFields() {
+  const list = visibleNow();
+  const byGroup = {};
+  for (const g of list) (byGroup[g.group] ||= []).push(g);
+  for (const k in byGroup) byGroup[k].sort((a, b) => (b.required - a.required) || (b.writable - a.writable));
+  const GRPNOTE = {
+    buyers:  'שדות שחסרים בכרטיס הלקוח עצמו. מה שכבר רשום שם לא מופיע כאן.',
+    project: 'שדות שחסרים בכרטיס הפרויקט עצמו. מה שכבר רשום שם לא מופיע כאן.'
+  };
+  $('#missGroups').innerHTML = GROUPS.filter(gr => byGroup[gr.key]).map(gr =>
+    `<div class="grp"><div class="grph">${gr.label}${GRPNOTE[gr.key] ? `<span class="grpnote">${GRPNOTE[gr.key]}</span>` : ''}</div>
+       <div class="grid">${byGroup[gr.key].map(field).join('')}</div></div>`).join('');
+
+  // restore what was already typed, then keep watching for changes
+  const form = document.getElementById('missForm');
+  form.querySelectorAll('[name]').forEach(el => {
+    if (DRAFT[el.name] !== undefined && DRAFT[el.name] !== '') el.value = DRAFT[el.name];
+  });
+  wireRelations($('#missGroups'));
+  $('#sEmpty').textContent = list.length;
+  $('#sReq').textContent = list.filter(f => f.required).length;
+}
+
+/* Any change can unlock or hide another field, so re-evaluate on every change. */
+document.addEventListener('change', ev => {
+  if (!ev.target.closest || !ev.target.closest('#missForm')) return;
+  readDraft();
+  const before = visibleNow().map(f => f.key).join(',');
+  DRAFT[ev.target.name] = ev.target.value;
+  const after = visibleNow().map(f => f.key).join(',');
+  if (before !== after) renderFields();
+});
+
+let GROUPS = [];
 
 function renderMissing(r) {
   $('#missSub').textContent = `${r.deal.name} · ${r.deal.board}`;

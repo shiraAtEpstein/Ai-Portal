@@ -100,13 +100,19 @@
   .kv{display:inline-block;margin-inline-end:14px;max-width:100%;
       white-space:normal;overflow-wrap:anywhere;vertical-align:top}
   .kv.long{display:block;margin:6px 0 0;white-space:pre-wrap;line-height:1.6}
-  .knownhead{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none}
-  .knownhead .chev{font-family:var(--mono);font-size:11px;color:var(--ink3);transition:transform .15s}
-  .knownhead.open .chev{transform:rotate(90deg)}
-  .knownbody{display:none;margin-top:4px}
+  .knownhead{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .toggle{display:inline-flex;align-items:center;gap:7px;font-family:inherit;font-size:12.5px;
+          font-weight:600;color:var(--gold);background:#fff;border:1.5px solid var(--gold);
+          border-radius:999px;padding:6px 15px;cursor:pointer;transition:background .15s}
+  .toggle:hover{background:#faf4e8}
+  .toggle .chev{font-size:11px;transition:transform .15s}
+  .toggle.open .chev{transform:rotate(90deg)}
+  .knownbody{display:none;margin-top:10px}
   .knownbody.open{display:block}
-  .more{font-family:var(--mono);font-size:10px;color:var(--gold);cursor:pointer;
-        border:none;background:none;padding:0 4px}
+  .more{font-family:inherit;font-size:12px;font-weight:600;color:var(--gold);cursor:pointer;
+        background:#fff;border:1.5px solid var(--gold);border-radius:999px;padding:3px 12px;
+        margin-inline-start:8px;white-space:nowrap}
+  .more:hover{background:#faf4e8}
   .kv i{font-style:normal;color:var(--ink3)}
 
   .note{background:#f7f0e0;border:1px solid #e6d3a8;border-radius:10px;padding:13px 16px;
@@ -442,26 +448,35 @@ function renderMissing(r) {
     return `<span class="kv long"><i>${k.label}:</i> ` +
            `<span id="${id}s">${esc(v.slice(0, 90))}…</span>` +
            `<span id="${id}f" style="display:none">${esc(v)}</span>` +
-           `<button type="button" class="more" data-full="${id}">הצג הכל</button></span>`;
+           `<button type="button" class="more" data-full="${id}" data-open="0">הצג הכל</button></span>`;
   };
   const total = r.present.length;
   $('#known').innerHTML =
-    `<div class="knownhead" id="knownToggle"><span class="chev">▸</span>` +
-    `<b>${total} שדות כבר קיימים במנדיי — לא נשאל עליהם</b>` +
-    `<span style="color:var(--ink3);font-size:12px">לחצי להצגה</span></div>` +
+    `<div class="knownhead">` +
+    `<button type="button" class="toggle" id="knownToggle">` +
+    `<span class="chev">▸</span><span id="knownToggleLabel">הצג</span></button>` +
+    `<b>${total} שדות כבר קיימים במנדיי — לא נשאל עליהם</b></div>` +
     `<div class="knownbody" id="knownBody">` +
     ['deal','client','client2','project'].filter(o => bySrc[o]).map(o =>
       `<div class="srcline"><span class="srcname">${LABEL[o]} · ${bySrc[o].length}</span>` +
       bySrc[o].map(cell).join('') + '</div>').join('') + '</div>';
 
-  const head = document.getElementById('knownToggle'), body = document.getElementById('knownBody');
-  head.onclick = () => { head.classList.toggle('open'); body.classList.toggle('open'); };
+  const head = document.getElementById('knownToggle'),
+        body = document.getElementById('knownBody'),
+        lbl  = document.getElementById('knownToggleLabel');
+  head.onclick = () => {
+    const open = head.classList.toggle('open');
+    body.classList.toggle('open', open);
+    lbl.textContent = open ? 'הסתר' : 'הצג';
+  };
+  // every expansion closes again
   $('#known').querySelectorAll('.more').forEach(b => b.onclick = ev => {
     ev.stopPropagation();
-    const id = b.dataset.full;
-    document.getElementById(id + 's').style.display = 'none';
-    document.getElementById(id + 'f').style.display = 'inline';
-    b.remove();
+    const id = b.dataset.full, open = b.dataset.open === '1';
+    document.getElementById(id + 's').style.display = open ? 'inline' : 'none';
+    document.getElementById(id + 'f').style.display = open ? 'none' : 'inline';
+    b.dataset.open = open ? '0' : '1';
+    b.textContent = open ? 'הצג הכל' : 'הצג פחות';
   });
 
   const byGroup = {};

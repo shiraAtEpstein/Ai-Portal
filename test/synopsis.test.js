@@ -32,9 +32,34 @@ function deal(overrides = {}) {
   };
   const column_values = {};
   for (const [id, text] of Object.entries(cols)) column_values[id] = { type: 'text', text, linked: null };
+  column_values['connect_boards94__1']    = { type: 'board_relation', text: 'client', linked: [{ id: '2725704387', name: 'client' }] };
+  column_values['connect_boards_165__1']  = { type: 'board_relation', text: 'project', linked: [{ id: '1807156384', name: 'project' }] };
   return { id: '1', name: 'test', boardId: '1603266152', boardName: 'לידים / עסקאות קבלן', column_values };
 }
-const run = d => { const { values } = buildFacts(MAP, d); return { values, ...findMissing(MAP, values) }; };
+
+/** The linked client + project items, read directly — not through mirrors. */
+const OWNERS = {
+  client: {
+    text_mkpjqr1p: { text: 'Avi Chaim Rosalimsky' }, text_mkqvrehd: { text: 'אבי חיים רוזאלימסקי' },
+    text1__1: { text: 'A06912601' }, status_10__1: { text: 'Passport' },
+    location__1: { text: '40-08 Wilson Street, Fair Lawn, NJ, USA' },
+    contact_email: { text: 'avi@example.com' }, contact_phone: { text: '12013629312' },
+    dropdown__1: { text: 'United States' }, color_mm33bjc1: { text: 'English' },
+    title__1: { text: 'Rabbi' }
+  },
+  project: {
+    text18__1: { text: 'Nativ Neve Shamir' }, text13__1: { text: 'בדיקה בע"מ' },
+    text_mksyhx5m: { text: 'Test Ltd.' }, text86__1: { text: '1234' },
+    text_mkmetb8s: { text: 'ירושלים' }, text9__1: { text: 'האופה' },
+    text21__1: { text: '1' }, text3__1: { text: '3' },
+    date_mkmddzcx: { text: '2025-01-01' }
+  }
+};
+const ctxLinked = { clientLinked: true, client2Linked: false, projectLinked: true };
+const run = d => {
+  const { values } = buildFacts(MAP, d, { ...OWNERS, client2: {} });
+  return { values, ...findMissing(MAP, values, ctxLinked) };
+};
 
 // ---- the form ------------------------------------------------------------
 
@@ -51,11 +76,40 @@ test('anything the board answers is NEVER asked', () => {
     assert.ok(!keys.includes(k), 'must not be asked, the board answers it: ' + k);
 });
 
-test('requirements follow the deal, not a fixed list', () => {
-  const no = run(deal({ status0__1: 'לא' })).missing.find(f => f.key === 'contractor_loan_pct');
-  assert.strictEqual(no.required, false);
+test('a field that does not apply to this deal is not shown at all', () => {
+  // no contractor's loan -> the loan percentage is not on the form
+  const no = run(deal({ status0__1: 'לא' }));
+  assert.ok(!no.missing.some(f => f.key === 'contractor_loan_pct'), 'loan % must be hidden');
+  assert.ok(no.hidden.includes('contractor_loan_pct'));
+  // once there is a loan it appears, and it is required
   const yes = run(deal({ status0__1: 'כן' })).missing.find(f => f.key === 'contractor_loan_pct');
-  assert.strictEqual(yes.required, true);
+  assert.ok(yes && yes.required, 'loan % must appear and be required once there is a loan');
+});
+
+test('no מדד -> the index start date is not asked', () => {
+  assert.ok(!run(deal({ status_mkm0x7dj: 'לא' })).missing.some(f => f.key === 'index_start_date'));
+  assert.ok(run(deal({ status_mkm0x7dj: 'כן' })).missing.some(f => f.key === 'index_start_date'));
+});
+
+test('no linked second buyer -> nothing about buyer 2 is asked', () => {
+  const keys = run(deal()).missing.map(f => f.key);          // no client_2_link in the sample
+  assert.ok(!keys.some(k => k.startsWith('buyer_2_')), 'buyer 2 must be silent when nobody is linked');
+});
+
+test('a linked second buyer is asked for exactly what the first is', () => {
+  const d = deal();
+  d.column_values['link_to_______2__1'] =
+    { type: 'board_relation', text: 'buyer two', linked: [{ id: '2733400452', name: 'buyer two' }] };
+  const { values } = buildFacts(MAP, d, { ...OWNERS, client2: {} });   // linked, but his item is empty
+  const { missing } = findMissing(MAP, values,
+    { clientLinked: true, client2Linked: true, projectLinked: true });
+  const asked = new Set(missing.map(f => f.key));
+  const buyer1Fields = MAP.fields.filter(f => f.key.startsWith('buyer_1_')).map(f => f.key);
+  for (const k of buyer1Fields) {
+    const k2 = k.replace('buyer_1_', 'buyer_2_');
+    assert.ok(MAP.fields.some(f => f.key === k2), 'buyer 2 must have the same field as buyer 1: ' + k2);
+    assert.ok(asked.has(k2), 'his empty field must be asked, same as the first buyer: ' + k2);
+  }
 });
 
 test('no field name is hardcoded in the engine', () => {
@@ -110,8 +164,22 @@ test('only fields on the audited map can be written', async () => {
   await rejects({ action: 'update_column', fieldKey: 'whatever', value: 'x' }, ['paralegal'], 'unknown field');
 });
 
-test('read-only fields are refused', async () => {
-  await rejects({ action: 'update_column', fieldKey: 'project_base_synopsis', value: 'x' }, ['paralegal'], 'read-only');
+test('a field that is not on the map is refused', async () => {
+  await rejects({ action: 'update_column', fieldKey: 'signing_method', value: 'x' }, ['paralegal'], 'unknown field');
+});
+
+test('project and client values are read from the linked item, not from a mirror', () => {
+  const v = run(deal()).values;
+  assert.strictEqual(v.city, 'ירושלים', 'city comes from the project item');
+  assert.strictEqual(v.street, 'האופה', 'street has no mirror on the deal board and must still read');
+  assert.strictEqual(v.buyer_1_id_number, 'A06912601');
+});
+
+test('an unlinked project makes its fields blocked, with a reason', () => {
+  const { values } = buildFacts(MAP, deal(), { client: OWNERS.client, client2: {}, project: {} });
+  const { missing } = findMissing(MAP, values, { clientLinked: true, client2Linked: false, projectLinked: false });
+  const city = missing.find(f => f.key === 'city');
+  assert.ok(city && city.blockedReason, 'city must say why it cannot be filled');
 });
 
 test('a role without monday write capability is refused', async () => {

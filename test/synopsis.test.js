@@ -91,16 +91,40 @@ test('no מדד -> the index start date is not asked', () => {
   assert.ok(run(deal({ status_mkm0x7dj: 'כן' })).missing.some(f => f.key === 'index_start_date'));
 });
 
-test('no linked second buyer -> nothing about buyer 2 is asked', () => {
-  const keys = run(deal()).missing.map(f => f.key);          // no client_2_link in the sample
-  assert.ok(!keys.some(k => k.startsWith('buyer_2_')), 'buyer 2 must be silent when nobody is linked');
+test('no link and no answer -> only the question "האם יש לקוח 2" is asked', () => {
+  const keys = run(deal()).missing.map(f => f.key);
+  assert.ok(keys.includes('has_buyer_2'), 'the question itself must be asked');
+  assert.ok(!keys.includes('client_2_link'), 'do not ask for the link before the answer');
+  assert.ok(!keys.some(k => k.startsWith('buyer_2_')), 'and nothing about him yet');
+});
+
+test('answer לא -> nothing at all about buyer 2', () => {
+  const keys = run(deal({ color_mm2txw1n: 'לא' })).missing.map(f => f.key);
+  assert.ok(!keys.includes('client_2_link'));
+  assert.ok(!keys.some(k => k.startsWith('buyer_2_')));
+});
+
+test('answer כן -> the link, then his whole card', () => {
+  const keys = run(deal({ color_mm2txw1n: 'כן' })).missing.map(f => f.key);
+  assert.ok(keys.includes('client_2_link'), 'ask which client he is');
+  const b2 = MAP.fields.filter(f => f.key.startsWith('buyer_2_')).map(f => f.key);
+  for (const k of b2) assert.ok(keys.includes(k), 'his whole card is required: ' + k);
+});
+
+test('a link already answers the question, so the question is not asked', () => {
+  const d = deal();
+  d.column_values['link_to_______2__1'] =
+    { type: 'board_relation', text: 'buyer two', linked: [{ id: '2733400452', name: 'buyer two' }] };
+  const keys = run(d).missing.map(f => f.key);
+  assert.ok(!keys.includes('has_buyer_2'), 'a linked second buyer answers it by existing');
+  assert.ok(keys.some(k => k.startsWith('buyer_2_')), 'and his card is asked for');
 });
 
 test('a linked second buyer is asked for exactly what the first is', () => {
   const d = deal();
   d.column_values['link_to_______2__1'] =
     { type: 'board_relation', text: 'buyer two', linked: [{ id: '2733400452', name: 'buyer two' }] };
-  const { values } = buildFacts(MAP, d, { ...OWNERS, client2: {} });   // linked, but his item is empty
+  const { values } = buildFacts(MAP, d, { ...OWNERS, client2: {} });   // linked, but his card is empty
   const { missing } = findMissing(MAP, values,
     { clientLinked: true, client2Linked: true, projectLinked: true });
   const asked = new Set(missing.map(f => f.key));
@@ -204,6 +228,23 @@ test('project and client values are read from the linked item, not from a mirror
   assert.strictEqual(v.city, 'ירושלים', 'city comes from the project item');
   assert.strictEqual(v.street, 'האופה', 'street has no mirror on the deal board and must still read');
   assert.strictEqual(v.buyer_1_id_number, 'A06912601');
+});
+
+test('a status field the board already answers is read, not asked — שפה מדוברת', () => {
+  const filled = run(deal({ single_select0__1: 'אנגלית' }));
+  assert.ok(!filled.missing.some(f => f.key === 'spoken_language'), 'already answered — do not ask');
+  assert.strictEqual(filled.present.find(f => f.key === 'spoken_language').value, 'אנגלית');
+
+  const blank = run(deal({ single_select0__1: null })).missing.find(f => f.key === 'spoken_language');
+  assert.ok(blank, 'asked when genuinely empty');
+  assert.strictEqual(blank.inputType, 'status', 'and it must render as a dropdown, not a text box');
+});
+
+test('every status / dropdown field carries the type that makes it a dropdown', () => {
+  for (const f of MAP.fields.filter(f => (f.ownerType || f.type) === 'status' || (f.ownerType || f.type) === 'dropdown')) {
+    assert.ok(f.ownerColumnId, f.key + ': needs a column to read its labels from');
+    assert.ok(['deal', 'client', 'client2', 'project'].includes(f.owner), f.key + ': unknown owner');
+  }
 });
 
 test('nothing already on the linked client or project card is ever asked for', () => {

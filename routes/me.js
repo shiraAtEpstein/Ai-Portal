@@ -18,6 +18,7 @@
 // ============================================================
 const express = require('express');
 const db = require('../db');
+const { capabilitiesFor } = require('../lib/permissions');
 const { authenticate } = require('../lib/sessions');
 const memory = require('../lib/memory');
 const settings = require('../lib/user-settings');
@@ -39,6 +40,11 @@ module.exports = function createMeRouter() {
       roles,
       // Case-insensitive: roles may be stored capitalized (e.g. "Admin").
       isAdmin: roles.some((r) => String(r).toLowerCase() === 'admin'),
+      // What this person may actually do, per connection. Lets the UI hide
+      // buttons a role cannot use instead of letting them click into a 403.
+      capabilities: Object.fromEntries(
+        Object.entries(capabilitiesFor(roles)).map(([k, v]) => [k, [...v]])
+      ),
     });
   });
 

@@ -19,7 +19,8 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { authenticate } = require('../lib/sessions');
-const { can } = require('../lib/permissions');
+const { can, capabilitiesFor } = require('../lib/permissions');
+const PERMISSIONS = require('../config/permissions.json');
 const synopsis = require('../lib/synopsis');
 const { buildFacts, findMissing, paymentRows, paymentChecks, derive, compare,
         applyWrite, READ_ONLY } = synopsis;
@@ -255,7 +256,105 @@ module.exports = function createSynopsisRouter() {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  // ---- 4. the log, for admin / tech -----------------------------------
+  // ---- 4. the reference letter this project builds from ----------------
+  router.get('/api/synopsis/reference', authenticate, requireSynopsis, async (req, res) => {
+    try {
+      const dealId = String(req.query.dealId || '');
+      if (!dealId) return res.status(400).json({ error: 'dealId is required' });
+      const item = await synopsis.getDeal(dealId, ['connect_boards_165__1', 'connect_boards94__1']);
+      const projectItemId = item.column_values['connect_boards_165__1']?.linked?.[0]?.id || null;
+      const projectName   = item.column_values['connect_boards_165__1']?.linked?.[0]?.name || null;
+      if (!projectItemId)
+        return res.json({ error: null, deal: { id: item.id, name: item.name },
+          projectItemId: null, projectName: null, reference: null, candidates: [],
+          blocked: 'לעסקה הזו אין פרויקט מקושר — אי אפשר לדעת מאיזה מכתב לבנות.' });
+
+      const st = await synopsis.reference.state(projectItemId, dealId);
+      audit.record({ event: 'reference.view', ok: true, dealId, dealName: item.name,
+                     user: req.session.email, roles: req.session.roles,
+                     detail: { projectItemId, hasReference: !!st.reference,
+                               candidates: st.candidates.length } });
+      res.json({ deal: { id: item.id, name: item.name }, projectName: projectName || st.projectName, ...st });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Upload the project's reference letter. Raw body, so no multipart dependency:
+  // the browser sends the file as the request body and the name in the query.
+  //
+  // Replacing an existing reference DELETES the old file — monday can only clear
+  // a file column wholesale, and that cannot be undone. So a replace must name
+  // the asset it expects to be replacing and carry confirm=1, and the old file
+  // is backed up and restored if the new upload fails.
+  router.post('/api/synopsis/reference',
+    authenticate, requireSynopsis,
+    express.raw({ type: '*/*', limit: '25mb' }),
+    async (req, res) => {
+      try {
+        const dealId = String(req.query.dealId || '');
+        const projectItemId = String(req.query.projectItemId || '');
+        const fileName = String(req.query.fileName || '').slice(0, 200);
+        const replace = String(req.query.replace || '') === '1';
+        const confirmed = String(req.query.confirm || '') === '1';
+        const replacingAssetId = String(req.query.replacingAssetId || '') || null;
+
+        if (!projectItemId || !fileName)
+          return res.status(400).json({ error: 'projectItemId and fileName are required' });
+        if (!can(req.session.roles, 'monday', 'write_own'))
+          return res.status(403).json({ error: 'Your roles may not write to monday.' });
+
+        const asset = await synopsis.reference.uploadToProject(projectItemId, fileName, req.body, {
+          replace, confirmed, replacingAssetId,
+          log: e => audit.record({ ...e, dealId, user: req.session.email, roles: req.session.roles })
+        });
+
+        const saved = await synopsis.reference.setStored(projectItemId, {
+          dealId: dealId || null, dealName: null, assetId: asset.id,
+          fileName: asset.name || fileName, clientName: null
+        }, req.session.email);
+
+        audit.record({ event: replace ? 'reference.replaced' : 'reference.uploaded', ok: true,
+                       dealId, user: req.session.email, roles: req.session.roles,
+                       board: 'פרוייקטים', itemId: projectItemId,
+                       columnId: synopsis.reference.PROJECT_FILE_COLUMN, after: fileName,
+                       detail: { assetId: asset.id, bytes: req.body?.length || 0, replacingAssetId } });
+        res.json({ saved, asset });
+      } catch (e) {
+        audit.record({ event: 'reference.upload.failed', ok: false, user: req.session.email,
+                       roles: req.session.roles, reason: e.message });
+        res.status(400).json({ error: e.message });
+      }
+    });
+
+  // ---- 4b. why can I not see this? ------------------------------------
+  // Deliberately NOT behind requireSynopsis: the person who needs this answer is
+  // the one who does not have the capability. It reveals only the caller's own
+  // roles and what they resolve to — nothing about the deals or anyone else.
+  router.get('/api/synopsis/whoami', authenticate, (req, res) => {
+    const roles = req.session.roles || [];
+    const caps = Object.fromEntries(
+      Object.entries(capabilitiesFor(roles)).map(([k, v]) => [k, [...v]]));
+    const known = Object.keys(PERMISSIONS).filter(k => !k.startsWith('_'));
+    const unknown = roles.filter(r => !known.includes(String(r).trim().toLowerCase()));
+    const mayUse = can(roles, 'synopsis', 'use');
+
+    let why = null;
+    if (mayUse) why = 'יש לך גישה להפקת סינופסיס.';
+    else if (!roles.length) why = 'למשתמש הזה אין תפקידים כלל.';
+    else if (unknown.length) why =
+      'התפקיד "' + unknown.join(', ') + '" לא מופיע ב־config/permissions.json, ולכן אין לו שום הרשאה — ' +
+      'לא סינופסיס ולא כתיבה למנדיי. התפקידים המוכרים הם: ' + known.join(', ') + '.';
+    else why = 'התפקידים ' + roles.join(', ') + ' קיימים, אבל אף אחד מהם לא כולל synopsis:use.';
+
+    res.json({
+      email: req.session.email, roles, capabilities: caps,
+      mayUseSynopsis: mayUse,
+      mayWriteMonday: can(roles, 'monday', 'write_own'),
+      mayReadMonday: can(roles, 'monday', 'read_board'),
+      unknownRoles: unknown, knownRoles: known, explanation: why
+    });
+  });
+
+  // ---- 5. the log, for admin / tech -----------------------------------
   router.get('/api/synopsis/audit', authenticate, requireSynopsis, async (req, res) => {
     try {
       const isAdmin = (req.session.roles || []).some(r => ['admin', 'tech'].includes(String(r).toLowerCase()));

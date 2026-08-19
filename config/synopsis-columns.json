@@ -1,5 +1,5 @@
 {
- "version": "0.2",
+ "version": "0.4",
  "reviewedBy": null,
  "note": "T8 deliverable. Every synopsis field -> the board that OWNS it, the column that holds it, and (for mirrors) the column on the owning board that the write must target. columnId = where the value is READ from the deal item. ownerColumnId = where it is WRITTEN. All column ids, titles and types below were read from the live boards on 18/08/2026. 'required' is a judgement from reading two synopses and is NOT verified — Shira must review.",
  "boards": {
@@ -18,6 +18,10 @@
   "payments": {
    "id": 1727614456,
    "name": "תשלומים"
+  },
+  "client2": {
+   "id": 1603266147,
+   "name": "לקוחות (קונה 2)"
   }
  },
  "dealBoards": [
@@ -69,7 +73,8 @@
    "writable": true,
    "ownerColumnId": "text_mkm085q3",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "building_no",
@@ -82,7 +87,8 @@
    "writable": true,
    "ownerColumnId": "text_mkm0tje8",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "floor",
@@ -95,7 +101,8 @@
    "writable": true,
    "ownerColumnId": "text_mkm0wajw",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "rooms",
@@ -108,7 +115,8 @@
    "writable": true,
    "ownerColumnId": "numbers_mkm0spc5",
    "ownerType": "numbers",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "apartment_sqm",
@@ -121,7 +129,8 @@
    "writable": true,
    "ownerColumnId": "numeric_mkqfhayz",
    "ownerType": "numbers",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "porch_sqm",
@@ -134,7 +143,8 @@
    "writable": true,
    "ownerColumnId": "text_mkqm2q0k",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "sukkah_porch_sqm",
@@ -147,7 +157,8 @@
    "writable": true,
    "ownerColumnId": "text_mkqm8e8w",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "direction",
@@ -160,7 +171,8 @@
    "writable": true,
    "ownerColumnId": "text_mkm0rnxt",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "parking_1",
@@ -173,7 +185,8 @@
    "writable": true,
    "ownerColumnId": "text_mkm0s5p4",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "parking_2",
@@ -186,7 +199,8 @@
    "writable": true,
    "ownerColumnId": "text_mkm0ksfj",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "storage_1",
@@ -199,7 +213,8 @@
    "writable": true,
    "ownerColumnId": "text_mkm0tgtz",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "storage_2",
@@ -212,7 +227,8 @@
    "writable": true,
    "ownerColumnId": "text_mkx7t7yy",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "property_address",
@@ -225,7 +241,8 @@
    "writable": true,
    "ownerColumnId": "location_mkm0p62b",
    "ownerType": "location",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "plot",
@@ -238,7 +255,8 @@
    "writable": true,
    "ownerColumnId": "text_mkmp1zag",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "purchase_price",
@@ -251,7 +269,8 @@
    "writable": true,
    "ownerColumnId": "numeric_mkm0xkv",
    "ownerType": "numbers",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "num_payments",
@@ -264,7 +283,8 @@
    "writable": true,
    "ownerColumnId": "numeric_mknsnjhc",
    "ownerType": "numbers",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "index_linked",
@@ -277,7 +297,8 @@
    "writable": true,
    "ownerColumnId": "status_mkm0x7dj",
    "ownerType": "status",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "index_start_date",
@@ -286,15 +307,16 @@
    "columnId": "date_mkm0dr0c",
    "type": "date",
    "group": "price",
-   "required": false,
+   "required": true,
    "writable": true,
-   "requiredIf": {
+   "ownerColumnId": "date_mkm0dr0c",
+   "ownerType": "date",
+   "verified": "monday 2026-08-18",
+   "showIf": {
     "field": "index_linked",
     "equals": "כן"
    },
-   "ownerColumnId": "date_mkm0dr0c",
-   "ownerType": "date",
-   "verified": "monday 2026-08-18"
+   "readFrom": "deal"
   },
   {
    "key": "attorney_fee_pct",
@@ -307,7 +329,8 @@
    "writable": true,
    "ownerColumnId": "number2__1",
    "ownerType": "numbers",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "attorney_fee_incl_vat",
@@ -321,7 +344,8 @@
    "derived": "attorney_fee_pct% × purchase_price × (1+VAT)",
    "ownerColumnId": "numeric_mkqq3rn7",
    "ownerType": "numbers",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "broker_fee_pct",
@@ -334,7 +358,8 @@
    "writable": true,
    "ownerColumnId": "numbers85__1",
    "ownerType": "numbers",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "broker_fee_incl_vat",
@@ -348,7 +373,8 @@
    "derived": "broker_fee_pct% × purchase_price × (1+VAT)",
    "ownerColumnId": "numbers96__1",
    "ownerType": "numbers",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "company_lawyer_fee",
@@ -365,7 +391,8 @@
    ],
    "ownerColumnId": "numbers5__1",
    "ownerType": "numbers",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "tax_profile",
@@ -378,7 +405,8 @@
    "writable": true,
    "ownerColumnId": "dropdown_mkn78wdb",
    "ownerType": "dropdown",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "purchase_tax",
@@ -392,7 +420,8 @@
    "derived": "tax rate by profile × purchase_price",
    "ownerColumnId": "numbers_mkmck5ye",
    "ownerType": "numbers",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "tax_voucher_profile",
@@ -405,7 +434,8 @@
    "writable": true,
    "ownerColumnId": "dropdown_mkmn4q4w",
    "ownerType": "dropdown",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "purchase_tax_alt",
@@ -419,7 +449,8 @@
    "note": "The SECOND bracket. Checklist item 2.4 says the letter must state both. Not the same field as סך המס — the stub generator confuses them.",
    "ownerColumnId": "numeric_mkwxdh99",
    "ownerType": "numbers",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "delivery_date",
@@ -432,33 +463,8 @@
    "writable": true,
    "ownerColumnId": "date_mkv7gn8f",
    "ownerType": "date",
-   "verified": "monday 2026-08-18"
-  },
-  {
-   "key": "signing_date",
-   "label": "תאריך חתימת חוזה בפועל",
-   "owner": "deal",
-   "columnId": "date58__1",
-   "type": "date",
-   "group": "dates",
-   "required": false,
-   "writable": true,
-   "ownerColumnId": "date58__1",
-   "ownerType": "date",
-   "verified": "monday 2026-08-18"
-  },
-  {
-   "key": "signing_deadline",
-   "label": "דדליין לחתימת חוזה לפי טופס הרשמה",
-   "owner": "deal",
-   "columnId": "date81__1",
-   "type": "date",
-   "group": "dates",
-   "required": false,
-   "writable": true,
-   "ownerColumnId": "date81__1",
-   "ownerType": "date",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "contractor_loan",
@@ -472,7 +478,8 @@
    "controlsBlock": "§5 הלוואת קבלן",
    "ownerColumnId": "status0__1",
    "ownerType": "status",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "contractor_loan_pct",
@@ -481,15 +488,16 @@
    "columnId": "numbers6__1",
    "type": "numbers",
    "group": "terms",
-   "required": false,
+   "required": true,
    "writable": true,
-   "requiredIf": {
+   "ownerColumnId": "numbers6__1",
+   "ownerType": "numbers",
+   "verified": "monday 2026-08-18",
+   "showIf": {
     "field": "contractor_loan",
     "equals": "כן"
    },
-   "ownerColumnId": "numbers6__1",
-   "ownerType": "numbers",
-   "verified": "monday 2026-08-18"
+   "readFrom": "deal"
   },
   {
    "key": "has_mortgage",
@@ -502,20 +510,8 @@
    "writable": true,
    "ownerColumnId": "status__1",
    "ownerType": "status",
-   "verified": "monday 2026-08-18"
-  },
-  {
-   "key": "signing_method",
-   "label": "כיצד חותמים על ההסכם",
-   "owner": "deal",
-   "columnId": "single_selectrzw882d",
-   "type": "status",
-   "group": "terms",
-   "required": false,
-   "writable": true,
-   "ownerColumnId": "single_selectrzw882d",
-   "ownerType": "status",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "who_signs",
@@ -528,7 +524,8 @@
    "writable": true,
    "ownerColumnId": "color_mksev974",
    "ownerType": "status",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "has_special_terms",
@@ -541,7 +538,8 @@
    "writable": true,
    "ownerColumnId": "single_select93__1",
    "ownerType": "status",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "deal"
   },
   {
    "key": "special_terms",
@@ -550,15 +548,17 @@
    "columnId": "long_text__1",
    "type": "long_text",
    "group": "benefits",
-   "required": false,
+   "required": true,
    "writable": true,
-   "requiredIf": {
+   "ownerColumnId": "long_text__1",
+   "ownerType": "long_text",
+   "verified": "monday 2026-08-18",
+   "showIf": {
     "field": "has_special_terms",
     "equals": "כן"
    },
-   "ownerColumnId": "long_text__1",
-   "ownerType": "long_text",
-   "verified": "monday 2026-08-18"
+   "ui": "textarea",
+   "readFrom": "deal"
   },
   {
    "key": "benefits_text",
@@ -572,158 +572,147 @@
    "note": "Free text today. T6 replaces this with one row per benefit — until then the coverage check cannot run.",
    "ownerColumnId": "text_mkm05rrx",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "ui": "textarea",
+   "readFrom": "deal"
   },
   {
    "key": "buyer_1_name_en",
    "label": "לקוח 1 שם באנגלית",
    "owner": "client",
-   "columnId": "lookup96__1",
    "type": "mirror",
    "group": "buyers",
    "required": true,
    "writable": true,
    "ownerColumnId": "text_mkpjqr1p",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner"
   },
   {
    "key": "buyer_1_name_he",
    "label": "לקוח 1 שם מלא בעברית",
    "owner": "client",
-   "columnId": "lookup132__1",
    "type": "mirror",
    "group": "buyers",
    "required": true,
    "writable": true,
    "ownerColumnId": "text_mkqvrehd",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner"
   },
   {
    "key": "buyer_1_id_number",
    "label": "מספר זיהוי לקוח 1",
    "owner": "client",
-   "columnId": "lookup957__1",
    "type": "mirror",
    "group": "buyers",
    "required": true,
    "writable": true,
    "ownerColumnId": "text1__1",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner"
   },
   {
    "key": "buyer_1_id_type",
    "label": "לקוח 1 - סוג זיהוי",
    "owner": "client",
-   "columnId": "lookup_mkqpdfxh",
    "type": "mirror",
    "group": "buyers",
    "required": true,
    "writable": true,
    "ownerColumnId": "status_10__1",
    "ownerType": "status",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner"
   },
   {
    "key": "buyer_1_address",
    "label": "לקוח 1 כתובת",
    "owner": "client",
-   "columnId": "lookup73__1",
    "type": "mirror",
    "group": "buyers",
    "required": true,
    "writable": true,
    "ownerColumnId": "location__1",
    "ownerType": "location",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner"
   },
   {
    "key": "buyer_1_email",
    "label": "אימייל לקוח 1",
    "owner": "client",
-   "columnId": "lookup_mkw86frk",
    "type": "mirror",
    "group": "buyers",
    "required": true,
    "writable": true,
    "ownerColumnId": "contact_email",
    "ownerType": "email",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner"
   },
   {
    "key": "buyer_1_phone",
    "label": "לקוח 1 טלפון",
    "owner": "client",
-   "columnId": "lookup_mm0vj0w4",
    "type": "mirror",
    "group": "buyers",
    "required": false,
    "writable": true,
    "ownerColumnId": "contact_phone",
    "ownerType": "phone",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner"
   },
   {
    "key": "buyer_1_title",
    "label": "Title לקוח 1",
-   "owner": "deal",
-   "columnId": "status5__1",
-   "type": "status",
+   "owner": "client",
+   "type": "mirror",
    "group": "buyers",
    "required": true,
    "writable": true,
-   "ownerColumnId": "status5__1",
+   "ownerColumnId": "title__1",
    "ownerType": "status",
-   "verified": "monday 2026-08-18"
-  },
-  {
-   "key": "has_buyer_2",
-   "label": "האם יש לקוח 2",
-   "owner": "deal",
-   "columnId": "color_mm2txw1n",
-   "type": "status",
-   "group": "buyers",
-   "required": true,
-   "writable": true,
-   "ownerColumnId": "color_mm2txw1n",
-   "ownerType": "status",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner"
   },
   {
    "key": "buyer_2_name_en",
    "label": "לקוח 2 שם באנגלית",
-   "owner": "client",
-   "columnId": "lookup25__1",
+   "owner": "client2",
    "type": "mirror",
    "group": "buyers",
-   "required": false,
+   "required": true,
    "writable": true,
-   "requiredIf": {
-    "field": "has_buyer_2",
-    "equals": "כן"
-   },
    "ownerColumnId": "text_mkpjqr1p",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "showIf": {
+    "field": "client_2_link",
+    "notEmpty": true
+   },
+   "readFrom": "owner"
   },
   {
    "key": "buyer_2_id_number",
    "label": "מספר זיהוי לקוח 2",
-   "owner": "client",
-   "columnId": "lookup68__1",
+   "owner": "client2",
    "type": "mirror",
    "group": "buyers",
-   "required": false,
+   "required": true,
    "writable": true,
-   "requiredIf": {
-    "field": "has_buyer_2",
-    "equals": "כן"
-   },
    "ownerColumnId": "text1__1",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "showIf": {
+    "field": "client_2_link",
+    "notEmpty": true
+   },
+   "readFrom": "owner"
   },
   {
    "key": "project_link",
@@ -736,65 +725,67 @@
    "writable": true,
    "ownerColumnId": "connect_boards_165__1",
    "ownerType": "board_relation",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "ui": "relation",
+   "lookupBoard": "project",
+   "readFrom": "deal"
   },
   {
    "key": "project_name_en",
    "label": "שם הפרויקט באנגלית",
    "owner": "project",
-   "columnId": "lookup_mkv8bbnd",
    "type": "mirror",
    "group": "project",
    "required": true,
    "writable": true,
    "ownerColumnId": "text18__1",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner"
   },
   {
    "key": "seller_company",
    "label": "שם חברה משוך מפרוייקטים",
    "owner": "project",
-   "columnId": "lookup805__1",
    "type": "mirror",
    "group": "project",
    "required": true,
    "writable": true,
    "ownerColumnId": "text13__1",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner"
   },
   {
    "key": "seller_company_no",
    "label": "ח.פ. משוך מפרוייקטים",
    "owner": "project",
-   "columnId": "lookup804__1",
    "type": "mirror",
    "group": "project",
    "required": true,
    "writable": true,
    "ownerColumnId": "text86__1",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner"
   },
   {
    "key": "city",
    "label": "עיר משוך מפרוייקטים",
    "owner": "project",
-   "columnId": "lookup102__1",
    "type": "mirror",
    "group": "project",
    "required": true,
    "writable": true,
    "ownerColumnId": "text_mkmetb8s",
    "ownerType": "text",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner"
   },
   {
    "key": "permit_date",
    "label": "תאריך קבלת היתר בניה",
    "owner": "project",
-   "columnId": "mirror_mkmdf6gp",
    "type": "mirror",
    "group": "project",
    "required": true,
@@ -802,7 +793,8 @@
    "controlsBlock": "סעיפי תנאי מתלה",
    "ownerColumnId": "date_mkmddzcx",
    "ownerType": "date",
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner"
   },
   {
    "key": "client_1_link",
@@ -816,7 +808,10 @@
    "required": true,
    "writable": true,
    "verified": "monday 2026-08-18",
-   "note": "Resolves which לקוחות item the buyer-1 mirrors come from — and therefore where their writes go."
+   "note": "Resolves which לקוחות item the buyer-1 mirrors come from — and therefore where their writes go.",
+   "ui": "relation",
+   "lookupBoard": "client",
+   "readFrom": "deal"
   },
   {
    "key": "client_2_link",
@@ -829,13 +824,15 @@
    "group": "buyers",
    "required": false,
    "writable": true,
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "ui": "relation",
+   "lookupBoard": "client",
+   "readFrom": "deal"
   },
   {
    "key": "buyer_1_country",
    "label": "לקוח 1 ארץ הנפקה",
    "owner": "client",
-   "columnId": "lookup369__1",
    "ownerColumnId": "dropdown__1",
    "type": "mirror",
    "ownerType": "dropdown",
@@ -843,13 +840,13 @@
    "required": true,
    "writable": true,
    "verified": "monday 2026-08-18",
-   "note": "The letter says 'United States Passport No.' — this is that word."
+   "note": "The letter says 'United States Passport No.' — this is that word.",
+   "readFrom": "owner"
   },
   {
    "key": "correspondence_language",
    "label": "שפת התקשרות",
    "owner": "client",
-   "columnId": null,
    "ownerColumnId": "color_mm33bjc1",
    "type": "mirror",
    "ownerType": "status",
@@ -857,13 +854,13 @@
    "required": true,
    "writable": true,
    "verified": "monday 2026-08-18",
-   "note": "Drives which language base is used. No mirror of it exists on the deal board yet — one needs adding."
+   "note": "Drives which language base is used. No mirror of it exists on the deal board yet — one needs adding.",
+   "readFrom": "owner"
   },
   {
    "key": "seller_company_en",
    "label": "חברה מוכרת 1 אנגלית",
    "owner": "project",
-   "columnId": null,
    "ownerColumnId": "text_mksyhx5m",
    "type": "mirror",
    "ownerType": "text",
@@ -871,13 +868,13 @@
    "required": true,
    "writable": true,
    "verified": "monday 2026-08-18",
-   "note": "Needed for the English letter. No mirror on the deal board yet."
+   "note": "Needed for the English letter. No mirror on the deal board yet.",
+   "readFrom": "owner"
   },
   {
    "key": "city_en",
    "label": "עיר באנגלית",
    "owner": "project",
-   "columnId": null,
    "ownerColumnId": "text_mksyxfb1",
    "type": "mirror",
    "ownerType": "text",
@@ -885,67 +882,52 @@
    "required": true,
    "writable": true,
    "verified": "monday 2026-08-18",
-   "note": "Needed for the English letter. No mirror on the deal board yet."
+   "note": "Needed for the English letter. No mirror on the deal board yet.",
+   "readFrom": "owner"
   },
   {
    "key": "gush",
    "label": "גוש",
    "owner": "project",
-   "columnId": "mirror_2839__1",
    "ownerColumnId": "text21__1",
    "type": "mirror",
    "ownerType": "text",
    "group": "project",
    "required": true,
    "writable": true,
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner"
   },
   {
    "key": "chelka",
    "label": "חלקה",
    "owner": "project",
-   "columnId": "mirror_2856__1",
    "ownerColumnId": "text3__1",
    "type": "mirror",
    "ownerType": "text",
    "group": "project",
    "required": true,
    "writable": true,
-   "verified": "monday 2026-08-18"
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner"
   },
   {
    "key": "street",
    "label": "רחוב",
    "owner": "project",
-   "columnId": null,
    "ownerColumnId": "text9__1",
    "type": "mirror",
    "ownerType": "text",
    "group": "project",
    "required": false,
    "writable": true,
-   "verified": "monday 2026-08-18"
-  },
-  {
-   "key": "construction_status",
-   "label": "סטטוס הבניה",
-   "owner": "project",
-   "columnId": null,
-   "ownerColumnId": "text_mkt2e1py",
-   "type": "mirror",
-   "ownerType": "text",
-   "group": "project",
-   "required": true,
-   "writable": true,
    "verified": "monday 2026-08-18",
-   "controlsBlock": "סעיף 'הדירה בנויה בפועל'",
-   "note": "Checklist 1.2 — is the apartment substantially built. This column already exists; no mirror on the deal board yet."
+   "readFrom": "owner"
   },
   {
    "key": "company_lawyer_fee_default",
    "label": "שכ\"ט עו\"ד חברה (אחיד לפרויקט)",
    "owner": "project",
-   "columnId": null,
    "ownerColumnId": "numeric_mkqabdd1",
    "type": "mirror",
    "ownerType": "numbers",
@@ -953,47 +935,141 @@
    "required": false,
    "writable": true,
    "verified": "monday 2026-08-18",
-   "note": "Project-level default for the same fee the deal holds in סכום שכ\"ט עו\"ד החברה. Precedence must be decided: deal overrides project."
+   "note": "Project-level default for the same fee the deal holds in סכום שכ\"ט עו\"ד החברה. Precedence must be decided: deal overrides project.",
+   "readFrom": "owner"
   },
   {
-   "key": "project_base_synopsis",
-   "label": "סינופסיס (בסיס הפרויקט)",
-   "owner": "project",
-   "columnId": null,
-   "ownerColumnId": "file_mkswxqpn",
+   "key": "buyer_2_name_he",
+   "label": "לקוח 2 שם מלא בעברית",
+   "owner": "client2",
    "type": "mirror",
-   "ownerType": "file",
-   "group": "project",
-   "required": false,
-   "writable": false,
-   "verified": "monday 2026-08-18",
-   "note": "The project board ALREADY holds a synopsis file per project. This is where the registered base belongs."
-  },
-  {
-   "key": "project_reference_client",
-   "label": "לקוח ראשון - סינופסיס",
-   "owner": "project",
-   "columnId": null,
-   "ownerColumnId": "text_mkswvyb9",
-   "type": "mirror",
+   "group": "buyers",
+   "required": true,
+   "writable": true,
+   "ownerColumnId": "text_mkqvrehd",
    "ownerType": "text",
-   "group": "project",
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner",
+   "showIf": {
+    "field": "client_2_link",
+    "notEmpty": true
+   }
+  },
+  {
+   "key": "buyer_2_id_type",
+   "label": "לקוח 2 - סוג זיהוי",
+   "owner": "client2",
+   "type": "mirror",
+   "group": "buyers",
+   "required": true,
+   "writable": true,
+   "ownerColumnId": "status_10__1",
+   "ownerType": "status",
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner",
+   "showIf": {
+    "field": "client_2_link",
+    "notEmpty": true
+   }
+  },
+  {
+   "key": "buyer_2_address",
+   "label": "לקוח 2 כתובת",
+   "owner": "client2",
+   "type": "mirror",
+   "group": "buyers",
+   "required": true,
+   "writable": true,
+   "ownerColumnId": "location__1",
+   "ownerType": "location",
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner",
+   "showIf": {
+    "field": "client_2_link",
+    "notEmpty": true
+   }
+  },
+  {
+   "key": "buyer_2_email",
+   "label": "אימייל לקוח 2",
+   "owner": "client2",
+   "type": "mirror",
+   "group": "buyers",
+   "required": true,
+   "writable": true,
+   "ownerColumnId": "contact_email",
+   "ownerType": "email",
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner",
+   "showIf": {
+    "field": "client_2_link",
+    "notEmpty": true
+   }
+  },
+  {
+   "key": "buyer_2_phone",
+   "label": "לקוח 2 טלפון",
+   "owner": "client2",
+   "type": "mirror",
+   "group": "buyers",
    "required": false,
    "writable": true,
+   "ownerColumnId": "contact_phone",
+   "ownerType": "phone",
    "verified": "monday 2026-08-18",
-   "note": "The firm already records which client's synopsis is the project reference. The base registry is not a new idea to them."
+   "readFrom": "owner",
+   "showIf": {
+    "field": "client_2_link",
+    "notEmpty": true
+   }
+  },
+  {
+   "key": "buyer_2_title",
+   "label": "Title לקוח 2",
+   "owner": "client2",
+   "type": "mirror",
+   "group": "buyers",
+   "required": true,
+   "writable": true,
+   "ownerColumnId": "title__1",
+   "ownerType": "status",
+   "verified": "monday 2026-08-18",
+   "readFrom": "owner",
+   "showIf": {
+    "field": "client_2_link",
+    "notEmpty": true
+   }
+  },
+  {
+   "key": "buyer_2_country",
+   "label": "לקוח 2 ארץ הנפקה",
+   "owner": "client2",
+   "ownerColumnId": "dropdown__1",
+   "type": "mirror",
+   "ownerType": "dropdown",
+   "group": "buyers",
+   "required": true,
+   "writable": true,
+   "verified": "monday 2026-08-18",
+   "note": "The letter says 'United States Passport No.' — this is that word.",
+   "readFrom": "owner",
+   "showIf": {
+    "field": "client_2_link",
+    "notEmpty": true
+   }
   }
  ],
  "verifiedAgainstMonday": "2026-08-18",
  "openQuestions": [
-  "Title לקוח 1 exists on BOTH the deal (status5__1) and the client board (title__1). Which wins?",
+  "Title is now read from לקוחות (title__1) for both buyers — the deal's status5__1 (\"Title לקוח 1\") is no longer used, because buyer 2 has no equivalent on the deal board.",
   "שכ\"ט עו\"ד חברה exists on the deal (numbers5__1) and as a project default (numeric_mkqabdd1). Deal should override — confirm.",
   "סך המס (200,000) vs סך המס ל12א או תושבות (2,606) — two brackets. Checklist 2.4 says the letter states both.",
   "מספר תשלומי דירה reads 6 on Rosalimsky; the synopsis has 3 payments.",
   "חניה 1 holds 'כן' rather than a parking number.",
-  "No mirror exists on the deal board for: שפת התקשרות, חברה מוכרת אנגלית, עיר באנגלית, סטטוס הבניה, רחוב. Add mirrors, or read the project/client item directly.",
   "Columns that do not exist anywhere yet: דמי רצינות, פנטהאוז, איחוד דירות.",
-  "The יד 2 deal board is not in dealBoards."
+  "The יד 2 deal board is not in dealBoards.",
+  "Project/client fields are now read from the linked item directly, not through a mirror on the deal board — so a field with no mirror (רחוב, סטטוס הבניה, חברה מוכרת אנגלית) reads correctly.",
+  "סטטוס הבניה removed: it is a property of the project's base synopsis, not a per-deal question. If the building status changes, the base synopsis is updated."
  ],
  "_comment": "Synopsis field -> monday column map. Read by lib/synopsis/* only.\ncolumnId      = the column on the DEAL board the value is READ from (a mirror, for client/project fields).\nownerColumnId = the column on the OWNING board a write must TARGET. Writing to a mirror does nothing.\nAll column ids/titles/types were read from the live boards on 18/08/2026.\n'required' is a judgement from reading two real synopses and is NOT confirmed by the firm — review it.\nNOTE vs config/monday-boards.json: that file maps WORKFLOW columns (status, paralegal, milestone dates) for the daily/alert agents. This one maps DEAL CONTENT for the letter. They overlap on exactly two columns — date81__1 (registrationDeadline / signing_deadline) and date58__1 (contractSignActualDate / signing_date). Kept separate on purpose: different consumers, different lifecycles."
 }

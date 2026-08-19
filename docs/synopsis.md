@@ -29,6 +29,46 @@ Stateless on purpose: `/fill` re-reads the deal instead of trusting a cached run
 across restarts and multiple Render instances, and the `before` value in each audit line is what
 monday actually held a moment earlier.
 
+## Who may use it
+
+`config/permissions.json` decides, like every other capability in the portal:
+
+| Role | `synopsis` |
+|---|---|
+| admin, tech, paralegal | `use` |
+| lawyer, accountant, and every role with no entry | — |
+
+Enforced in three places: `requireSynopsis` on all five routes, the sidebar button hidden by
+`boot.js` from `/api/me` capabilities, and a test asserting exactly this list. No role list is
+written in the front-end.
+
+## What it may do to monday
+
+Read and update. Nothing else, ever.
+
+- Reads go through `monday.readQuery()`, which refuses any query containing `mutation`.
+- The single write is `change_column_value`, inside `write-gate.js`, behind eight checks.
+- A test scans the whole feature for `delete_item`, `archive_item`, `move_item_to_board`,
+  `duplicate_item`, `create_item` and nine more, asserts none appear, and asserts the feature
+  contains **exactly one** GraphQL mutation. Adding a destructive call fails `npm test`.
+
+## The log
+
+`lib/synopsis/audit.js` records to Postgres (`synopsis_audit`, created lazily) and always to the
+console as `[synopsis] {...}`. Recorded per line: when, run id, event, ok, user email and id, roles,
+deal id and name, field, board, item, column, **value before**, **value after**, and — for a refusal
+— which gate refused it and why.
+
+Events: `run.open`, `write.ok`, `write.rejected`, `access.denied`, `error`. Refusals are recorded as
+carefully as successes; a write that was blocked is the more interesting record.
+
+```
+GET /api/synopsis/audit?dealId=...&runId=...&limit=100     admin / tech only
+```
+
+Logging never throws — a logging failure must not stop a paralegal mid-form — but it is reported to
+the console so a silently-unlogged system cannot go unnoticed.
+
 ## The write gate
 
 Eight checks, in order; any failure rejects, logs and reports:

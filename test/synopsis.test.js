@@ -175,6 +175,26 @@ test('project and client values are read from the linked item, not from a mirror
   assert.strictEqual(v.buyer_1_id_number, 'A06912601');
 });
 
+test('nothing already on the linked client or project card is ever asked for', () => {
+  const r = run(deal());
+  const asked = new Set(r.missing.map(f => f.key));
+  const has = new Set(r.present.map(f => f.key));
+
+  // every value the linked cards hold must land in `present`, never on the form
+  const onCards = ['buyer_1_name_en', 'buyer_1_name_he', 'buyer_1_id_number', 'buyer_1_id_type',
+                   'buyer_1_address', 'buyer_1_email', 'buyer_1_phone', 'buyer_1_country', 'buyer_1_title',
+                   'project_name_en', 'seller_company', 'seller_company_en', 'seller_company_no',
+                   'city', 'street', 'gush', 'chelka', 'permit_date'];
+  for (const k of onCards) {
+    assert.ok(has.has(k), k + ' is on the linked card and must be read, not asked');
+    assert.ok(!asked.has(k), k + ' must NOT appear on the form — the card already has it');
+  }
+  // and each one is attributed to the card it came from, for the summary strip
+  const city = r.present.find(f => f.key === 'city');
+  assert.strictEqual(city.owner, 'project');
+  assert.strictEqual(r.present.find(f => f.key === 'buyer_1_email').owner, 'client');
+});
+
 test('an unlinked project makes its fields blocked, with a reason', () => {
   const { values } = buildFacts(MAP, deal(), { client: OWNERS.client, client2: {}, project: {} });
   const { missing } = findMissing(MAP, values, { clientLinked: true, client2Linked: false, projectLinked: false });

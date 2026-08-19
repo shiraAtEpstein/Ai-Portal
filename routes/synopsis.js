@@ -90,12 +90,15 @@ async function loadDeal(dealId) {
 
   // Fees and tax are a percentage of the price — computed, never typed. Where the
   // board also holds a figure, a disagreement is surfaced rather than hidden.
+  // The board's own figure remains the value — it is what the firm recorded.
+  // The arithmetic is shown beneath it, and a disagreement is flagged, but the
+  // computation never silently replaces what a person put on the board.
   const computed = derive(MAP, values);
-  const mismatches = compare(computed, values).filter(r => r.agrees === false);
-  for (const [k, c] of Object.entries(computed)) values[k] = c.value;
+  const comparison = compare(computed, values);
+  const mismatches = comparison.filter(r => r.agrees === false);
   const context = { clientLinked: !!ownerItemIds.client, client2Linked: !!ownerItemIds.client2,
                     projectLinked: !!ownerItemIds.project };
-  const { missing, present, hidden, fields } = findMissing(MAP, values, context);
+  const { missing, present, hidden, fields } = findMissing(MAP, values, context, computed);
   const checks = paymentChecks(payments, values.purchase_price);
   return { item, values, sources, linkedIds, missing, present, hidden, fields,
            payments, checks, computed, mismatches, ownerItemIds, context };

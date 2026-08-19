@@ -18,7 +18,6 @@
 // ============================================================
 const express = require('express');
 const db = require('../db');
-const { capabilitiesFor } = require('../lib/permissions');
 const { authenticate } = require('../lib/sessions');
 const memory = require('../lib/memory');
 const settings = require('../lib/user-settings');
@@ -30,23 +29,8 @@ const { buildDigest } = require('../lib/unanswered-digest');
 module.exports = function createMeRouter() {
   const router = express.Router();
 
-  // Who am I — lets the settings page greet the user and show the admin section
-  // only to admins. Read-only; no memory access.
-  router.get('/api/me', authenticate, (req, res) => {
-    const roles = (req.session && req.session.roles) || [];
-    res.json({
-      name: (req.session && req.session.name) || null,
-      email: (req.session && req.session.email) || null,
-      roles,
-      // Case-insensitive: roles may be stored capitalized (e.g. "Admin").
-      isAdmin: roles.some((r) => String(r).toLowerCase() === 'admin'),
-      // What this person may actually do, per connection. Lets the UI hide
-      // buttons a role cannot use instead of letting them click into a 403.
-      capabilities: Object.fromEntries(
-        Object.entries(capabilitiesFor(roles)).map(([k, v]) => [k, [...v]])
-      ),
-    });
-  });
+  // NOTE: /api/me lives in routes/auth.js, which mounts first. A duplicate here
+  // never ran — anything added to it silently had no effect. Do not re-add it.
 
   // The signed-in user's UNANSWERED client chats — powers the "הודעות שממתינות"
   // page (public/messages.html) that the daily email links to. Reuses the same

@@ -91,33 +91,30 @@ test('no מדד -> the index start date is not asked', () => {
   assert.ok(run(deal({ status_mkm0x7dj: 'כן' })).missing.some(f => f.key === 'index_start_date'));
 });
 
-test('no link and no answer -> only the question "האם יש לקוח 2" is asked', () => {
+test('no second buyer linked -> nothing about buyer 2, and no question either', () => {
   const keys = run(deal()).missing.map(f => f.key);
-  assert.ok(keys.includes('has_buyer_2'), 'the question itself must be asked');
-  assert.ok(!keys.includes('client_2_link'), 'do not ask for the link before the answer');
-  assert.ok(!keys.some(k => k.startsWith('buyer_2_')), 'and nothing about him yet');
+  assert.ok(!keys.some(k => k.startsWith('buyer_2_')), 'nothing about him');
+  assert.ok(!keys.includes('client_2_link'), 'the link is read, never asked');
+  assert.ok(!keys.includes('has_buyer_2'), 'and there is no question at all');
+  assert.ok(!MAP.fields.some(f => f.key === 'has_buyer_2'), 'the question is not even on the map');
 });
 
-test('answer לא -> nothing at all about buyer 2', () => {
-  const keys = run(deal({ color_mm2txw1n: 'לא' })).missing.map(f => f.key);
-  assert.ok(!keys.includes('client_2_link'));
-  assert.ok(!keys.some(k => k.startsWith('buyer_2_')));
-});
-
-test('answer כן -> the link, then his whole card', () => {
-  const keys = run(deal({ color_mm2txw1n: 'כן' })).missing.map(f => f.key);
-  assert.ok(keys.includes('client_2_link'), 'ask which client he is');
-  const b2 = MAP.fields.filter(f => f.key.startsWith('buyer_2_')).map(f => f.key);
-  for (const k of b2) assert.ok(keys.includes(k), 'his whole card is required: ' + k);
-});
-
-test('a link already answers the question, so the question is not asked', () => {
+test('a second buyer linked -> his card is asked for, still no question', () => {
   const d = deal();
   d.column_values['link_to_______2__1'] =
     { type: 'board_relation', text: 'buyer two', linked: [{ id: '2733400452', name: 'buyer two' }] };
   const keys = run(d).missing.map(f => f.key);
-  assert.ok(!keys.includes('has_buyer_2'), 'a linked second buyer answers it by existing');
-  assert.ok(keys.some(k => k.startsWith('buyer_2_')), 'and his card is asked for');
+  assert.ok(keys.filter(k => k.startsWith('buyer_2_')).length >= 8, 'his whole card');
+  assert.ok(!keys.includes('client_2_link'), 'the link itself is never asked');
+});
+
+test('a linked second buyer whose card is complete asks nothing', () => {
+  const d = deal();
+  d.column_values['link_to_______2__1'] =
+    { type: 'board_relation', text: 'buyer two', linked: [{ id: '2733400452', name: 'buyer two' }] };
+  const { values } = buildFacts(MAP, d, { ...OWNERS, client2: OWNERS.client });
+  const { missing } = findMissing(MAP, values, { clientLinked: true, client2Linked: true, projectLinked: true });
+  assert.deepStrictEqual(missing.filter(f => f.key.startsWith('buyer_2_')).map(f => f.key), []);
 });
 
 test('a linked second buyer is asked for exactly what the first is', () => {

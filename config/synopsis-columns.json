@@ -1,5 +1,5 @@
 {
- "version": "0.4",
+ "version": "0.6",
  "reviewedBy": null,
  "note": "T8 deliverable. Every synopsis field -> the board that OWNS it, the column that holds it, and (for mirrors) the column on the owning board that the write must target. columnId = where the value is READ from the deal item. ownerColumnId = where it is WRITTEN. All column ids, titles and types below were read from the live boards on 18/08/2026. 'required' is a judgement from reading two synopses and is NOT verified — Shira must review.",
  "boards": {
@@ -692,8 +692,16 @@
    "ownerType": "text",
    "verified": "monday 2026-08-18",
    "showIf": {
-    "field": "client_2_link",
-    "notEmpty": true
+    "anyOf": [
+     {
+      "field": "client_2_link",
+      "notEmpty": true
+     },
+     {
+      "field": "has_buyer_2",
+      "equals": "כן"
+     }
+    ]
    },
    "readFrom": "owner"
   },
@@ -709,8 +717,16 @@
    "ownerType": "text",
    "verified": "monday 2026-08-18",
    "showIf": {
-    "field": "client_2_link",
-    "notEmpty": true
+    "anyOf": [
+     {
+      "field": "client_2_link",
+      "notEmpty": true
+     },
+     {
+      "field": "has_buyer_2",
+      "equals": "כן"
+     }
+    ]
    },
    "readFrom": "owner"
   },
@@ -822,12 +838,16 @@
    "type": "board_relation",
    "ownerType": "board_relation",
    "group": "buyers",
-   "required": false,
+   "required": true,
    "writable": true,
    "verified": "monday 2026-08-18",
    "ui": "relation",
    "lookupBoard": "client",
-   "readFrom": "deal"
+   "readFrom": "deal",
+   "showIf": {
+    "field": "has_buyer_2",
+    "equals": "כן"
+   }
   },
   {
    "key": "buyer_1_country",
@@ -841,20 +861,6 @@
    "writable": true,
    "verified": "monday 2026-08-18",
    "note": "The letter says 'United States Passport No.' — this is that word.",
-   "readFrom": "owner"
-  },
-  {
-   "key": "correspondence_language",
-   "label": "שפת התקשרות",
-   "owner": "client",
-   "ownerColumnId": "color_mm33bjc1",
-   "type": "mirror",
-   "ownerType": "status",
-   "group": "buyers",
-   "required": true,
-   "writable": true,
-   "verified": "monday 2026-08-18",
-   "note": "Drives which language base is used. No mirror of it exists on the deal board yet — one needs adding.",
    "readFrom": "owner"
   },
   {
@@ -951,8 +957,16 @@
    "verified": "monday 2026-08-18",
    "readFrom": "owner",
    "showIf": {
-    "field": "client_2_link",
-    "notEmpty": true
+    "anyOf": [
+     {
+      "field": "client_2_link",
+      "notEmpty": true
+     },
+     {
+      "field": "has_buyer_2",
+      "equals": "כן"
+     }
+    ]
    }
   },
   {
@@ -968,8 +982,16 @@
    "verified": "monday 2026-08-18",
    "readFrom": "owner",
    "showIf": {
-    "field": "client_2_link",
-    "notEmpty": true
+    "anyOf": [
+     {
+      "field": "client_2_link",
+      "notEmpty": true
+     },
+     {
+      "field": "has_buyer_2",
+      "equals": "כן"
+     }
+    ]
    }
   },
   {
@@ -985,8 +1007,16 @@
    "verified": "monday 2026-08-18",
    "readFrom": "owner",
    "showIf": {
-    "field": "client_2_link",
-    "notEmpty": true
+    "anyOf": [
+     {
+      "field": "client_2_link",
+      "notEmpty": true
+     },
+     {
+      "field": "has_buyer_2",
+      "equals": "כן"
+     }
+    ]
    }
   },
   {
@@ -1002,8 +1032,16 @@
    "verified": "monday 2026-08-18",
    "readFrom": "owner",
    "showIf": {
-    "field": "client_2_link",
-    "notEmpty": true
+    "anyOf": [
+     {
+      "field": "client_2_link",
+      "notEmpty": true
+     },
+     {
+      "field": "has_buyer_2",
+      "equals": "כן"
+     }
+    ]
    }
   },
   {
@@ -1012,15 +1050,23 @@
    "owner": "client2",
    "type": "mirror",
    "group": "buyers",
-   "required": false,
+   "required": true,
    "writable": true,
    "ownerColumnId": "contact_phone",
    "ownerType": "phone",
    "verified": "monday 2026-08-18",
    "readFrom": "owner",
    "showIf": {
-    "field": "client_2_link",
-    "notEmpty": true
+    "anyOf": [
+     {
+      "field": "client_2_link",
+      "notEmpty": true
+     },
+     {
+      "field": "has_buyer_2",
+      "equals": "כן"
+     }
+    ]
    }
   },
   {
@@ -1036,8 +1082,16 @@
    "verified": "monday 2026-08-18",
    "readFrom": "owner",
    "showIf": {
-    "field": "client_2_link",
-    "notEmpty": true
+    "anyOf": [
+     {
+      "field": "client_2_link",
+      "notEmpty": true
+     },
+     {
+      "field": "has_buyer_2",
+      "equals": "כן"
+     }
+    ]
    }
   },
   {
@@ -1054,9 +1108,51 @@
    "note": "The letter says 'United States Passport No.' — this is that word.",
    "readFrom": "owner",
    "showIf": {
-    "field": "client_2_link",
-    "notEmpty": true
+    "anyOf": [
+     {
+      "field": "client_2_link",
+      "notEmpty": true
+     },
+     {
+      "field": "has_buyer_2",
+      "equals": "כן"
+     }
+    ]
    }
+  },
+  {
+   "key": "has_buyer_2",
+   "label": "האם יש לקוח 2",
+   "owner": "deal",
+   "columnId": "color_mm2txw1n",
+   "ownerColumnId": "color_mm2txw1n",
+   "type": "status",
+   "ownerType": "status",
+   "group": "buyers",
+   "required": true,
+   "writable": true,
+   "readFrom": "deal",
+   "verified": "monday 2026-08-18",
+   "showIf": {
+    "field": "client_2_link",
+    "empty": true
+   },
+   "note": "נשאל רק כשאין עדיין קישור ללקוח 2 — קישור קיים עונה על השאלה בעצמו."
+  },
+  {
+   "key": "spoken_language",
+   "label": "שפה מדוברת",
+   "owner": "deal",
+   "columnId": "single_select0__1",
+   "ownerColumnId": "single_select0__1",
+   "type": "status",
+   "ownerType": "status",
+   "group": "buyers",
+   "required": true,
+   "writable": true,
+   "readFrom": "deal",
+   "verified": "monday 2026-08-18",
+   "controlsBlock": "שפת המכתב (עברית / אנגלית)"
   }
  ],
  "verifiedAgainstMonday": "2026-08-18",

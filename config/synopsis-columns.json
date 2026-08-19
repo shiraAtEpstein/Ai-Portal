@@ -1,5 +1,5 @@
 {
- "version": "0.9",
+ "version": "1.1",
  "reviewedBy": null,
  "note": "T8 deliverable. Every synopsis field -> the board that OWNS it, the column that holds it, and (for mirrors) the column on the owning board that the write must target. columnId = where the value is READ from the deal item. ownerColumnId = where it is WRITTEN. All column ids, titles and types below were read from the live boards on 18/08/2026. 'required' is a judgement from reading two synopses and is NOT verified — Shira must review.",
  "boards": {
@@ -235,34 +235,6 @@
    "readFrom": "deal"
   },
   {
-   "key": "property_address",
-   "label": "כתובת הנכס",
-   "owner": "deal",
-   "columnId": "location_mkm0p62b",
-   "type": "location",
-   "group": "property",
-   "required": false,
-   "writable": true,
-   "ownerColumnId": "location_mkm0p62b",
-   "ownerType": "location",
-   "verified": "monday 2026-08-18",
-   "readFrom": "deal"
-  },
-  {
-   "key": "plot",
-   "label": "מגרש",
-   "owner": "deal",
-   "columnId": "text_mkmp1zag",
-   "type": "text",
-   "group": "property",
-   "required": false,
-   "writable": true,
-   "ownerColumnId": "text_mkmp1zag",
-   "ownerType": "text",
-   "verified": "monday 2026-08-18",
-   "readFrom": "deal"
-  },
-  {
    "key": "purchase_price",
    "label": "תמורה - מחיר הדירה",
    "owner": "deal",
@@ -272,20 +244,6 @@
    "required": true,
    "writable": true,
    "ownerColumnId": "numeric_mkm0xkv",
-   "ownerType": "numbers",
-   "verified": "monday 2026-08-18",
-   "readFrom": "deal"
-  },
-  {
-   "key": "num_payments",
-   "label": "מספר תשלומי דירה",
-   "owner": "deal",
-   "columnId": "numeric_mknsnjhc",
-   "type": "numbers",
-   "group": "price",
-   "required": true,
-   "writable": true,
-   "ownerColumnId": "numeric_mknsnjhc",
    "ownerType": "numbers",
    "verified": "monday 2026-08-18",
    "readFrom": "deal"
@@ -349,7 +307,8 @@
    "ownerColumnId": "numeric_mkqq3rn7",
    "ownerType": "numbers",
    "verified": "monday 2026-08-18",
-   "readFrom": "deal"
+   "readFrom": "deal",
+   "computed": true
   },
   {
    "key": "broker_fee_pct",
@@ -378,7 +337,8 @@
    "ownerColumnId": "numbers96__1",
    "ownerType": "numbers",
    "verified": "monday 2026-08-18",
-   "readFrom": "deal"
+   "readFrom": "deal",
+   "computed": true
   },
   {
    "key": "company_lawyer_fee",
@@ -421,11 +381,12 @@
    "group": "fees_tax",
    "required": true,
    "writable": true,
-   "derived": "tax rate by profile × purchase_price",
+   "derived": "שיעור המס לפי אפיון המס × purchase_price",
    "ownerColumnId": "numbers_mkmck5ye",
    "ownerType": "numbers",
    "verified": "monday 2026-08-18",
-   "readFrom": "deal"
+   "readFrom": "deal",
+   "computed": true
   },
   {
    "key": "tax_voucher_profile",
@@ -501,34 +462,6 @@
     "field": "contractor_loan",
     "equals": "כן"
    },
-   "readFrom": "deal"
-  },
-  {
-   "key": "has_mortgage",
-   "label": "יש משכנתא",
-   "owner": "deal",
-   "columnId": "status__1",
-   "type": "status",
-   "group": "terms",
-   "required": false,
-   "writable": true,
-   "ownerColumnId": "status__1",
-   "ownerType": "status",
-   "verified": "monday 2026-08-18",
-   "readFrom": "deal"
-  },
-  {
-   "key": "who_signs",
-   "label": "מי חותם על ההסכם",
-   "owner": "deal",
-   "columnId": "color_mksev974",
-   "type": "status",
-   "group": "terms",
-   "required": false,
-   "writable": true,
-   "ownerColumnId": "color_mksev974",
-   "ownerType": "status",
-   "verified": "monday 2026-08-18",
    "readFrom": "deal"
   },
   {
@@ -918,20 +851,6 @@
    "readFrom": "owner"
   },
   {
-   "key": "company_lawyer_fee_default",
-   "label": "שכ\"ט עו\"ד חברה (אחיד לפרויקט)",
-   "owner": "project",
-   "ownerColumnId": "numeric_mkqabdd1",
-   "type": "mirror",
-   "ownerType": "numbers",
-   "group": "fees_tax",
-   "required": false,
-   "writable": true,
-   "verified": "monday 2026-08-18",
-   "note": "Project-level default for the same fee the deal holds in סכום שכ\"ט עו\"ד החברה. Precedence must be decided: deal overrides project.",
-   "readFrom": "owner"
-  },
-  {
    "key": "buyer_2_name_he",
    "label": "לקוח 2 שם מלא בעברית",
    "owner": "client2",
@@ -1005,7 +924,7 @@
    "owner": "client2",
    "type": "mirror",
    "group": "buyers",
-   "required": true,
+   "required": false,
    "writable": true,
    "ownerColumnId": "contact_phone",
    "ownerType": "phone",
@@ -1129,6 +1048,31 @@
     "writable": true,
     "note": "המשפט שנכנס למכתב באנגלית"
    }
-  ]
+  ],
+  "onlyGroups": [
+   "תשלומי דירה"
+  ],
+  "note": "נלקחות רק שורות מקבוצת 'תשלומי דירה'. שכר טרחה והוצאות נמצאים באותו לוח בקבוצות אחרות ואינם חלק מלוח התשלומים במכתב."
+ },
+ "vat": 0.18,
+ "derive": {
+  "attorney_fee_incl_vat": {
+   "formula": "attorney_fee_pct% × purchase_price × (1+VAT)",
+   "pct": "attorney_fee_pct",
+   "base": "purchase_price",
+   "vat": true
+  },
+  "broker_fee_incl_vat": {
+   "formula": "broker_fee_pct% × purchase_price × (1+VAT)",
+   "pct": "broker_fee_pct",
+   "base": "purchase_price",
+   "vat": true
+  },
+  "purchase_tax": {
+   "formula": "שיעור המס לפי אפיון המס × purchase_price",
+   "rateFrom": "tax_profile",
+   "base": "purchase_price",
+   "vat": false
+  }
  }
 }

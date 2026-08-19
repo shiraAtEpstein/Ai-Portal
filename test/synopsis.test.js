@@ -188,6 +188,21 @@ test('only admin, tech and paralegal may open the synopsis generator', () => {
   assert.ok(!can([], 'synopsis', 'use'), 'no roles means no access');
 });
 
+test('capabilities are case-insensitive — roles are stored capitalized for some users', () => {
+  const { can, capabilitiesFor } = require('../lib/permissions');
+  // A user whose roles read "Admin, Tech" must get exactly what "admin, tech" gets.
+  assert.ok(can(['Admin'], 'synopsis', 'use'), 'Admin (capitalized) must have it');
+  assert.ok(can(['Tech'], 'synopsis', 'use'), 'Tech (capitalized) must have it');
+  assert.ok(can(['Paralegal'], 'synopsis', 'use'), 'Paralegal (capitalized) must have it');
+  assert.ok(can([' paralegal '], 'synopsis', 'use'), 'stray whitespace must not matter');
+  assert.ok(!can(['Lawyer'], 'synopsis', 'use'), 'and it must not accidentally grant');
+
+  // and it is not only synopsis — every capability was affected
+  const caps = capabilitiesFor(['Admin']);
+  assert.ok(caps.monday.has('write_any'), 'an Admin must have monday write');
+  assert.ok(caps.gmail.has('draft'), 'an Admin must have gmail draft');
+});
+
 // ---- the write gate ------------------------------------------------------
 
 const sent = [];

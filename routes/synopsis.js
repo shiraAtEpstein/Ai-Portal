@@ -47,6 +47,24 @@ const ownerCols = owner => [...new Set(
   MAP.fields.filter(f => f.readFrom === 'owner' && f.owner === owner).map(f => f.ownerColumnId).filter(Boolean))];
 const OWNER_COLUMNS = { client: ownerCols('client'), client2: ownerCols('client2'), project: ownerCols('project') };
 
+/**
+ * Status / dropdown labels for every board on the map, cached for the process.
+ * Only the deal board was fetched before, which is why a status column on the
+ * client or project card rendered as a plain text box instead of a dropdown.
+ */
+let _options = null;
+async function loadOptions() {
+  if (_options) return _options;
+  const byBoardId = {};
+  for (const owner of Object.keys(MAP.boards)) {
+    const id = MAP.boards[owner].id;
+    if (!byBoardId[id]) byBoardId[id] = await synopsis.optionsFor(id);
+  }
+  _options = {};
+  for (const owner of Object.keys(MAP.boards)) _options[owner] = byBoardId[MAP.boards[owner].id];
+  return _options;
+}
+
 /** Read the deal, then its linked client and project items, and work out what is missing. */
 async function loadDeal(dealId) {
   const item = await synopsis.getDeal(dealId, [...new Set(DEAL_COLUMNS)]);
@@ -91,8 +109,8 @@ module.exports = function createSynopsisRouter() {
       if (!dealId) return res.status(400).json({ error: 'dealId is required' });
 
       const d = await loadDeal(dealId);
-      const options = await synopsis.optionsFor(MAP.boards.deal.id);
-      for (const f of d.missing) f.options = options[f.columnId] || null;
+      const options = await loadOptions();
+      for (const f of d.missing) f.options = options[f.owner]?.[f.columnId] || null;
 
       const runId = newRunId();
       audit.record({ runId, event: 'run.open', ok: true, dealId, dealName: d.item.name,

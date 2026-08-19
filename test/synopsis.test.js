@@ -177,6 +177,24 @@ test('הנחות / תנאים is not shown at all when the answer is לא', () =
     'and it IS asked once the answer is כן');
 });
 
+test('there is exactly one /api/me, and it reports capabilities', () => {
+  // Two routers both defined /api/me. The first mounted won, so the second was
+  // dead code — and a field added to the dead one had no effect at all, which
+  // is why the synopsis button stayed missing through several deploys.
+  const dir = path.join(__dirname, '..', 'routes');
+  const hits = [];
+  for (const f of fs.readdirSync(dir).filter(x => x.endsWith('.js'))) {
+    const src = fs.readFileSync(path.join(dir, f), 'utf8');
+    for (const m of src.matchAll(/router\.get\(\s*['"]\/api\/me['"]/g)) hits.push(f);
+  }
+  assert.strictEqual(hits.length, 1,
+    'exactly one /api/me handler expected, found: ' + (hits.join(', ') || 'none'));
+
+  const src = fs.readFileSync(path.join(dir, hits[0]), 'utf8');
+  assert.ok(src.includes('capabilitiesFor'),
+    hits[0] + ' serves /api/me and must report capabilities — the UI gates on it');
+});
+
 // ---- the module boundary --------------------------------------------------
 
 test('everything routes/synopsis.js takes off lib/synopsis actually exists there', () => {

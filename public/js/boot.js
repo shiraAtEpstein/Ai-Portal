@@ -79,16 +79,23 @@ async function applySavedLanguage() {
       //
       // The button is CREATED here rather than hidden in index.html: a control
       // you may not use should not exist in your page at all, not even hidden.
-      // Nothing to unhide in devtools, and nothing to read in view-source.
       //
-      // Fails CLOSED. If the server does not report capabilities, no button is
-      // made — better to be missing for everyone than present for the wrong
-      // person. The console says why.
+      // Fails CLOSED, and says precisely which piece is missing when it does —
+      // "no button" has three different causes and they need telling apart.
       const caps = d.capabilities;
+      const synBtn0 = document.getElementById('synopsis-open-btn');
+      if (synBtn0) synBtn0.remove();                       // never trust markup
       if (!caps) {
-        console.warn('[portal] /api/me returned no capabilities — routes/me.js and ' +
-                     'lib/permissions.js may not be deployed. Capability-gated buttons are hidden.');
-      } else if ((caps.synopsis || []).includes('use')) {
+        console.warn('[synopsis] /api/me returned no "capabilities" field. ' +
+          'Deploy routes/me.js (it must call capabilitiesFor) — the button cannot be shown.');
+      } else if (!('synopsis' in caps)) {
+        console.warn('[synopsis] capabilities has no "synopsis" key. ' +
+          'Deploy lib/permissions.js — CONNECTIONS must include \'synopsis\'. Got:', Object.keys(caps).join(', '));
+      } else if (!(caps.synopsis || []).includes('use')) {
+        console.warn('[synopsis] your roles do not grant synopsis:use. Roles:', (d.roles || []).join(', '),
+          '· If you are admin/tech/paralegal, deploy config/permissions.json (it needs "synopsis": ["use"]) ' +
+          'and lib/permissions.js (role lookup must be case-insensitive).');
+      } else {
         const bar = document.querySelector('.sidebar-bottom');
         const settings = document.getElementById('settings-open-btn');
         if (bar) {
@@ -99,6 +106,8 @@ async function applySavedLanguage() {
           b.textContent = '📄 הפקת סינופסיס';
           b.addEventListener('click', () => { location.href = '/synopsis.html'; });
           bar.insertBefore(b, settings || null);
+        } else {
+          console.warn('[synopsis] .sidebar-bottom not found — nowhere to put the button.');
         }
       }
 

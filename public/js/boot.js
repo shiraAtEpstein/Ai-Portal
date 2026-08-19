@@ -76,9 +76,32 @@ async function applySavedLanguage() {
       if (!d) return showLogin();
       // Synopsis is open to admin, tech and paralegal — decided by
       // config/permissions.json, never by a role list written in the front-end.
-      const canSynopsis = (((d.capabilities || {}).synopsis) || []).includes('use');
-      const synBtn = document.getElementById('synopsis-open-btn');
-      if (synBtn) synBtn.style.display = canSynopsis ? 'block' : 'none';
+      //
+      // The button is CREATED here rather than hidden in index.html: a control
+      // you may not use should not exist in your page at all, not even hidden.
+      // Nothing to unhide in devtools, and nothing to read in view-source.
+      //
+      // Fails CLOSED. If the server does not report capabilities, no button is
+      // made — better to be missing for everyone than present for the wrong
+      // person. The console says why.
+      const caps = d.capabilities;
+      if (!caps) {
+        console.warn('[portal] /api/me returned no capabilities — routes/me.js and ' +
+                     'lib/permissions.js may not be deployed. Capability-gated buttons are hidden.');
+      } else if ((caps.synopsis || []).includes('use')) {
+        const bar = document.querySelector('.sidebar-bottom');
+        const settings = document.getElementById('settings-open-btn');
+        if (bar) {
+          const b = document.createElement('button');
+          b.className = 'admin-btn';
+          b.id = 'synopsis-open-btn';
+          b.style.display = 'block';
+          b.textContent = '📄 הפקת סינופסיס';
+          b.addEventListener('click', () => { location.href = '/synopsis.html'; });
+          bar.insertBefore(b, settings || null);
+        }
+      }
+
       enterPortal(d.name || 'User', (d.roles || []).join(', '));
     })
     .catch(showLogin);

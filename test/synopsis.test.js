@@ -207,10 +207,23 @@ test('fees and tax are computed from the price, never asked for', () => {
   assert.strictEqual(c.broker_fee_incl_vat.value, '59000');     // 2% + VAT
   assert.strictEqual(c.purchase_tax.value, '200000');           // 8%, non-resident
 
-  // and none of them is ever put on the form
-  const r = run(deal());
-  for (const k of Object.keys(MAP.derive))
-    assert.ok(!r.missing.some(f => f.key === k), k + ' must be computed, not asked');
+});
+
+test("the board's figure stays the value; the arithmetic is shown beside it", () => {
+  const { derive } = require('../lib/synopsis/derive');
+  const d = deal({ numbers_mkmck5ye: '200545' });            // the real letter's wrong tax
+  const { values } = buildFacts(MAP, d, { ...OWNERS, client2: {} });
+  const computed = derive(MAP, values);
+  const { fields } = findMissing(MAP, values, ctxLinked, computed);
+  const tax = fields.find(f => f.key === 'purchase_tax');
+  assert.strictEqual(values.purchase_tax, '200545', 'the board value is NOT overwritten');
+  assert.strictEqual(tax.computedValue, '200000', 'the arithmetic is carried alongside');
+  assert.strictEqual(tax.computedAgrees, false, 'and the disagreement is flagged');
+
+  // when the board agrees, it says so rather than complaining
+  const ok = findMissing(MAP, { ...values, purchase_tax: '200000' }, ctxLinked,
+    derive(MAP, values)).fields.find(f => f.key === 'purchase_tax');
+  assert.strictEqual(ok.computedAgrees, true);
 });
 
 test('a computed value that disagrees with the board is surfaced', () => {

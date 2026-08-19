@@ -156,6 +156,14 @@
   .paytable .inp{padding:6px 9px;font-size:13.5px}
   .cellval{margin-inline-end:8px}
   .editbtn.tiny{font-size:10.5px;padding:2px 9px}
+  .calcbox{margin-top:7px;font-size:12.5px;color:var(--ink2);background:#faf8f3;
+           border:1px solid var(--line2);border-radius:8px;padding:8px 11px;
+           display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .calcbox.ok{background:#f2f6ec;border-color:#cfdcc0;color:#46603a}
+  .calcbox.bad{background:#fdf6f4;border-color:#dcbdb4;color:#8a2f1c}
+  .calcf{font-family:var(--mono);font-size:11.5px;direction:ltr;color:var(--ink3)}
+  .calcbox.bad .calcf{color:#a5665a}
+  .calcwarn{flex-basis:100%;font-weight:600}
   .paysum th{font-family:inherit;font-size:13.5px;font-weight:600;color:var(--ink);background:#faf8f3}
   .paysum td{background:#faf8f3;font-size:13.5px}
   .checkline2{display:flex;gap:16px;flex-wrap:wrap;font-size:13.5px;margin-top:14px;
@@ -385,20 +393,29 @@ function hintFor(f) {
 function rowFor(f, value) {
   const empty = isBlank(value);
   const editing = EDITING[f.key];
-  if (f.computed) {
-    const mm = (MISMATCH || []).find(x => x.key === f.key);
-    return `<div class="row${mm ? ' miss' : ''}">
-      <div class="rlabel"><b>${esc(f.label)}</b><span class="opt">מחושב</span></div>
-      <div><div class="rval">${esc(fmtNum(value, f.key))}</div>
-        <div class="hint">${esc(f.derived || '')}</div>
-        ${mm ? `<div class="hint" style="color:var(--red);font-weight:600">
-             במנדיי רשום ${esc(fmtNum(String(mm.onBoard), f.key))} — לא תואם את החישוב</div>` : ''}</div>
-      <div class="rside"></div></div>`;
-  }
+  // A value that can also be worked out from the price: show what monday holds,
+  // the arithmetic underneath, and where they disagree say so — but never
+  // overwrite the board's figure. It is what a person recorded.
+  const calc = f.computedFormula ? {
+    value: f.computedValue, formula: f.computedFormula, agrees: f.computedAgrees
+  } : null;
   const req = f.required ? '<span class="req">חובה</span>' : '';
   const cannot = f.blockedReason || !f.writable;
 
-  let mid, side = '';
+  let mid, side = '', calcLine = '';
+  if (calc) {
+    if (calc.agrees === false) {
+      calcLine = `<div class="calcbox bad"><b>החישוב נותן ${esc(fmtNum(calc.value, f.key))}</b>
+        <span class="calcf">${esc(calc.formula)}</span>
+        <div class="calcwarn">סתירה — במנדיי רשום ${esc(fmtNum(value, f.key))}. בדקי מה נכון וערכי אם צריך.</div></div>`;
+    } else if (calc.agrees === true) {
+      calcLine = `<div class="calcbox ok">✓ תואם את החישוב <span class="calcf">${esc(calc.formula)}</span></div>`;
+    } else {
+      calcLine = `<div class="calcbox"><b>לפי החישוב: ${esc(fmtNum(calc.value, f.key))}</b>
+        <span class="calcf">${esc(calc.formula)}</span>
+        <button type="button" class="editbtn tiny" data-usecalc="${f.key}" data-val="${esc(calc.value)}">השתמש בחישוב</button></div>`;
+    }
+  }
   if (cannot) {
     mid = empty ? `<div class="rval" style="color:var(--ink3)">—</div>`
                 : `<div class="rval">${esc(fmtNum(value, f.key))}</div>`;
@@ -409,9 +426,9 @@ function rowFor(f, value) {
     mid = `<div class="rval">${esc(fmtNum(value, f.key))}</div>`;
     side = `<button type="button" class="editbtn" data-edit="${f.key}">ערוך</button>`;
   }
-  return `<div class="row${empty && !cannot ? ' miss' : ''}">
+  return `<div class="row${(empty && !cannot) || calc?.agrees === false ? ' miss' : ''}">
       <div class="rlabel"><b>${esc(f.label)}</b>${req}</div>
-      <div>${mid}${hintFor(f)}</div>
+      <div>${mid}${calcLine}${hintFor(f)}</div>
       <div class="rside">${side}</div></div>`;
 }
 
@@ -491,6 +508,12 @@ function renderCards() {
   });
   document.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => {
     EDITING[b.dataset.edit] = true; renderCards();
+  });
+  document.querySelectorAll('[data-usecalc]').forEach(b => b.onclick = () => {
+    const k = b.dataset.usecalc;
+    DRAFT[k] = b.dataset.val; EDITING[k] = true; renderCards();
+    const el = document.querySelector(`[name="${k}"]`);
+    if (el) { el.value = b.dataset.val; el.focus(); }
   });
   document.querySelectorAll('[data-cancel]').forEach(b => b.onclick = () => {
     delete EDITING[b.dataset.cancel]; delete DRAFT[b.dataset.cancel]; renderCards();

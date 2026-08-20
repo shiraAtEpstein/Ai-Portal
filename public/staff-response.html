@@ -4,6 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>לוח בקרת מענה — צוות המשרד</title>
+<!--
+  Staff response dashboard.
+
+  2026-08-20 — rebuilt to Yaakov Epstein's brief:
+    • NO response-time target. The "3 hours" SLA and the "% ביעד" column are gone.
+    • NO longest-wait / max-wait figures.
+    • The firm's overall median is the headline number, and every person is shown
+      only as a PERCENTAGE against it (faster / slower).
+    • Every person has a "הצג הודעות ממתינות" button that opens their waiting
+      chats in place — group, message type, how long it has waited — each one
+      editable: mark it handled, or hand it to someone else.
+
+  Not signed in? The page sends you to Google sign-in carrying ?next=, so you
+  land back HERE and not on the portal home page (that is what makes the link in
+  the daily email work in one click).
+-->
 <style>
   :root{--bg:#f2f3f5;--card:#fff;--ink:#1f2430;--muted:#8a9099;--line:#eceef1;--dark:#2b2f38;--darksub:#9aa1ac;--teal:#6e8b7c;--g1:#2e7d46;--g2:#7cb342;--amber:#f0a500;--red:#d0432f;}
   *{box-sizing:border-box;}
@@ -14,38 +30,43 @@
   .topbar .t2{color:#fff;font-size:21px;font-weight:bold;}
   .topbar .t3{color:var(--darksub);font-size:12.5px;margin-top:6px;}
   .refresh{background:#3a3f4a;color:#e8eaee;border:0;border-radius:7px;padding:9px 16px;font-size:13px;font-weight:bold;cursor:pointer;white-space:nowrap;}
-  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:14px;}
+  .refresh:disabled{opacity:.55;cursor:default;}
+  .topActions{display:flex;flex-direction:column;align-items:flex-end;gap:8px;}
+  .topActions .btnRow{display:flex;gap:8px;}
+  .mailBtn{background:#4a5560;color:#fff;border:0;border-radius:7px;padding:9px 16px;font-size:13px;font-weight:bold;cursor:pointer;white-space:nowrap;}
+  .mailBtn:hover{background:#57626e;}
+  .mailBtn:disabled{opacity:.55;cursor:default;}
+  .mailNote{font-size:11.5px;color:var(--darksub);max-width:320px;text-align:left;line-height:1.5;}
+  .mailNote.ok{color:#8fd6a8;}
+  .mailNote.err{color:#f0a79a;}
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px;}
   .kpi{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:15px 16px;}
   .kpi .lbl{font-size:12.5px;color:var(--muted);margin-bottom:8px;}
-  .kpi .val{font-size:27px;font-weight:bold;line-height:1;}
+  .kpi .val{font-size:27px;font-weight:bold;line-height:1;font-variant-numeric:tabular-nums;}
   .kpi .sub{font-size:12px;color:var(--teal);margin-top:7px;}
-  .kpi.warn .val{color:var(--red);}
+  .kpi.hero{background:#2f3b34;border-color:#2f3b34;}
+  .kpi.hero .lbl{color:#a9bdb0;} .kpi.hero .val{color:#fff;} .kpi.hero .sub{color:#a9bdb0;}
   .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-top:16px;overflow:hidden;}
   .phead{padding:15px 20px 4px;font-size:15.5px;font-weight:bold;}
-  .psub{padding:0 20px 12px;font-size:12.5px;color:var(--muted);}
+  .psub{padding:0 20px 12px;font-size:12.5px;color:var(--muted);line-height:1.6;}
   table{width:100%;border-collapse:collapse;}
   th{font-size:11.5px;color:var(--muted);font-weight:bold;text-align:right;padding:8px 14px;border-bottom:1px solid var(--line);white-space:nowrap;}
   th.c{text-align:center;}
   td{padding:12px 14px;border-bottom:1px solid var(--line);font-size:13.5px;vertical-align:middle;}
   td.c{text-align:center;}
-  tr:last-child td{border-bottom:0;}
   .name{font-weight:bold;}
   .num{font-variant-numeric:tabular-nums;font-weight:bold;}
-  .pill{display:inline-block;border-radius:20px;padding:3px 10px;font-size:12px;font-weight:bold;font-variant-numeric:tabular-nums;}
+  .pill{display:inline-block;border-radius:20px;padding:3px 10px;font-size:12px;font-weight:bold;font-variant-numeric:tabular-nums;white-space:nowrap;}
   .pill.good{background:#e7f4ec;color:#1f7a44;}
-  .pill.mid{background:#fdf3e0;color:#9a6a10;}
+  .pill.mid{background:#f1f2f4;color:#5c636d;}
   .pill.bad{background:#fbe9e7;color:#b0281c;}
   .wait{color:var(--teal);font-weight:bold;font-variant-numeric:tabular-nums;}
   .dim{color:#b7bcc4;}
-  .dist{display:flex;height:12px;border-radius:6px;overflow:hidden;min-width:150px;background:#f0f1f3;}
-  .dist span{display:block;height:100%;}
-  .legend{display:flex;gap:14px;flex-wrap:wrap;padding:12px 20px 16px;font-size:11.5px;color:var(--muted);}
-  .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-left:5px;vertical-align:middle;}
-  .cover .row{display:flex;justify-content:space-between;align-items:center;padding:10px 20px;border-bottom:1px solid var(--line);font-size:13px;}
-  .cover .row:last-child{border-bottom:0;}
-  .arrow{color:var(--muted);font-size:12px;}
+  .z{color:#c9cdd3;}
+  td.c b{font-variant-numeric:tabular-nums;}
   .foot{font-size:11.5px;color:var(--muted);line-height:1.7;padding:16px 4px 0;}
-  .state{padding:40px;text-align:center;color:var(--muted);font-size:14px;}
+  .state{padding:40px;text-align:center;color:var(--muted);font-size:14px;line-height:1.8;}
+  .state a{color:#2b6cb0;}
   .statusStrip{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:6px 20px 18px;}
   .stat{border-radius:11px;padding:14px 16px;border:1px solid var(--line);}
   .stat .n{font-size:28px;font-weight:bold;line-height:1;font-variant-numeric:tabular-nums;}
@@ -53,11 +74,32 @@
   .stat.req{background:#fdeeeb;border-color:#f6d5cd;} .stat.req .n,.stat.req .l{color:#b0281c;}
   .stat.pot{background:#fdf6e7;border-color:#f0e2bf;} .stat.pot .n,.stat.pot .l{color:#9a6a10;}
   .stat.voi{background:#eef0fb;border-color:#d3d8f4;} .stat.voi .n,.stat.voi .l{color:#3f4bbd;}
-  .stat.pen{background:#f3f4f6;border-color:#e3e5e9;} .stat.pen .n,.stat.pen .l{color:#6b7280;}
-  td.c b{font-variant-numeric:tabular-nums;}
-  .z{color:#c9cdd3;}
-  @media(max-width:820px){.statusStrip{grid-template-columns:repeat(3,1fr);}}
-  .stat.pen{display:none;}
+
+  /* --- per-person "הודעות ממתינות" expander ------------------------------- */
+  .showBtn{font:inherit;font-size:12.5px;font-weight:bold;color:#2b2f38;background:#eef0f2;border:1px solid #e2e3e7;border-radius:7px;padding:7px 13px;cursor:pointer;white-space:nowrap;}
+  .showBtn:hover{background:#e4e7ea;}
+  .showBtn[disabled]{opacity:.45;cursor:default;}
+  .showBtn.open{background:#2b2f38;color:#fff;border-color:#2b2f38;}
+  tr.detail>td{padding:0;background:#fafbfc;border-bottom:1px solid var(--line);}
+  .detailBox{padding:14px 20px 18px;}
+  .detailBox h4{margin:0 0 10px;font-size:13px;color:var(--muted);font-weight:bold;}
+  table.inner{background:#fff;border:1px solid var(--line);border-radius:9px;overflow:hidden;}
+  table.inner th{padding:8px 12px;font-size:11px;background:#f6f7f8;}
+  table.inner td{padding:10px 12px;font-size:13px;border-bottom:1px solid #f2f3f5;}
+  table.inner tr:last-child td{border-bottom:0;}
+  .chatname{font-weight:bold;color:var(--ink);}
+  .client{font-size:12px;color:#93a08f;margin-top:2px;}
+  .tag{display:inline-block;border-radius:6px;padding:3px 9px;font-size:12px;font-weight:bold;white-space:nowrap;}
+  .tag.required{background:#fdeeeb;color:#b0281c;}
+  .tag.potential{background:#fdf6e7;color:#9a6a10;}
+  .tag.voice{background:#eef0fb;color:#3f4bbd;}
+  select{font:inherit;font-size:12.5px;border:1px solid #d9dce1;border-radius:6px;padding:5px 8px;background:#fff;color:var(--ink);max-width:170px;}
+  select:disabled{opacity:.5;}
+  tr.saving{opacity:.45;}
+  tr.done{opacity:0;transition:opacity .35s ease;}
+  .rowerr{color:var(--red);font-size:11.5px;margin-top:5px;}
+  .noneleft{padding:16px;text-align:center;color:#3f8f6a;font-size:13.5px;}
+  @media(max-width:820px){.kpis{grid-template-columns:1fr;}.statusStrip{grid-template-columns:repeat(3,1fr);}}
 </style>
 </head>
 <body>
@@ -68,7 +110,13 @@
       <div class="t2">לוח בקרת מענה — צוות המשרד</div>
       <div class="t3" id="meta">טוען…</div>
     </div>
-    <button class="refresh" onclick="load()">רענון ↻</button>
+    <div class="topActions">
+      <div class="btnRow">
+        <button class="mailBtn" id="sendBtn" type="button" disabled>שלח לי את המייל עכשיו ✉</button>
+        <button class="refresh" id="refreshBtn" type="button">רענון ↻</button>
+      </div>
+      <div class="mailNote" id="mailNote"></div>
+    </div>
   </div>
 
   <div id="kpis" class="kpis"></div>
@@ -81,81 +129,409 @@
 
   <div class="panel">
     <div class="phead">ביצועי מענה לפי איש צוות</div>
-    <div class="psub">מהירות מענה משויכת למי שהשיב בפועל. הממתינות לפי סטטוס משויכות לאחראי התיק ב-monday.</div>
+    <div class="psub">
+      מהירות מענה משויכת למי שהשיב בפועל. הממתינות משויכות לאחראי ההודעה.
+      העמודה "מול המשרד" משווה את החציון של כל אחד לחציון הכללי של המשרד — ואין יעד זמן.
+    </div>
     <table>
       <thead><tr>
         <th>איש צוות</th>
         <th class="c">🔴</th><th class="c">🟡</th><th class="c">🎤</th>
-        <th class="c">המתנה מקס׳</th>
-        <th class="c">מענים</th><th class="c">חציון מענה</th><th class="c">% ביעד</th>
+        <th class="c">מענים</th><th class="c">חציון מענה</th><th class="c">מול המשרד</th>
+        <th class="c">הודעות ממתינות</th>
       </tr></thead>
       <tbody id="rows"><tr><td colspan="8" class="state">טוען נתונים…</td></tr></tbody>
     </table>
   </div>
 
   <div class="foot">
-    זמני מענה מחושבים מתוך היסטוריית ההודעות (processing_jobs). מענה מהקו המשותף של Lawly שלא ניתן לשייך לאיש צוות מרוכז בשורת "קו Lawly (משותף)".
+    זמני מענה מחושבים מתוך היסטוריית ההודעות (processing_jobs). חציון המשרד מחושב על כל המענים בחלון הזמן יחד.
+    מענה מהקו המשותף של Lawly שלא ניתן לשייך לאיש צוות מרוכז בשורת "קו Lawly (משותף)".
+    שיחה יורדת מהרשימה מעצמה ברגע שמישהו במשרד עונה בוואטסאפ.
   </div>
 </div>
 
 <script>
+var COLSPAN = 8;
+
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function waitLabel(h){h=Number(h)||0;if(h<=0)return '—';if(h>=24){var d=Math.round(h/24);return d===1?'יום':d===2?'יומיים':d+' ימים';}var hr=Math.max(1,Math.round(h));return hr===1?'שעה':hr===2?'שעתיים':hr+' שעות';}
-function pctClass(p){if(p==null)return 'mid';return p>=75?'good':p>=55?'mid':'bad';}
-function distBar(d){var t=(d.lt1h+d.h1_3+d.h3_24+d.gt24h)||1;function w(x){return (x/t*100).toFixed(1);}
-  return '<div class="dist">'+
-    '<span style="width:'+w(d.lt1h)+'%;background:var(--g1)"></span>'+
-    '<span style="width:'+w(d.h1_3)+'%;background:var(--g2)"></span>'+
-    '<span style="width:'+w(d.h3_24)+'%;background:var(--amber)"></span>'+
-    '<span style="width:'+w(d.gt24h)+'%;background:var(--red)"></span></div>';}
+function el(tag,cls,text){var e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
+
+// Natural-Hebrew wait label — mirrors lib/unanswered-digest.js waitLabel().
+function waitLabel(h){
+  var n=Number(h);
+  if(!isFinite(n)||n<=0) return '—';
+  if(n>=24){var d=Math.round(n/24);return d===1?'יום':d===2?'יומיים':d+' ימים';}
+  var hr=Math.max(1,Math.round(n));
+  return hr===1?'שעה':hr===2?'שעתיים':hr+' שעות';
+}
+function waitColor(h){var n=Number(h)||0;return n>=72?'var(--red)':n>=24?'var(--amber)':'var(--teal)';}
+
+// Percent against the firm median. Negative = faster. Rendered in words rather
+// than with a +/- sign, because a bare sign next to a number flips sides in RTL
+// and reads as the opposite of what it means.
+function vsFirmHtml(pct){
+  if(pct==null) return '<span class="dim">—</span>';
+  if(pct<=-3)  return '<span class="pill good">מהיר ב-'+Math.abs(pct)+'%</span>';
+  if(pct>=3)   return '<span class="pill bad">איטי ב-'+pct+'%</span>';
+  return '<span class="pill mid">כמו המשרד</span>';
+}
+
+var STATUS_LABEL={required:'🔴 דורש מענה',potential:'🟡 אולי דורש מענה',voice:'🎤 הודעה קולית',pending:'⏳ בבדיקה'};
+
+// ---------------------------------------------------------------------------
+// Sign-in. A 401 means no session: bounce to Google sign-in carrying ?next= so
+// we come back to THIS page. The one-shot flag stops a redirect loop if the
+// round trip somehow returns still-unauthenticated (third-party cookies off).
+// ---------------------------------------------------------------------------
+var TRIED_KEY='staffResponseAuthBounce';
+function goSignIn(){
+  var already=false;
+  try{ already = sessionStorage.getItem(TRIED_KEY)==='1'; }catch(e){}
+  if(already) return showSignInLink();
+  try{ sessionStorage.setItem(TRIED_KEY,'1'); }catch(e){}
+  var next=encodeURIComponent(location.pathname+location.search);
+  fetch('/auth/google/status',{cache:'no-store'})
+    .then(function(r){return r.json();})
+    .then(function(j){
+      if(j&&j.enabled) location.replace('/auth/google/start?next='+next);
+      else location.replace('/');
+    })
+    .catch(function(){ location.replace('/'); });
+}
+function showSignInLink(){
+  document.getElementById('meta').textContent='נדרשת התחברות';
+  document.getElementById('rows').innerHTML=
+    '<tr><td colspan="'+COLSPAN+'" class="state">יש להתחבר כדי לראות את הלוח.<br><a href="/">מעבר לעמוד ההתחברות</a></td></tr>';
+}
+function clearAuthBounce(){ try{ sessionStorage.removeItem(TRIED_KEY); }catch(e){} }
+
+// ---------------------------------------------------------------------------
+// Board metadata: the hand-settable statuses and the staff list for the two
+// dropdowns inside an expanded row. Same endpoint the messages page uses, so
+// the labels live in exactly one place (config/board-statuses.json).
+// ---------------------------------------------------------------------------
+var clearingStatuses=[], staffList=[], canEdit=false, myEmail='';
+function loadMeta(){
+  return fetch('/api/board/meta',{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}})
+    .then(function(r){ if(!r.ok) throw new Error('meta'); return r.json(); })
+    .then(function(m){
+      clearingStatuses=((m&&m.statuses)||[]).filter(function(s){return s.setBy==='staff'&&s.clears;});
+      staffList=(m&&m.staff)||[];
+      myEmail=(m&&m.email)||'';
+      canEdit=true;
+    })
+    .catch(function(){ clearingStatuses=[]; staffList=[]; canEdit=false; }); // list still renders read-only
+}
+
+function post(url,body){
+  return fetch(url,{
+    method:'POST',credentials:'same-origin',cache:'no-store',
+    headers:{'Content-Type':'application/json',Accept:'application/json'},
+    body:JSON.stringify(body)
+  }).then(function(r){
+    return r.json().catch(function(){return {};}).then(function(j){
+      if(!r.ok) throw new Error((j&&j.error)||('שגיאה (HTTP '+r.status+')'));
+      return j;
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// The expandable panel: one person's waiting chats, editable in place.
+// ---------------------------------------------------------------------------
+function statusSelect(it,tr,errBox){
+  var sel=document.createElement('select');
+  var ph=document.createElement('option'); ph.value=''; ph.textContent='סמן כטופל…'; sel.appendChild(ph);
+  clearingStatuses.forEach(function(s){
+    var o=document.createElement('option');
+    o.value=s.key; o.textContent=(s.icon?s.icon+' ':'')+s.label;
+    sel.appendChild(o);
+  });
+  sel.addEventListener('change',function(){
+    if(!sel.value) return;
+    var chosen=sel.value; sel.value='';
+    errBox.textContent=''; sel.disabled=true; tr.classList.add('saving');
+    post('/api/board/status',{chatJid:it.chatJid,status:chosen})
+      .then(function(){ tr.classList.add('done'); setTimeout(function(){ load(true); },450); })
+      .catch(function(e){ sel.disabled=false; tr.classList.remove('saving'); errBox.textContent=e.message||'לא ניתן לעדכן.'; });
+  });
+  return sel;
+}
+
+function responsibleSelect(it,tr,errBox){
+  var sel=document.createElement('select');
+  var ph=document.createElement('option'); ph.value=''; ph.textContent='— אוטומטי —'; sel.appendChild(ph);
+  var current=(it.responsibleEmails&&it.responsibleEmails[0])||'';
+  staffList.forEach(function(s){
+    var o=document.createElement('option');
+    o.value=s.email; o.textContent=s.name;
+    if(it.manualAssigned&&s.email&&current&&s.email.toLowerCase()===current.toLowerCase()) o.selected=true;
+    sel.appendChild(o);
+  });
+  if(!it.manualAssigned) sel.value='';
+  sel.addEventListener('change',function(){
+    var chosen=sel.value;
+    errBox.textContent=''; sel.disabled=true; tr.classList.add('saving');
+    post('/api/board/responsible',{chatJid:it.chatJid,email:chosen})
+      .then(function(){ setTimeout(function(){ load(true); },350); })
+      .catch(function(e){ sel.disabled=false; tr.classList.remove('saving'); errBox.textContent=e.message||'לא ניתן לעדכן אחראי.'; });
+  });
+  return sel;
+}
+
+function detailTable(items){
+  var box=el('div','detailBox');
+  box.appendChild(el('h4',null,'הודעות שממתינות למענה ('+items.length+')'));
+  if(!items.length){ box.appendChild(el('div','noneleft','אין כרגע הודעות ממתינות 🎉')); return box; }
+
+  var t=el('table','inner');
+  var head=el('tr');
+  head.appendChild(el('th',null,'קבוצה / לקוח'));
+  head.appendChild(el('th',null,'סוג ההודעה'));
+  head.appendChild(el('th',null,'ממתין'));
+  head.appendChild(el('th',null,'אחראי'));
+  head.appendChild(el('th',null,'פעולה'));
+  t.appendChild(head);
+
+  items.forEach(function(it){
+    var tr=el('tr');
+    var errBox=el('div','rowerr');
+
+    var nameTd=el('td');
+    nameTd.appendChild(el('div','chatname',it.label||'—'));
+    if(it.clientName) nameTd.appendChild(el('div','client',it.clientName));
+    if(it.unansweredCount>1) nameTd.appendChild(el('div','client',it.unansweredCount+' הודעות ללא מענה'));
+    nameTd.appendChild(errBox);
+    tr.appendChild(nameTd);
+
+    var typeTd=el('td');
+    typeTd.appendChild(el('span','tag '+(it.status||'potential'),STATUS_LABEL[it.status]||it.status||'—'));
+    tr.appendChild(typeTd);
+
+    var waitTd=el('td',null,waitLabel(it.hoursWaiting));
+    waitTd.style.color=waitColor(it.hoursWaiting);
+    waitTd.style.fontWeight='bold';
+    waitTd.style.whiteSpace='nowrap';
+    tr.appendChild(waitTd);
+
+    var respTd=el('td');
+    if(canEdit&&staffList.length&&it.chatJid) respTd.appendChild(responsibleSelect(it,tr,errBox));
+    else respTd.appendChild(el('span',null,it.responsibleName||'—'));
+    tr.appendChild(respTd);
+
+    var actTd=el('td');
+    if(canEdit&&clearingStatuses.length&&it.chatJid) actTd.appendChild(statusSelect(it,tr,errBox));
+    else actTd.appendChild(el('span','dim','—'));
+    tr.appendChild(actTd);
+
+    t.appendChild(tr);
+  });
+  box.appendChild(t);
+  return box;
+}
+
+// Which rows are open right now, so a refresh (or an edit) doesn't collapse
+// what the person was looking at. Keyed by email, or by name for the rows that
+// have none (the shared line / unassigned).
+var openRows={};
 
 function cnt(n){return (n>0)?('<b>'+n+'</b>'):('<span class="z">0</span>');}
-function staffRow(s,isLine){
+
+function buildStaffRow(s,kind){
+  // kind: 'staff' | 'line' | 'unassigned'
+  var key=(s.email||s.name||kind);
   var bs=s.byStatus||{required:0,potential:0,voice:0};
-  var st=isLine
-    ? '<td class="c"><span class="dim">—</span></td><td class="c"><span class="dim">—</span></td><td class="c"><span class="dim">—</span></td>'
-    : '<td class="c">'+cnt(bs.required)+'</td><td class="c">'+cnt(bs.potential)+'</td><td class="c">'+cnt(bs.voice)+'</td>';
-  var wait=isLine?'<span class="dim">—</span>':'<span class="'+(s.maxWaitHours?'wait':'dim')+'">'+waitLabel(s.maxWaitHours)+'</span>';
-  var pct=s.withinTargetPct==null?'<span class="dim">—</span>':'<span class="pill '+pctClass(s.withinTargetPct)+'">'+s.withinTargetPct+'%</span>';
-  var nm=isLine?'<div class="name" style="color:var(--muted)">קו Lawly (משותף)</div><div style="font-size:11px;color:var(--muted)">מענה מהקו הראשי — לא משויך אישית</div>':'<div class="name">'+esc(s.name)+'</div>';
-  return '<tr><td>'+nm+'</td>'+ st +
-    '<td class="c">'+wait+'</td>'+
-    '<td class="c"><span class="num">'+s.replies+'</span></td>'+
-    '<td class="c"><span class="num">'+(s.median||'—')+'</span></td>'+
-    '<td class="c">'+pct+'</td></tr>';
+  var items=s.items||[];
+  var tr=document.createElement('tr');
+
+  var nameTd=document.createElement('td');
+  if(kind==='line'){
+    nameTd.innerHTML='<div class="name" style="color:var(--muted)">קו Lawly (משותף)</div>'+
+      '<div style="font-size:11px;color:var(--muted)">מענה מהקו הראשי — לא משויך אישית</div>';
+  } else if(kind==='unassigned'){
+    nameTd.innerHTML='<div class="name" style="color:var(--muted)">ללא אחראי</div>'+
+      '<div style="font-size:11px;color:var(--muted)">שיחות שלא שויכו לאיש צוות</div>';
+  } else {
+    nameTd.appendChild(el('div','name',s.name));
+  }
+  tr.appendChild(nameTd);
+
+  var statsHtml;
+  if(kind==='line'){
+    statsHtml='<td class="c"><span class="dim">—</span></td><td class="c"><span class="dim">—</span></td><td class="c"><span class="dim">—</span></td>';
+  } else {
+    statsHtml='<td class="c">'+cnt(bs.required)+'</td><td class="c">'+cnt(bs.potential)+'</td><td class="c">'+cnt(bs.voice)+'</td>';
+  }
+
+  var perfHtml;
+  if(kind==='unassigned'){
+    perfHtml='<td class="c"><span class="dim">—</span></td><td class="c"><span class="dim">—</span></td><td class="c"><span class="dim">—</span></td>';
+  } else {
+    perfHtml='<td class="c"><span class="num">'+(s.replies||0)+'</span></td>'+
+      '<td class="c"><span class="num">'+(s.median||'—')+'</span></td>'+
+      '<td class="c">'+(s.replies?vsFirmHtml(s.vsFirmPct):'<span class="dim">—</span>')+'</td>';
+  }
+
+  var holder=document.createElement('tbody'); // parse the static cells in one go
+  holder.innerHTML='<tr>'+statsHtml+perfHtml+'</tr>';
+  var cells=holder.firstChild.children;
+  while(cells.length) tr.appendChild(cells[0]);
+
+  var actTd=el('td','c');
+  if(kind==='line'){
+    actTd.appendChild(el('span','dim','—'));
+  } else {
+    var btn=el('button','showBtn','הצג הודעות ממתינות ('+items.length+')');
+    btn.type='button';
+    if(!items.length){ btn.disabled=true; btn.textContent='אין ממתינות'; }
+    btn.addEventListener('click',function(){
+      openRows[key]=!openRows[key];
+      renderRows(LAST_DATA);
+    });
+    if(openRows[key]) btn.className='showBtn open';
+    actTd.appendChild(btn);
+  }
+  tr.appendChild(actTd);
+
+  if(!openRows[key]||!items.length) return [tr];
+
+  var dtr=document.createElement('tr');
+  dtr.className='detail';
+  var dtd=document.createElement('td');
+  dtd.colSpan=COLSPAN;
+  dtd.appendChild(detailTable(items));
+  dtr.appendChild(dtd);
+  return [tr,dtr];
 }
+
 function statStrip(f){
   var b=f.byStatus||{required:f.required||0,potential:f.potential||0,voice:f.voice||0};
   function tile(cls,n,label){return '<div class="stat '+cls+'"><div class="n">'+(n||0)+'</div><div class="l">'+label+'</div></div>';}
   return tile('req',b.required,'🔴 דורש מענה')+tile('pot',b.potential,'🟡 אולי דורש')+tile('voi',b.voice,'🎤 הודעה קולית');
 }
 
-function kpi(lbl,val,sub,warn){return '<div class="kpi'+(warn?' warn':'')+'"><div class="lbl">'+lbl+'</div><div class="val">'+val+'</div><div class="sub"'+(warn?' style="color:var(--red)"':'')+'>'+sub+'</div></div>';}
-
-async function load(){
-  document.getElementById('meta').textContent='טוען…';
-  try{
-    var r=await fetch('/api/admin/staff-response?windowDays=30&targetHours=3',{credentials:'same-origin'});
-    var d=await r.json();
-    document.getElementById('meta').textContent='חלון: '+d.windowDays+' ימים · יעד מענה: '+d.targetHours+' שעות · עודכן '+new Date(d.generatedAt).toLocaleString('he-IL');
-    var f=d.firm||{};
-    document.getElementById('kpis').innerHTML=
-      kpi('נענו ביעד ('+d.targetHours+'ש׳)',(f.withinTargetPct==null?'—':f.withinTargetPct+'%'),'מתוך '+(f.totalReplies||0)+' מענים')+
-      kpi('שיחות פתוחות עכשיו',(f.openTotal||0),(f.required||0)+' דורשות · '+(f.voice||0)+' קוליות',true)+
-      kpi('ההמתנה הכי ארוכה',waitLabel(f.oldestHours),'בשיחה הפתוחה הוותיקה ביותר')+
-      kpi('אנשי צוות פעילים',(d.staff||[]).filter(function(s){return s.replies>0;}).length,'עם מענה ב-30 הימים');
-
-    document.getElementById('statusStrip').innerHTML=statStrip(f);
-
-    var rows=(d.staff||[]).slice().sort(function(a,b){return (b.medianSeconds||0)-(a.medianSeconds||0);}).map(function(s){return staffRow(s,false);}).join('');
-    if(d.firmLine&&d.firmLine.replies) rows+=staffRow(d.firmLine,true);
-    document.getElementById('rows').innerHTML=rows||'<tr><td colspan="8" class="state">אין נתונים בחלון הזמן</td></tr>';
-  }catch(e){
-    document.getElementById('meta').textContent='שגיאה בטעינת הנתונים';
-    document.getElementById('rows').innerHTML='<tr><td colspan="8" class="state">לא ניתן לטעון את הדוח.</td></tr>';
-  }
+function kpi(lbl,val,sub,hero){
+  return '<div class="kpi'+(hero?' hero':'')+'"><div class="lbl">'+lbl+'</div><div class="val">'+val+'</div><div class="sub">'+sub+'</div></div>';
 }
-load();
+
+var LAST_DATA=null;
+
+function renderRows(d){
+  if(!d) return;
+  var tbody=document.getElementById('rows');
+  tbody.innerHTML='';
+  // Slowest first — the row a manager needs to see is the one at the top.
+  var list=(d.staff||[]).slice().sort(function(a,b){
+    var am=a.medianSeconds==null?-1:a.medianSeconds, bm=b.medianSeconds==null?-1:b.medianSeconds;
+    if(bm!==am) return bm-am;
+    return (b.open||0)-(a.open||0);
+  });
+  var any=false;
+  list.forEach(function(s){ buildStaffRow(s,'staff').forEach(function(n){tbody.appendChild(n);}); any=true; });
+  if(d.unassigned) buildStaffRow(d.unassigned,'unassigned').forEach(function(n){tbody.appendChild(n);});
+  if(d.firmLine&&d.firmLine.replies) buildStaffRow(d.firmLine,'line').forEach(function(n){tbody.appendChild(n);});
+  if(!any&&!d.unassigned) tbody.innerHTML='<tr><td colspan="'+COLSPAN+'" class="state">אין נתונים בחלון הזמן</td></tr>';
+}
+
+function render(d){
+  LAST_DATA=d;
+  var f=d.firm||{};
+  document.getElementById('meta').textContent=
+    'חלון: '+d.windowDays+' ימים · ללא יעד זמן — השוואה לחציון המשרד · עודכן '+new Date(d.generatedAt).toLocaleString('he-IL');
+
+  document.getElementById('kpis').innerHTML=
+    kpi('חציון מענה של המשרד',(f.median||'—'),'שעות:דקות · מתוך '+(f.totalReplies||0)+' מענים ב-'+d.windowDays+' הימים',true)+
+    kpi('שיחות פתוחות עכשיו',(f.openTotal||0),(f.required||0)+' דורשות · '+(f.voice||0)+' קוליות')+
+    kpi('אנשי צוות פעילים',(f.activeStaff||0),'עם מענה בחלון הזמן');
+
+  document.getElementById('statusStrip').innerHTML=statStrip(f);
+  renderRows(d);
+}
+
+var loading=false;
+var refreshBtn=document.getElementById('refreshBtn');
+
+function load(quiet){
+  if(loading) return;
+  loading=true;
+  refreshBtn.disabled=true;
+  if(!quiet) document.getElementById('meta').textContent='טוען…';
+  fetch('/api/admin/staff-response?windowDays=30',{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}})
+    .then(function(r){
+      if(r.status===401){ var e=new Error('auth'); e.auth=true; throw e; }
+      if(r.status===403){ var f=new Error('forbidden'); f.forbidden=true; throw f; }
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return r.json();
+    })
+    .then(function(d){ clearAuthBounce(); render(d); })
+    .catch(function(e){
+      if(e&&e.auth){ goSignIn(); return; }
+      if(e&&e.forbidden){
+        document.getElementById('meta').textContent='אין הרשאה';
+        document.getElementById('rows').innerHTML='<tr><td colspan="'+COLSPAN+'" class="state">הלוח פתוח למנהלים בלבד.<br><a href="/">חזרה לפורטל</a></td></tr>';
+        return;
+      }
+      document.getElementById('meta').textContent='שגיאה בטעינת הנתונים';
+      document.getElementById('rows').innerHTML='<tr><td colspan="'+COLSPAN+'" class="state">לא ניתן לטעון את הדוח. נסו רענון.</td></tr>';
+    })
+    .then(function(){ loading=false; refreshBtn.disabled=false; });
+}
+
+refreshBtn.addEventListener('click',function(){ load(false); });
+
+// --------------------------------------------------------------------------
+// "שלח לי את המייל עכשיו" — fires the real daily email through the portal, to
+// the SIGNED-IN person's own address and nobody else's. The address comes from
+// the session (/api/board/meta), never from anything typed here, so this button
+// cannot reach a colleague by accident. The server marks it "[בדיקה]" so it can
+// never be mistaken for the real 08:15 run.
+// --------------------------------------------------------------------------
+var sendBtn=document.getElementById('sendBtn');
+var mailNote=document.getElementById('mailNote');
+
+function armSendButton(){
+  if(!myEmail){
+    sendBtn.disabled=true;
+    mailNote.className='mailNote';
+    mailNote.textContent='';
+    return;
+  }
+  sendBtn.disabled=false;
+  sendBtn.title='נשלח אל '+myEmail;
+  mailNote.className='mailNote';
+  mailNote.textContent='ייבדק בתיבה של '+myEmail;
+}
+
+sendBtn.addEventListener('click',function(){
+  if(!myEmail) return;
+  sendBtn.disabled=true;
+  var original=sendBtn.textContent;
+  sendBtn.textContent='שולח…';
+  mailNote.className='mailNote';
+  mailNote.textContent='בונה את הדוח ושולח…';
+  post('/api/admin/staff-response/send-report?to='+encodeURIComponent(myEmail),{})
+    .then(function(r){
+      var one=(r&&r.sent&&r.sent[0])||null;
+      if(one&&one.ok===false){
+        mailNote.className='mailNote err';
+        mailNote.textContent='השליחה נכשלה: '+(one.reason||'סיבה לא ידועה');
+      } else {
+        mailNote.className='mailNote ok';
+        mailNote.textContent='נשלח אל '+myEmail+'. בדקי את התיבה (הנושא מתחיל ב-"[בדיקה]").';
+      }
+    })
+    .catch(function(e){
+      mailNote.className='mailNote err';
+      mailNote.textContent=e.message||'לא ניתן לשלוח כרגע.';
+    })
+    .then(function(){
+      sendBtn.disabled=false;
+      sendBtn.textContent=original;
+    });
+});
+
+loadMeta().then(function(){ armSendButton(); load(false); });
 </script>
 </body>
 </html>

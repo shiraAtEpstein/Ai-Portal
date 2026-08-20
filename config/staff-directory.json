@@ -1,14 +1,50 @@
 {
-  "_comment": "Staff phone directory for WhatsApp routing. Match key is phone9 — the last 9 digits, same normalization as normalizePhone() in whatsapp/ingest/phone.js (strips 972 / leading zeros). 'inAllGroups: true' marks the partner who is a participant of every group (Yaakov Epstein) and must be ignored when picking the responsible staff member. 'defaultOwner' names the admin who receives anything that can't be routed.",
+  "_comment": "Staff phone directory for WhatsApp routing. Match key is phone9 - the last 9 digits, same normalization as normalizePhone() in whatsapp/ingest/phone.js (strips 972 / leading zeros). 'inAllGroups: true' marks the partner who is a participant of every group (Yaakov Epstein) and must be ignored when picking the responsible staff member. 'defaultOwner' names the admin who receives anything that can't be routed. 'excludeFromStats: true' keeps a person OUT of the response dashboard entirely: no row, and their replies are not counted in the firm median. They stay fully routable and stay in the 'change responsible' list - this flag is about MEASUREMENT only. A chat currently sitting with an excluded person is re-attributed for display to the monday person in charge (and if that is also excluded or missing, to the default owner), so no waiting client message can disappear. 'showFirmLine: false' hides the shared 'Lawly line' row and leaves its replies out of the firm median too.",
   "defaultOwnerEmail": "shira@epsteinlaw.co.il",
   "staff": [
-    { "name": "Yaakov Epstein", "phone9": "546422750", "email": "y@epsteinlaw.co.il", "inAllGroups": true },
-    { "name": "Yaakov Hershkovitz", "phone9": "559195392", "email": "yh@epsteinlaw.co.il" },
-    { "name": "Yehudit Roshnivsky", "phone9": "552723770", "email": "yehudit@epsteinlaw.co.il" },
-    { "name": "Shayna Kovan", "phone9": "552895400", "email": "skovan@epsteinlaw.co.il" },
-    { "name": "Talya Kornblut", "phone9": "559713617", "email": "tk@epsteinlaw.co.il" },
-    { "name": "Oren Cohen", "phone9": "559602260", "email": "oren@epsteinlaw.co.il" },
-    { "name": "Elisheva Feder", "phone9": "559946543", "email": "eli7@epsteinlaw.co.il" },
-    { "name": "Tzipora KleinKaufman", "phone9": "553168756", "email": "tzkk@epsteinlaw.co.il" }
-  ]
+    {
+      "name": "Yaakov Epstein",
+      "phone9": "546422750",
+      "email": "y@epsteinlaw.co.il",
+      "inAllGroups": true,
+      "excludeFromStats": true
+    },
+    {
+      "name": "Yaakov Hershkovitz",
+      "phone9": "559195392",
+      "email": "yh@epsteinlaw.co.il"
+    },
+    {
+      "name": "Yehudit Roshnivsky",
+      "phone9": "552723770",
+      "email": "yehudit@epsteinlaw.co.il"
+    },
+    {
+      "name": "Shayna Kovan",
+      "phone9": "552895400",
+      "email": "skovan@epsteinlaw.co.il"
+    },
+    {
+      "name": "Talya Kornblut",
+      "phone9": "559713617",
+      "email": "tk@epsteinlaw.co.il"
+    },
+    {
+      "name": "Oren Cohen",
+      "phone9": "559602260",
+      "email": "oren@epsteinlaw.co.il"
+    },
+    {
+      "name": "Elisheva Feder",
+      "phone9": "559946543",
+      "email": "eli7@epsteinlaw.co.il"
+    },
+    {
+      "name": "Tzipora KleinKaufman",
+      "phone9": "553168756",
+      "email": "tzkk@epsteinlaw.co.il",
+      "excludeFromStats": true
+    }
+  ],
+  "showFirmLine": false
 }

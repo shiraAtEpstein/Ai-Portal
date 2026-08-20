@@ -39,7 +39,7 @@
   .mailNote{font-size:11.5px;color:var(--darksub);max-width:320px;text-align:left;line-height:1.5;}
   .mailNote.ok{color:#8fd6a8;}
   .mailNote.err{color:#f0a79a;}
-  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px;}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:14px;}
   .kpi{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:15px 16px;}
   .kpi .lbl{font-size:12.5px;color:var(--muted);margin-bottom:8px;}
   .kpi .val{font-size:27px;font-weight:bold;line-height:1;font-variant-numeric:tabular-nums;}
@@ -132,15 +132,16 @@
   <div class="panel">
     <div class="phead">ביצועי מענה לפי איש צוות</div>
     <div class="psub">
-      מהירות מענה משויכת למי שהשיב בפועל. הממתינות משויכות לאחראי ההודעה.
-      העמודה "מול המשרד" משווה את החציון של כל אחד לחציון הכללי של המשרד — ואין יעד זמן.
+      מהירות מענה משויכת למי שהשיב בפועל. הממתינות משויכות לאחראי ההודעה. אין יעד זמן.
+      העמודה "מול חציון הצוות" משווה כל אחד ל<b>חציון של איש צוות טיפוסי</b> — ולא לחציון לכל הודעה שבכותרת.
+      שני מספרים שונים בכוונה: החציון לכל הודעה הוא מה שלקוח מרגיש, וחציון הצוות הוא ההשוואה ההוגנת בין עמיתים.
     </div>
     <div class="exclNote" id="exclNote"></div>
     <table>
       <thead><tr>
         <th>איש צוות</th>
         <th class="c">🔴</th><th class="c">🟡</th><th class="c">🎤</th>
-        <th class="c">מענים</th><th class="c">חציון מענה</th><th class="c">מול המשרד</th>
+        <th class="c">מענים</th><th class="c">חציון מענה</th><th class="c">מול חציון הצוות</th>
         <th class="c">הודעות ממתינות</th>
       </tr></thead>
       <tbody id="rows"><tr><td colspan="8" class="state">טוען נתונים…</td></tr></tbody>
@@ -169,14 +170,15 @@ function waitLabel(h){
 }
 function waitColor(h){var n=Number(h)||0;return n>=72?'var(--red)':n>=24?'var(--amber)':'var(--teal)';}
 
-// Percent against the firm median. Negative = faster. Rendered in words rather
-// than with a +/- sign, because a bare sign next to a number flips sides in RTL
-// and reads as the opposite of what it means.
-function vsFirmHtml(pct){
+// Percent against the TEAM median (the median of the people's medians), not
+// against the per-message headline. Negative = faster than a typical colleague.
+// Rendered in words rather than with a +/- sign, because a bare sign next to a
+// number flips sides in RTL and reads as the opposite of what it means.
+function vsTeamHtml(pct){
   if(pct==null) return '<span class="dim">—</span>';
   if(pct<=-3)  return '<span class="pill good">מהיר ב-'+Math.abs(pct)+'%</span>';
   if(pct>=3)   return '<span class="pill bad">איטי ב-'+pct+'%</span>';
-  return '<span class="pill mid">כמו המשרד</span>';
+  return '<span class="pill mid">כמו הצוות</span>';
 }
 
 var STATUS_LABEL={required:'🔴 דורש מענה',potential:'🟡 אולי דורש מענה',voice:'🎤 הודעה קולית',pending:'⏳ בבדיקה'};
@@ -375,7 +377,7 @@ function buildStaffRow(s,kind){
   } else {
     perfHtml='<td class="c"><span class="num">'+(s.replies||0)+'</span></td>'+
       '<td class="c"><span class="num">'+(s.median||'—')+'</span></td>'+
-      '<td class="c">'+(s.replies?vsFirmHtml(s.vsFirmPct):'<span class="dim">—</span>')+'</td>';
+      '<td class="c">'+(s.replies?vsTeamHtml(s.vsTeamPct):'<span class="dim">—</span>')+'</td>';
   }
 
   var holder=document.createElement('tbody'); // parse the static cells in one go
@@ -443,10 +445,15 @@ function render(d){
   LAST_DATA=d;
   var f=d.firm||{};
   document.getElementById('meta').textContent=
-    'חלון: '+d.windowDays+' ימים · ללא יעד זמן — השוואה לחציון המשרד · עודכן '+new Date(d.generatedAt).toLocaleString('he-IL');
+    'חלון: '+d.windowDays+' ימים · ללא יעד זמן — השוואה לחציון הצוות · עודכן '+new Date(d.generatedAt).toLocaleString('he-IL');
 
+  // Two medians, two questions — never both labelled "המשרד".
+  //   right/hero: what a CLIENT MESSAGE waits (volume-weighted)
+  //   next to it: what a TYPICAL COLLEAGUE does — the baseline every
+  //               "מול חציון הצוות" percentage in the table is measured against
   document.getElementById('kpis').innerHTML=
-    kpi('חציון מענה של המשרד',(f.median||'—'),'שעות:דקות · מתוך '+(f.totalReplies||0)+' מענים ב-'+d.windowDays+' הימים',true)+
+    kpi('חציון מענה לכל הודעה',(f.median||'—'),'מה שלקוח טיפוסי מחכה · מתוך '+(f.totalReplies||0)+' מענים',true)+
+    kpi('חציון הצוות',(f.teamMedian||'—'),'החציון של איש צוות טיפוסי · '+(f.teamSize||0)+' אנשים')+
     kpi('שיחות פתוחות עכשיו',(f.openTotal||0),(f.required||0)+' דורשות · '+(f.voice||0)+' קוליות')+
     kpi('אנשי צוות פעילים',(f.activeStaff||0),'עם מענה בחלון הזמן');
 
@@ -455,7 +462,7 @@ function render(d){
   if(f.firmLineIncluded===false) parts.push('קו Lawly (משותף) לא נכלל');
   document.getElementById('foot').textContent=
     'זמני מענה מחושבים מתוך היסטוריית ההודעות (processing_jobs). ' +
-    'חציון המשרד מחושב על כל המענים שנספרים, בחלון הזמן, יחד. ' +
+    'החציון לכל הודעה מחושב על כל המענים שנספרים בחלון הזמן יחד; חציון הצוות הוא החציון של החציונים האישיים, וכל מי שענה נכנס אליו. ' +
     (f.firmLineIncluded===false
       ? 'מענה מהקו המשותף של Lawly אינו נספר. '
       : 'מענה מהקו המשותף של Lawly שלא ניתן לשייך לאיש צוות מרוכז בשורת "קו Lawly (משותף)". ') +

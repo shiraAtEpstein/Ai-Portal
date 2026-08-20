@@ -107,9 +107,25 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
     throw lastErr;
   }
 
+  // state -> { exp, next }. `next` is where to send the person AFTER login, so a
+  // deep link (e.g. the daily email's link to /staff-response.html) survives the
+  // Google round trip. It travels with the OAuth state, not in a cookie.
   const stateStore = new Map();
-  const sweep = setInterval(() => { const now = Date.now(); for (const [k, v] of stateStore) if (v < now) stateStore.delete(k); }, 5 * 60 * 1000);
+  const sweep = setInterval(() => { const now = Date.now(); for (const [k, v] of stateStore) if (!v || v.exp < now) stateStore.delete(k); }, 5 * 60 * 1000);
   if (sweep.unref) sweep.unref();
+
+  // Only a SAME-ORIGIN path is ever accepted as a post-login destination.
+  // Anything else (absolute URL, protocol-relative "//evil.com", backslash
+  // trickery) is discarded and the person lands on the portal home page — an
+  // open redirect on a login endpoint is how phishing gets a real domain.
+  function safeNext(raw) {
+    const v = String(raw == null ? '' : raw).trim();
+    if (!v) return null;
+    if (!v.startsWith('/')) return null;      // must be a path on this site
+    if (v.startsWith('//') || v.startsWith('/\\')) return null; // protocol-relative
+    if (/[\r\n]/.test(v)) return null;        // header-splitting characters
+    return v;
+  }
 
   router.get('/auth/google/status', (req, res) => res.json({ enabled }));
 
@@ -132,7 +148,7 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
   router.get('/auth/google/start', (req, res) => {
     if (!enabled) return res.status(503).send('Google sign-in is not configured.');
     const state = crypto.randomBytes(16).toString('hex');
-    stateStore.set(state, Date.now() + 10 * 60 * 1000);
+    stateStore.set(state, { exp: Date.now() + 10 * 60 * 1000, next: safeNext(req.query.next) });
     const url = client.generateAuthUrl({ access_type: 'online', scope: ['openid', 'email', 'profile'], state, hd: ALLOWED_DOMAIN, prompt: 'select_account' });
     res.redirect(url);
   });
@@ -141,7 +157,10 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
     if (!enabled) return res.status(503).send('Google sign-in is not configured.');
     const { code, state } = req.query;
     const fail = (msg) => res.redirect('/?auth_error=' + encodeURIComponent(msg));
+    // NOTE: failures always land on the portal home page, never on the deep
+    // link — the deep-linked page would only bounce back into sign-in and loop.
     if (!code || !state || !stateStore.has(state)) return fail('Sign-in expired or invalid. Please try again.');
+    const nextPath = (stateStore.get(state) || {}).next || null;
     stateStore.delete(state);
 
     try {
@@ -189,6 +208,10 @@ function createGoogleAuthRouter({ createSession, findUserByEmail }) {
       console.log('[LOGIN] ' + staff.name + ' (' + staff.roles.join('/') + ') signed in via Google at ' + new Date().toISOString());
       // Day 8: also set an httpOnly session cookie so a page refresh keeps you logged in.
       res.setHeader('Set-Cookie', 'portal_session=' + encodeURIComponent(token) + '; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=28800');
+      if (nextPath) {
+        console.log('[LOGIN] redirecting ' + staff.name + ' to ' + nextPath + ' (deep link)');
+        return res.redirect(nextPath);   // cookie is already set — no fragment needed
+      }
       const frag = '#token=' + encodeURIComponent(token) + '&name=' + encodeURIComponent(staff.name) +
         '&role=' + encodeURIComponent(staff.roles[0] || '') + '&roles=' + encodeURIComponent(staff.roles.join(','));
       res.redirect('/' + frag);

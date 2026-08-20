@@ -89,6 +89,8 @@
   table.inner tr:last-child td{border-bottom:0;}
   .chatname{font-weight:bold;color:var(--ink);}
   .client{font-size:12px;color:#93a08f;margin-top:2px;}
+  .moved{font-size:11.5px;color:#9a6a10;margin-top:3px;}
+  .exclNote{padding:0 20px 14px;font-size:12px;color:var(--muted);line-height:1.6;}
   .tag{display:inline-block;border-radius:6px;padding:3px 9px;font-size:12px;font-weight:bold;white-space:nowrap;}
   .tag.required{background:#fdeeeb;color:#b0281c;}
   .tag.potential{background:#fdf6e7;color:#9a6a10;}
@@ -133,6 +135,7 @@
       מהירות מענה משויכת למי שהשיב בפועל. הממתינות משויכות לאחראי ההודעה.
       העמודה "מול המשרד" משווה את החציון של כל אחד לחציון הכללי של המשרד — ואין יעד זמן.
     </div>
+    <div class="exclNote" id="exclNote"></div>
     <table>
       <thead><tr>
         <th>איש צוות</th>
@@ -144,9 +147,8 @@
     </table>
   </div>
 
-  <div class="foot">
-    זמני מענה מחושבים מתוך היסטוריית ההודעות (processing_jobs). חציון המשרד מחושב על כל המענים בחלון הזמן יחד.
-    מענה מהקו המשותף של Lawly שלא ניתן לשייך לאיש צוות מרוכז בשורת "קו Lawly (משותף)".
+  <div class="foot" id="foot">
+    זמני מענה מחושבים מתוך היסטוריית ההודעות (processing_jobs).
     שיחה יורדת מהרשימה מעצמה ברגע שמישהו במשרד עונה בוואטסאפ.
   </div>
 </div>
@@ -302,6 +304,9 @@ function detailTable(items){
     nameTd.appendChild(el('div','chatname',it.label||'—'));
     if(it.clientName) nameTd.appendChild(el('div','client',it.clientName));
     if(it.unansweredCount>1) nameTd.appendChild(el('div','client',it.unansweredCount+' הודעות ללא מענה'));
+    // This chat's assignee is somebody who is off the board. It is shown here
+    // so it cannot get lost, and it says out loud whose it actually is.
+    if(it.movedFromExcluded) nameTd.appendChild(el('div','moved','↩ משויך ל-'+it.movedFromExcluded+' (מחוץ ללוח) — מוצג כאן כדי שלא ייעלם'));
     nameTd.appendChild(errBox);
     tr.appendChild(nameTd);
 
@@ -444,6 +449,21 @@ function render(d){
     kpi('חציון מענה של המשרד',(f.median||'—'),'שעות:דקות · מתוך '+(f.totalReplies||0)+' מענים ב-'+d.windowDays+' הימים',true)+
     kpi('שיחות פתוחות עכשיו',(f.openTotal||0),(f.required||0)+' דורשות · '+(f.voice||0)+' קוליות')+
     kpi('אנשי צוות פעילים',(f.activeStaff||0),'עם מענה בחלון הזמן');
+
+  var parts=[];
+  if(f.excluded&&f.excluded.length) parts.push('לא נכללים בלוח ובחישוב: '+f.excluded.join(' · '));
+  if(f.firmLineIncluded===false) parts.push('קו Lawly (משותף) לא נכלל');
+  document.getElementById('foot').textContent=
+    'זמני מענה מחושבים מתוך היסטוריית ההודעות (processing_jobs). ' +
+    'חציון המשרד מחושב על כל המענים שנספרים, בחלון הזמן, יחד. ' +
+    (f.firmLineIncluded===false
+      ? 'מענה מהקו המשותף של Lawly אינו נספר. '
+      : 'מענה מהקו המשותף של Lawly שלא ניתן לשייך לאיש צוות מרוכז בשורת "קו Lawly (משותף)". ') +
+    'שיחה יורדת מהרשימה מעצמה ברגע שמישהו במשרד עונה בוואטסאפ.';
+
+  document.getElementById('exclNote').textContent=parts.length
+    ? (parts.join(' · ')+'. הודעות שממתינות אצלם מוצגות אצל האחראי מ-monday, כדי שלא ייעלמו.')
+    : '';
 
   document.getElementById('statusStrip').innerHTML=statStrip(f);
   renderRows(d);

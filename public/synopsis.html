@@ -122,6 +122,16 @@
        margin-top:16px;font-size:13.5px;color:#8a2f1c}
   .ok{background:#f2f6ec;border:1px solid #cfdcc0;border-radius:10px;padding:13px 16px;
       margin-top:16px;font-size:13.5px;color:#46603a}
+  /* An amber advisory: something is missing, but it does not stop the work. */
+  .warn{background:#fbf3e6;border:1px solid #e3c489;border-radius:10px;padding:13px 16px;
+        margin-top:16px;font-size:13.5px;color:#7a4f12}
+  .warn b{color:#5c3a08}
+  .gaplist{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:9px}
+  .gaphead{font-size:12px;color:#8a6a33;margin-inline-end:2px}
+  .gap{background:#fff;border:1px solid #e3c489;border-radius:999px;
+       padding:3px 11px;font-size:12.5px;color:#7a4f12;white-space:nowrap}
+  .gapnote{margin-top:10px;font-size:12.5px;color:#8a6a33}
+
   .cardsec{background:var(--card);border:1px solid var(--line);border-radius:13px;margin-bottom:14px;overflow:hidden}
   .cardhead{display:flex;align-items:center;gap:12px;padding:15px 20px;cursor:pointer;user-select:none;
             border-bottom:1px solid transparent}
@@ -173,6 +183,12 @@
               padding-top:12px;border-top:1px solid var(--line)}
   .chk{display:inline-flex;gap:6px;align-items:center}
   .chk.ok{color:var(--green)} .chk.bad{color:var(--red);font-weight:600}
+  .resline{display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;margin-top:7px;font-size:13px}
+  .resboard{font-family:var(--mono);font-size:9px;letter-spacing:.06em;background:#e6eef5;color:#2f5474;
+            padding:2px 7px;border-radius:4px}
+  .resdiff{font-family:var(--mono);font-size:11.5px;color:var(--ink3);direction:ltr}
+  .resdiff s{color:#a5665a}
+  .resreason{color:#8a2f1c}
   .hidden{display:none}
   .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line2);
         border-top-color:var(--gold);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
@@ -247,19 +263,61 @@ function denied(msg) {
     '<p style="color:var(--ink2);margin:0 0 16px">' + msg + '</p>' +
     '<button class="btn ghost" onclick="location.href=\'/\'">← חזרה לפורטל</button></div>';
 }
+const REQUEST_TIMEOUT_MS = 120000;
+
 async function jget(url) {
-  const r = await fetch(url, { credentials: 'include' });
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), REQUEST_TIMEOUT_MS);
+  let r;
+  try {
+    r = await fetch(url, { credentials: 'include', signal: ctl.signal });
+  } catch (e) {
+    throw new Error(e.name === 'AbortError'
+      ? 'הבקשה נתקעה ובוטלה אחרי ' + Math.round(REQUEST_TIMEOUT_MS / 1000) + ' שניות.'
+      : 'החיבור לשרת נכשל. בדקי את חיבור האינטרנט.');
+  } finally {
+    clearTimeout(timer);
+  }
   if (r.status === 401) { location.href = '/'; throw new Error('not signed in'); }
   if (r.status === 403) { const j = await r.json().catch(() => ({}));
     denied(j.error || 'התפקיד שלך אינו מאפשר גישה ללוחות מנדיי. פנה למנהל המערכת.');
     throw new Error('forbidden'); }
-  return r.json();
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('השרת החזיר שגיאה ' + r.status + '.'));
+  return j;
 }
+// Every call is bounded and every non-2xx becomes a thrown Error carrying the
+// server's own message. Before this, a 500/403/429 was parsed as if it had
+// succeeded, and a stalled request never settled at all - which is how a save
+// could leave the page spinning forever with nothing written to any log.
 async function jpost(url, body) {
-  const r = await fetch(url, { method: 'POST', credentials: 'include',
-    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), REQUEST_TIMEOUT_MS);
+  let r;
+  try {
+    r = await fetch(url, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+      signal: ctl.signal
+    });
+  } catch (e) {
+    throw new Error(e.name === 'AbortError'
+      ? 'הבקשה נתקעה ובוטלה אחרי ' + Math.round(REQUEST_TIMEOUT_MS / 1000) + ' שניות.'
+      : 'החיבור לשרת נכשל. בדקי את חיבור האינטרנט.');
+  } finally {
+    clearTimeout(timer);
+  }
+
   if (r.status === 401) { location.href = '/'; throw new Error('not signed in'); }
-  return r.json();
+  if (r.status === 403) {
+    const j = await r.json().catch(() => ({}));
+    denied(j.error || 'התפקיד שלך אינו מאפשר את הפעולה הזו. פנה למנהל המערכת.');
+    throw new Error('forbidden');
+  }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('השרת החזיר שגיאה ' + r.status + '.'));
+  return j;
 }
 let picked = null, run = null;
 
@@ -605,48 +663,123 @@ function renderMissing(r) {
   renderCards();
 }
 
+// The continue button. Missing required fields are a WARNING, never a gate:
+// a synopsis often has to be drafted before every last detail is on the board,
+// and the paralegal is the one who decides whether a gap matters. What is still
+// empty is carried forward to the build page so it stays visible there.
+function continueBtn() {
+  const gaps = shownFields().filter(f => f.required && isBlank(current(f.key, BOARD[f.key])));
+  const q = 'dealId=' + encodeURIComponent(run.deal.id) +
+            (gaps.length ? '&missing=' + encodeURIComponent(gaps.length) : '');
+  return `<div class="btnrow"><button type="button" class="btn gold" ` +
+         `onclick="location.href='/synopsis-build.html?${q}'">המשך לבניית הסינופסיס ←</button></div>`;
+}
+
 $('#missForm').onsubmit = async ev => {
   ev.preventDefault();
-  $('#save').disabled = true; $('#msg').innerHTML = '<div class="note"><span class="spin"></span> שומר…</div>';
   const values = {};
+  // Send everything that has a value. The server compares against what monday
+  // actually holds right now and reports back what it wrote, what it refused and
+  // what was already identical — rather than this page deciding silently.
   new FormData(ev.target).forEach((v, k) => {
     const t = String(v).trim();
-    if (!t) return;
-    if (String(BOARD[k] == null ? '' : BOARD[k]).trim() === t) return;   // unchanged — do not write
-    values[k] = t;
+    if (t) values[k] = t;
   });
-  if (!Object.keys(values).length && !shownFields().some(f => f.required && isBlank(BOARD[f.key]))) {
-    $('#msg').innerHTML = '<div class="ok"><b>אין מה לעדכן — הלוח כבר מלא.</b><br>' +
-      'השלב הבא (קריאת הסינופסיס הקודם, החלטת השינויים ואישורם) עדיין לא נבנה.</div>';
-    $('#save').disabled = true; $('#save').textContent = 'הלוח מלא ✓';
+
+  // Emptying a value is an UPDATE — the field is being set to nothing, the same
+  // way it would be set to anything else. Until now a cleared box simply vanished
+  // from the form data and the page announced "nothing to update", so a
+  // deliberate change was discarded AND reported as success.
+  // It is only sent when the board actually holds something there and the
+  // paralegal typed it away, so an untouched empty field is never sent.
+  const clear = Object.keys(DRAFT).filter(k =>
+    String(DRAFT[k] ?? '').trim() === '' && !isBlank(BOARD[k]));
+
+  if (!Object.keys(values).length && !clear.length) {
+    $('#msg').innerHTML = '<div class="ok"><b>אין מה לעדכן — לא שינית שום שדה.</b></div>' + continueBtn();
+    $('#save').disabled = false; $('#save').textContent = 'שמור למנדיי והמשך';
     return;
   }
-  const r = await jpost('/api/synopsis/fill', { dealId: run.deal.id, runId: run.runId, values });
+
+  if (clear.length) {
+    const names = clear.map(k => (ALL.find(f => f.key === k) || {}).label || k);
+    if (!confirm('השדות הבאים יתרוקנו במונדיי (הערך הקיים יוחלף בריק):\n\n· ' +
+                 names.join('\n· ') + '\n\nלהמשיך?')) {
+      $('#save').disabled = false;
+      $('#msg').innerHTML = '';
+      return;
+    }
+  }
+
+  $('#save').disabled = true;
+  $('#msg').innerHTML = '<div class="note"><span class="spin"></span> שומר…</div>';
+
+  // Everything from here to the finally block is wrapped. Any failure - a
+  // dropped connection, a server error, a timeout - now ends in a message on
+  // screen and a working button, instead of a spinner that can never stop.
+  try {
+  const r = await jpost('/api/synopsis/fill', { dealId: run.deal.id, runId: run.runId, values, clear });
+
+  const line = x => `<div class="resline"><b>${esc(x.label || x.fieldKey)}</b>` +
+    (x.board ? `<span class="resboard">${esc(x.board)}</span>` : '') +
+    (x.before !== undefined && x.before !== null && String(x.before).trim() !== ''
+      ? `<span class="resdiff"><s>${esc(x.before)}</s> ← ${esc(x.after) || '<i>(ריק)</i>'}</span>`
+      : (x.after !== undefined ? `<span class="resdiff">${esc(x.after)}</span>` : '')) +
+    (x.reason ? `<span class="resreason">${esc(x.reason)}</span>` : '') + '</div>';
 
   let html = '';
-  if (r.written.length) html += `<div class="ok"><b>נשמרו ${r.written.length} שדות למנדיי</b>` +
-    (r.readOnlyMode ? ' <b>(מצב קריאה בלבד — לא נשלח למנדיי)</b>' : '') + '<br>' +
-    r.written.map(w => `${w.fieldKey} → ${w.board || ''}`).join(' · ') + '</div>';
-  if (r.rejected.length) html += '<div class="err"><b>לא נשמרו:</b><br>' +
-    r.rejected.map(x => `${x.fieldKey} — ${x.reason}`).join('<br>') + '</div>';
+  if ((r.written || []).length) html +=
+    `<div class="ok"><b>נשמרו ${r.written.length} שדות למנדיי</b>` +
+    (r.readOnlyMode ? ' <b>(מצב קריאה בלבד — לא נשלח)</b>' : '') +
+    r.written.map(line).join('') + '</div>';
 
-  if (!r.canContinue) {
-    html += '<div class="err"><b>עדיין חסרים שדות חובה:</b> ' +
-      r.blockedBy.filter(b => b.writable).map(b => b.label).join(' · ') + '</div>';
-  } else {
-    // Say plainly what happens next — and what does not happen yet.
+  if ((r.cleared || []).length) html +=
+    `<div class="ok"><b>רוקנו ${r.cleared.length} שדות במונדיי</b>` +
+    r.cleared.map(line).join('') + '</div>';
+
+  if (r.unchanged && r.unchanged.length) html +=
+    `<div class="note"><b>${r.unchanged.length} שדות לא נשלחו — הערך זהה למה שכבר רשום במנדיי</b>` +
+    r.unchanged.map(line).join('') + '</div>';
+
+  if ((r.rejected || []).length) html +=
+    `<div class="err"><b>לא נשמרו</b>` + r.rejected.map(line).join('') + '</div>';
+
+  const blockedBy = r.blockedBy || [];
+  const openHere  = blockedBy.filter(b => b.writable);
+  const openThere = blockedBy.filter(b => !b.writable);
+
+  if (!blockedBy.length) {
     html += '<div class="ok"><b>הלוח מעודכן. כל שדות החובה מלאים.</b><br>' +
       'מכאן השלב הבא הוא: קריאת הסינופסיס של הלקוח הקודם בפרויקט, החלטה מה צריך להשתנות, ' +
-      'הצגת השינויים לאישורך, ורק אחר כך בניית הקובץ.<br>' +
-      '<b>השלבים האלה עדיין לא נבנו</b> — נכון להיום התהליך נעצר כאן, והלוח מעודכן ומוכן להם.</div>';
-    document.getElementById('save').textContent = 'הלוח מעודכן ✓';
-    document.getElementById('save').disabled = true;
+      'הצגת השינויים לאישורך, ורק אחר כך בניית הקובץ.</div>';
+  } else {
+    // A warning, not a wall. The button below stays live either way.
+    html += '<div class="warn"><b>שדות חובה שעדיין ריקים — אפשר להמשיך בלעדיהם:</b>' +
+      (openHere.length ? '<div class="gaplist">' +
+        openHere.map(b => `<span class="gap">${esc(b.label)}</span>`).join('') + '</div>' : '') +
+      (openThere.length ? '<div class="gaplist"><span class="gaphead">מלוחות אחרים:</span>' +
+        openThere.map(b => `<span class="gap">${esc(b.label)} · ${esc(b.board)}</span>`).join('') + '</div>' : '') +
+      '<div class="gapnote">הסינופסיס ייבנה בלי הערכים האלה, והם יסומנו כחסרים בשלב הבא.</div></div>';
   }
-  const mirrors = r.blockedBy.filter(b => !b.writable);
-  if (mirrors.length) html += '<div class="note"><b>שדות חובה שמקורם בלוח אחר:</b> ' +
-    mirrors.map(b => `${b.label} (${b.board})`).join(' · ') + ' — יש לעדכן שם.</div>';
+  html += continueBtn();
   $('#msg').innerHTML = html;
-  if (!r.canContinue) $('#save').disabled = false;
+
+  // Re-read the deal so the cards show what monday now holds. A write that did
+  // not land is then visible on screen, instead of being taken on trust.
+  try {
+    const fresh = await jpost('/api/synopsis/facts', { dealId: run.deal.id, boardId: run.deal.boardId });
+    if (!fresh.error) { run = fresh; renderMissing(fresh); $('#msg').innerHTML = html; }
+  } catch (e) { /* the message above still stands */ }
+
+  } catch (e) {
+    if (e.message === 'forbidden' || e.message === 'not signed in') return;
+    $('#msg').innerHTML =
+      '<div class="err"><b>השמירה נכשלה.</b><br>' + esc(e.message) + '<br>' +
+      'ייתכן שחלק מהשדות כן נשמרו לפני התקלה — רענני את הדף ובדקי מה נכנס בפועל לפני ניסיון נוסף.</div>';
+  } finally {
+    $('#save').disabled = false;
+    $('#save').textContent = 'שמור למנדיי והמשך';
+  }
 };
 
 $('#back').onclick = () => show('pick');

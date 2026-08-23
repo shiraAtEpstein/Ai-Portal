@@ -78,7 +78,7 @@
   .chead{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:12px;}
   .cname{font-size:16px;font-weight:bold;}
   .cmeta{font-size:12px;color:var(--muted);white-space:nowrap;}
-  .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:14px;}
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:7px;margin-bottom:14px;}
   .m{background:#fafbfc;border:1px solid var(--line);border-radius:8px;padding:8px 6px;text-align:center;}
   .m .mv{font-size:16px;font-weight:bold;font-variant-numeric:tabular-nums;line-height:1.15;}
   .m .ml{font-size:10.5px;color:var(--muted);margin-top:4px;}
@@ -437,10 +437,31 @@ function personCard(s, isMe, windowDays, consistencyDays){
 
   var mets=el('div','metrics');
   mets.appendChild(metricTile(s.median||'—','חציון', !s.measured));
-  mets.appendChild(metricTile(pctTxt(s.within1hPct),'תוך שעה', !s.measured));
+  // Beside the median, never instead of it. The median says what a typical
+  // conversation looks like; the mean says how much is piled up. When they are
+  // far apart, that gap IS the finding.
+  mets.appendChild(metricTile(s.avg||'—','ממוצע', !s.measured));
+  // The tail, next to the middle. Without it the card can say "0:36" while a
+  // client has been waiting eleven days — the median is robust, and that is
+  // exactly why it must not stand alone.
+  var oldest = s.oldestOpenSeconds!=null ? waitLabel(s.oldestOpenSeconds/3600) : '—';
+  var oldestTile = metricTile(oldest,'הוותיקה ממתינה', s.oldestOpenSeconds==null);
+  if(s.oldestOpenSeconds!=null){
+    var q=oldestTile.querySelector('.mv');
+    q.style.color = s.oldestOpenSeconds>=72*3600 ? 'var(--bad)'
+                  : s.oldestOpenSeconds>=24*3600 ? 'var(--warn)' : 'var(--ink)';
+  }
+  mets.appendChild(oldestTile);
   mets.appendChild(metricTile(pctTxt(s.within4hPct),'תוך 4 שעות', !s.measured));
   mets.appendChild(metricTile(pctTxt(s.within8hPct),'תוך 8 שעות', !s.measured));
   card.appendChild(mets);
+  if(s.medianSeconds!=null && s.avgSeconds!=null && s.avgSeconds >= s.medianSeconds*3){
+    var gap=el('div','empty');
+    gap.style.color='var(--warn)';
+    gap.style.marginTop='-8px';
+    gap.textContent='הממוצע גבוה בהרבה מהחציון — סימן שיש מיעוט שיחות שנתקעו הרבה זמן, ולא שהקצב הכללי איטי.';
+    card.appendChild(gap);
+  }
   if(s.openCount){
     var warn=el('div','empty');
     warn.style.color='var(--warn)';
@@ -577,7 +598,7 @@ function render(d){
   var cons=f.consistency;
   document.getElementById('kpis').innerHTML=
     kpi('חציון מענה לכל הודעה',(f.median||'—'),
-        'כולל '+(f.openCount||0)+' שממתינות עכשיו · '+(f.measured||0)+' שיחות',true)+
+        'ממוצע '+(f.avg||'—')+' · כולל '+(f.openCount||0)+' שממתינות · '+(f.measured||0)+' שיחות',true)+
     kpi('חציון הצוות',(f.teamMedian||'—'),'החציון של איש צוות טיפוסי'+(f.teamSize?(' · '+f.teamSize+' אנשים'):''))+
     kpi('ממתינות עכשיו',(f.openTotal!=null?f.openTotal:'—'),((f.required||0)+' דורשות · '+(f.voice||0)+' קוליות'))+
     kpi('ימים שנסגרו נקי',(cons&&cons.cleanPct!=null?cons.cleanPct+'%':'—'),

@@ -613,8 +613,15 @@ class BaileysGroupsProvider extends EventEmitter {
     }
   }
 
-  async _upsertGroup(jid, name, participantCount, participantPhones) {
-    const group = await db.upsertGroup(this.accountId, jid, name, participantCount, participantPhones);
+  // `phones` is whatever _phonesFrom() returned: either null (no participants
+  // array in this event -> preserve what's stored) or { phone9, full }, two
+  // index-aligned arrays. Destructured here so the four call sites stay
+  // unchanged and the db layer keeps receiving two plain arrays.
+  async _upsertGroup(jid, name, participantCount, phones) {
+    const group = await db.upsertGroup(
+      this.accountId, jid, name, participantCount,
+      phones && phones.phone9, phones && phones.full
+    );
     if (group) this.emit('group', group);
   }
 
@@ -626,10 +633,20 @@ class BaileysGroupsProvider extends EventEmitter {
   //   - OUR OWN number (the LAWLY line) is always excluded.
   // Returns null (not []) when there's no participants array, so _upsertGroup /
   // db.upsertGroup preserve any previously-captured list instead of wiping it.
+  //
+  // Returns { phone9, full }: `phone9` is the last-9-digit match key, unchanged
+  // in content and ORDER from before (everything downstream — routing, the staff
+  // directory, monday matching — reads only this one). `full` is the SAME
+  // participants as complete international digits, index-aligned with phone9.
+  // We already hold the full number here and used to discard it, which is
+  // lossless for Israeli numbers but destroys foreign ones (last-9 of a US
+  // number drops the country code and part of the area code, unrecoverable).
+  // Keyed by phone9 in a Map, so dedup behaviour is byte-identical to the Set
+  // it replaces (insertion order, first occurrence wins).
   _phonesFrom(participants) {
     if (!Array.isArray(participants)) return null;
     const ownJid = this.sock?.user?.id || this.authStore?.auth?.creds?.me?.id || '';
-    const out = new Set();
+    const out = new Map();                                  // phone9 -> full digits
     for (const p of participants) {
       const id = (p && (p.id || p.jid)) || '';
       if (!id) continue;
@@ -644,10 +661,14 @@ class BaileysGroupsProvider extends EventEmitter {
         phoneSource = String(p.phoneNumber);               // companion phone field
       }
       if (!phoneSource) continue;                           // @lid-only, unresolvable
-      const phone9 = normalizePhone(jidUser(phoneSource));
-      if (phone9) out.add(phone9);
+      const user = jidUser(phoneSource);
+      const phone9 = normalizePhone(user);
+      // Digits only, no '+', so a companion phoneNumber field like '+12125551234'
+      // and a JID user part '12125551234' both store identically.
+      const full = String(user).replace(/\D/g, '');
+      if (phone9 && !out.has(phone9)) out.set(phone9, full);
     }
-    return Array.from(out);
+    return { phone9: Array.from(out.keys()), full: Array.from(out.values()) };
   }
 
   // Re-pull one group's current members and refresh its stored phones. Called

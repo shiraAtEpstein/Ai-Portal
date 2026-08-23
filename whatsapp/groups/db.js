@@ -61,6 +61,13 @@ async function ensureTables() {
   // is in the group (see lib/routing.js). Captured at discovery / membership
   // change; @lid-only participants with no recoverable phone are omitted.
   await p.query(`ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS participant_phones TEXT[];`);
+  // The SAME participants, but as the FULL international number (E.164 digits,
+  // no '+'), index-aligned with participant_phones. participant_phones keeps
+  // only the last 9 digits, which is lossless for Israeli numbers but destroys
+  // a foreign one (+1 718 555 1234 -> '185551234' — country code and part of
+  // the area code gone, unrecoverable). Nothing matches on this column; it
+  // exists so a foreign participant can still be identified and dialled.
+  await p.query(`ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS participant_phones_full TEXT[];`);
   // The RESPONSIBLE staff member for this group's case, resolved ONCE from the
   // linked monday deal's "person in charge" (paralegal / deal_owner) column and
   // cached here — responsibility is set once per case and doesn't change, so we
@@ -212,21 +219,29 @@ async function getAccountStatus(accountId) {
 // when omitted (e.g. a metadata-only groups.update with just a new subject) the
 // existing participant_phones are preserved via COALESCE, so we never wipe a
 // good list with a null.
-async function upsertGroup(accountId, providerGroupJid, name, participantCount, participantPhones) {
+//
+// participantPhonesFull (optional): the SAME participants as full international
+// digits, index-aligned with participantPhones. Identical null-vs-array
+// semantics — a null preserves whatever is already stored. Passed and preserved
+// independently of participantPhones so a row written before this column existed
+// simply keeps NULL until the next discovery refreshes it.
+async function upsertGroup(accountId, providerGroupJid, name, participantCount, participantPhones, participantPhonesFull) {
   await ensureTables();
   const p = getPool();
   if (!p) return null;
   const phones = Array.isArray(participantPhones) ? participantPhones : null;
+  const phonesFull = Array.isArray(participantPhonesFull) ? participantPhonesFull : null;
   const r = await p.query(
-    `INSERT INTO whatsapp_groups (account_id, provider_group_jid, name, participant_count, participant_phones)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO whatsapp_groups (account_id, provider_group_jid, name, participant_count, participant_phones, participant_phones_full)
+     VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (account_id, provider_group_jid)
      DO UPDATE SET name = EXCLUDED.name,
                    participant_count = EXCLUDED.participant_count,
                    participant_phones = COALESCE(EXCLUDED.participant_phones, whatsapp_groups.participant_phones),
+                   participant_phones_full = COALESCE(EXCLUDED.participant_phones_full, whatsapp_groups.participant_phones_full),
                    removed_at = NULL
      RETURNING *`,
-    [accountId, providerGroupJid, name || providerGroupJid, participantCount || null, phones]
+    [accountId, providerGroupJid, name || providerGroupJid, participantCount || null, phones, phonesFull]
   );
   return r.rows[0];
 }

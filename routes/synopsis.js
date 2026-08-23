@@ -190,8 +190,14 @@ module.exports = function createSynopsisRouter() {
       const dealId = String(req.body?.dealId || '');
       const runId = String(req.body?.runId || newRunId());
       const entries = Object.entries(req.body?.values || {});
+      // Fields the paralegal deliberately emptied. Kept as their own list, never
+      // as an empty string inside `values`, so a field can never be wiped by an
+      // input that merely happened to arrive blank.
+      const clears = Array.isArray(req.body?.clear)
+        ? [...new Set(req.body.clear.map(String))].slice(0, MAX_VALUES) : [];
       if (!dealId) return res.status(400).json({ error: 'dealId is required' });
-      if (entries.length > MAX_VALUES) return res.status(400).json({ error: 'too many fields in one save' });
+      if (entries.length + clears.length > MAX_VALUES)
+        return res.status(400).json({ error: 'too many fields in one save' });
       if (!can(req.session.roles, 'monday', 'write_own'))
         return res.status(403).json({ error: 'Your roles may not write to monday.' });
 
@@ -225,6 +231,27 @@ module.exports = function createSynopsisRouter() {
         }
       }
 
+      // Emptying a field goes through exactly the same gate as filling one, and
+      // is refused if the board is already empty there — so a clear that does
+      // nothing can never be reported as a clear that worked.
+      const cleared = [];
+      for (const fieldKey of clears) {
+        try {
+          const entry = await applyWrite(
+            { action: 'update_column', fieldKey, value: '', clear: true }, {
+              map: MAP, dealId: d.item.id, dealBoardId: d.item.boardId,
+              ownerItemIds: d.ownerItemIds, session: req.session, runId,
+              before: d.values, log: audit
+            });
+          cleared.push({ fieldKey, label: labelFor(fieldKey, d), board: entry.board,
+                         before: entry.before, after: '' });
+          d.values[fieldKey] = '';
+        } catch (e) {
+          if (e.audit) audit(e.audit);
+          rejected.push({ fieldKey, label: labelFor(fieldKey, d), reason: e.message });
+        }
+      }
+
       // d.values already carries every successful write, and the page re-reads
       // the deal straight after this call — so recompute in memory rather than
       // spending another five monday calls on a second read.
@@ -245,7 +272,7 @@ module.exports = function createSynopsisRouter() {
       res.json({
         runId,
         hidden: d.hidden,
-        linked: d.context, written, rejected,
+        linked: d.context, written, cleared, rejected,
         remaining: after.missing.length,
         remainingRequired: stillRequired.length,
         checks: d.checks,
@@ -302,14 +329,26 @@ module.exports = function createSynopsisRouter() {
         if (!can(req.session.roles, 'monday', 'write_own'))
           return res.status(403).json({ error: 'Your roles may not write to monday.' });
 
+        // Whose letter this is, read from monday rather than taken from the
+        // browser. Recorded in LAWLY's own table only - monday is never told,
+        // because the reference the firm cares about lives here, not there.
+        let dealName = null;
+        if (dealId) {
+          try { dealName = (await loadDeal(dealId)).item.name || null; }
+          catch (e) {
+            audit.record({ event: 'reference.dealname.failed', ok: false, dealId,
+                           user: req.session.email, roles: req.session.roles, reason: e.message });
+          }
+        }
+
         const asset = await synopsis.reference.uploadToProject(projectItemId, fileName, req.body, {
           replace, confirmed, replacingAssetId,
           log: e => audit.record({ ...e, dealId, user: req.session.email, roles: req.session.roles })
         });
 
         const saved = await synopsis.reference.setStored(projectItemId, {
-          dealId: dealId || null, dealName: null, assetId: asset.id,
-          fileName: asset.name || fileName, clientName: null
+          dealId: dealId || null, dealName, assetId: asset.id,
+          fileName: asset.name || fileName, clientName: dealName
         }, req.session.email);
 
         audit.record({ event: replace ? 'reference.replaced' : 'reference.uploaded', ok: true,
@@ -359,9 +398,14 @@ module.exports = function createSynopsisRouter() {
     try {
       const isAdmin = (req.session.roles || []).some(r => ['admin', 'tech'].includes(String(r).toLowerCase()));
       if (!isAdmin) return res.status(403).json({ error: 'Admin or tech only.' });
-      const { rows, stored } = await audit.recent({
-        dealId: req.query.dealId || null, runId: req.query.runId || null, limit: req.query.limit });
-      res.json({ rows, stored });
+      const q = req.query;
+      const [{ rows, stored }, sum] = await Promise.all([
+        audit.recent({ dealId: q.dealId || null, runId: q.runId || null, user: q.user || null,
+                       event: q.event || null, outcome: q.outcome || null,
+                       since: q.since || null, until: q.until || null, limit: q.limit }),
+        audit.summary({ since: q.since || null, until: q.until || null })
+      ]);
+      res.json({ rows, stored, summary: sum });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 

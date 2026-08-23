@@ -195,6 +195,167 @@ test('there is exactly one /api/me, and it reports capabilities', () => {
     hits[0] + ' serves /api/me and must report capabilities — the UI gates on it');
 });
 
+// ---- the reference letter -------------------------------------------------
+
+test('replacing the reference cannot happen without an explicit confirmation', async () => {
+  const ref = require('../lib/synopsis/reference');
+  const docx = Buffer.from([0x50, 0x4b, 0x03, 0x04, 1, 2, 3]);
+  // Anything other than the literal true is refused, and refused before the
+  // code ever reaches the part that clears the column.
+  for (const confirmed of [undefined, false, 'yes', 1, 'true']) {
+    await assert.rejects(
+      () => ref.uploadToProject('1', 'x.docx', docx, { replace: true, confirmed, replacingAssetId: '9' }),
+      e => { assert.ok(e.message.includes('אישור מפורש'), 'got: ' + e.message); return true; });
+  }
+});
+
+test('only one board and one column can ever be cleared', () => {
+  const ref = require('../lib/synopsis/reference');
+  assert.deepStrictEqual(ref.CLEARABLE, { boardId: '1603266150', columnId: 'file_mkswxqpn' });
+  assert.ok(Object.isFrozen(ref.CLEARABLE), 'the target must not be reassignable at runtime');
+
+  const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'synopsis', 'reference.js'), 'utf8');
+  const clearFn = src.slice(src.indexOf('async function clearProjectFile'),
+                            src.indexOf('async function uploadToProject'));
+  assert.ok(clearFn.includes('CLEARABLE.boardId') && clearFn.includes('CLEARABLE.columnId'),
+    'the clear must target the hard-coded board and column, never a caller-supplied one');
+  assert.ok(!/boardId:\s*String\(boardId/.test(clearFn), 'no caller-supplied board id');
+});
+
+test('a replace backs the old file up before clearing', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'synopsis', 'reference.js'), 'utf8');
+  const body = src.slice(src.indexOf('async function uploadToProject'),
+                         src.indexOf('async function rawUpload'));
+  assert.ok(body.indexOf('fetchAsset') < body.indexOf('clearProjectFile'),
+    'the old file must be downloaded BEFORE the column is cleared');
+  assert.ok(body.includes('reference.restored'), 'and put back if the new upload fails');
+});
+
+test('LAWLY no longer writes the client name to the project card', () => {
+  const routes = fs.readFileSync(path.join(__dirname, '..', 'routes', 'synopsis.js'), 'utf8');
+  assert.ok(!routes.includes('__reference_client'),
+    'the לקוח אחרון write was removed — it must not come back quietly');
+});
+
+test('the reference module never stores a copy of the document', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'synopsis', 'reference.js'), 'utf8');
+  // It records a pointer — deal, asset, file name. Two copies of a letter is
+  // how the wrong one gets sent.
+  for (const bad of ['file_size BYTEA', 'content', 'BYTEA', 'base64'])
+    assert.ok(!src.includes(bad), 'the reference table must not hold file content: ' + bad);
+  assert.ok(src.includes('asset_id'), 'it stores which asset, not the asset');
+});
+
+test('only a genuine Word file can become the reference', async () => {
+  const ref = require('../lib/synopsis/reference');
+  assert.deepStrictEqual([...ref.DOC_EXT], ['.docx']);
+
+  const rejects = async (name, buf, contains) => {
+    await assert.rejects(() => ref.uploadToProject('1', name, buf), e => {
+      assert.ok(e.message.includes(contains), `expected "${contains}" in "${e.message}"`);
+      return true;
+    });
+  };
+  await rejects('letter.pdf',  Buffer.from('%PDF-1.4'), 'Word');
+  await rejects('letter.doc',  Buffer.from('anything'), 'Word');
+  // a PDF renamed to .docx must not slip through — a .docx is a zip
+  await rejects('letter.docx', Buffer.from('%PDF-1.4 renamed'), 'תקין');
+  await rejects('letter.docx', Buffer.alloc(0), 'ריק');
+});
+
+test('the feature may do exactly three things to monday, and no more', () => {
+  const dir = path.join(__dirname, '..', 'lib', 'synopsis');
+  const src = fs.readdirSync(dir).filter(f => f.endsWith('.js'))
+    .map(f => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n') +
+    fs.readFileSync(path.join(__dirname, '..', 'routes', 'synopsis.js'), 'utf8');
+
+  const forbidden = ['delete_item', 'delete_board', 'delete_column', 'delete_group',
+                     'archive_item', 'archive_board', 'archive_group',
+                     'move_item_to_board', 'move_item_to_group',
+                     'duplicate_item', 'duplicate_board', 'create_item', 'create_board',
+                     'clear_item_updates', 'delete_update'];
+  for (const m of forbidden)
+    assert.ok(!src.includes(m), 'the synopsis feature must never contain "' + m + '"');
+
+  // Three GraphQL mutations exist in the feature, and only three:
+  //   1. change_column_value      — the field write, behind the eight-check gate
+  //   2. change_column_value      — clear_all, ONLY on the project's reference column
+  //   3. add_file_to_column       — putting the new reference letter there
+  const mutations = (src.match(/mutation\s*\(/g) || []).length;
+  assert.strictEqual(mutations, 3, 'a new mutation appeared — was it meant to?');
+  assert.ok(src.includes('change_column_value'));
+  assert.ok(src.includes('add_file_to_column'));
+  assert.ok(Object.isFrozen(require('../lib/synopsis/reference').CLEARABLE));
+
+  // clear_all destroys files. It may be USED in exactly one place — mentions in
+  // comments do not count, but a second call would.
+  const clears = (src.match(/clear_all:\s*true/g) || []).length;
+  assert.strictEqual(clears, 1, 'clear_all must be called in exactly one place');
+  const ref = fs.readFileSync(path.join(dir, 'reference.js'), 'utf8');
+  const guarded = ref.slice(ref.indexOf('async function clearProjectFile'),
+                            ref.indexOf('async function uploadToProject'));
+  assert.ok(guarded.includes('clear_all'), 'and that place is clearProjectFile');
+});
+
+test('the build page is gated the same way as the facts page', () => {
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.ok(server.includes("'/synopsis-build.html'"), 'the build page must be behind the capability check');
+  const at = server.indexOf("app.get(['/synopsis.html'");
+  const gate = server.slice(at, server.indexOf('express.static', at));
+  assert.ok(gate.includes("can(req.session.roles, 'synopsis', 'use')"),
+    'both pages must require the synopsis capability');
+});
+
+test('LAWLY_READ_ONLY stops every monday write — the staging guarantee', async () => {
+  const prev = process.env.LAWLY_READ_ONLY;
+  process.env.LAWLY_READ_ONLY = '1';
+  try {
+    // the module reads the flag at call time, so re-require is not needed
+    delete require.cache[require.resolve('../lib/synopsis/reference')];
+    const ref = require('../lib/synopsis/reference');
+    const r = await ref.uploadToProject('1', 'x.docx', Buffer.from([0x50, 0x4b, 0x03, 0x04, 1, 2]));
+    assert.strictEqual(r.readOnly, true, 'the reference upload must be refused');
+
+    // and the field write
+    const wgPath = require.resolve('../lib/synopsis/write-gate');
+    delete require.cache[wgPath];
+    const wg = require('../lib/synopsis/write-gate');
+    assert.strictEqual(wg.READ_ONLY, true, 'the write gate must be in read-only mode');
+  } finally {
+    if (prev === undefined) delete process.env.LAWLY_READ_ONLY;
+    else process.env.LAWLY_READ_ONLY = prev;
+    delete require.cache[require.resolve('../lib/synopsis/reference')];
+    delete require.cache[require.resolve('../lib/synopsis/write-gate')];
+  }
+});
+
+test('staging mode forces read-only and silences the schedulers', () => {
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.ok(server.includes("LAWLY_STAGING === '1'"), 'there must be one staging flag');
+  const block = server.slice(server.indexOf("const STAGING ="), server.indexOf('const app ='));
+  assert.ok(block.includes("process.env.LAWLY_READ_ONLY = '1'"),
+    'staging must force read-only rather than rely on a second variable being set');
+  assert.ok(server.includes('[staging] unanswered-digest scheduler not started'),
+    'the digest scheduler must not arm on staging');
+  assert.ok(server.includes('[staging] email NOT sent'),
+    'outbound email must be dropped on staging');
+});
+
+test('the audit table matches the portal\'s real id types', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'synopsis', 'audit.js'), 'utf8');
+  const create = src.slice(src.indexOf('CREATE TABLE IF NOT EXISTS synopsis_audit'),
+                           src.indexOf('CREATE INDEX'));
+  // User ids in this portal are UUIDs. Declaring them BIGINT made every insert
+  // fail with "invalid input syntax for type bigint", and the table stayed empty
+  // while the console still showed each line — a log that looks fine and records nothing.
+  assert.ok(!/user_id\s+BIGINT/i.test(create), 'user_id must not be BIGINT — ids are UUIDs');
+  assert.ok(/user_id\s+TEXT/i.test(create), 'user_id must be TEXT');
+  assert.ok(!/\bid\s+BIGINT/i.test(create.replace(/BIGSERIAL/g, '')),
+    'no other column should assume a numeric id');
+  assert.ok(src.includes('ALTER COLUMN user_id TYPE TEXT'),
+    'an already-created table must be widened, not left broken');
+});
+
 // ---- the module boundary --------------------------------------------------
 
 test('everything routes/synopsis.js takes off lib/synopsis actually exists there', () => {
@@ -268,25 +429,8 @@ test('fields that appear in no real synopsis are not on the map', () => {
 
 // ---- what this feature may do to monday ----------------------------------
 
-test('update_column is the only action, and no destructive mutation exists in the code', () => {
+test('update_column is the only action the write gate accepts', () => {
   assert.deepStrictEqual([...ALLOWED_ACTIONS], ['update_column']);
-
-  const dir = path.join(__dirname, '..', 'lib', 'synopsis');
-  const src = fs.readdirSync(dir).filter(f => f.endsWith('.js'))
-    .map(f => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n') +
-    fs.readFileSync(path.join(__dirname, '..', 'routes', 'synopsis.js'), 'utf8');
-
-  const forbidden = ['delete_item', 'delete_board', 'delete_column', 'delete_group',
-                     'archive_item', 'archive_board', 'archive_group',
-                     'move_item_to_board', 'move_item_to_group',
-                     'duplicate_item', 'duplicate_board', 'create_item', 'create_board'];
-  for (const m of forbidden)
-    assert.ok(!src.includes(m), 'the synopsis feature must never contain "' + m + '"');
-
-  // exactly one mutation, and it is the column update
-  const mutations = src.match(/mutation\s*\(/g) || [];
-  assert.strictEqual(mutations.length, 1, 'expected exactly one GraphQL mutation in the feature');
-  assert.ok(src.includes('change_column_value'), 'the one mutation must be change_column_value');
 });
 
 test('only admin, tech and paralegal may open the synopsis generator', () => {
@@ -440,4 +584,326 @@ test('a write lands on the board that owns the field, never on the mirror', asyn
   const d = await applyWrite({ action: 'update_column', fieldKey: 'apartment_sqm', value: '90' }, ctx());
   assert.strictEqual(String(d.boardId), '1603266152');
   assert.strictEqual(d.user, 'shayna@epsteinlaw.co.il', 'the write is attributed to the person, not to LAWLY');
+});
+
+// ============================================================
+// Reading the letter, and judging what changed between two versions.
+// ============================================================
+const { blocks } = require('../lib/synopsis/docx');
+const { compareDocs, intrinsicallyClient, onlyDigitsDiffer } =
+  require('../lib/synopsis/compare-docs');
+
+const fixture = n => fs.readFileSync(path.join(__dirname, 'fixtures', 'fixture-' + n + '.docx'));
+
+test('a .docx is read into ordered blocks, headings and tables intact', () => {
+  const b = blocks(fixture('a'));
+  assert.strictEqual(b[0].kind, 'heading');
+  assert.strictEqual(b[0].text, 'SYNOPSIS OF CONTRACT');
+  assert.strictEqual(b[1].level, 1);
+
+  const table = b.find(x => x.kind === 'table');
+  assert.ok(table, 'the payment table must survive as a table');
+  assert.deepStrictEqual(table.rows[0], ['Payment', 'Amount', 'Due']);
+  assert.strictEqual(table.rows[1][1], '382,300');
+
+  // Hebrew comes back exactly as written, not mangled by the XML decode.
+  assert.ok(b.some(x => x.text.includes('א.פ.י נתיב פיתוח בע"מ')));
+
+  // Empty paragraphs carry no meaning and only add noise to a comparison.
+  assert.ok(b.every(x => x.text.trim() !== ''));
+
+  // Reading order is preserved, which is what makes two versions comparable.
+  assert.deepStrictEqual(b.map(x => x.index), b.map((_, i) => i));
+});
+
+test('a file that is not a .docx is refused, not half-read', () => {
+  assert.throws(() => blocks(Buffer.from('%PDF-1.4 this is a pdf')), /valid \.docx|zip/i);
+  assert.throws(() => blocks(Buffer.alloc(0)), /empty/i);
+});
+
+test('a change is judged by WHY it is there, not by how it looks', () => {
+  const r = compareDocs(blocks(fixture('a')), blocks(fixture('b')),
+    { buyer_1_name_en: 'Karp', purchase_price: '4100000', apartment_no: '22' }, COLMAP);
+
+  // The new boilerplate section is the ONLY thing offered to the template.
+  assert.ok(r.proposals.length > 0);
+  assert.ok(r.proposals.every(c => /Governing Law/i.test(c.heading)),
+    'only genuinely general wording may be proposed for the template');
+
+  // Everything under a benefits heading belongs to one client, full stop.
+  const benefits = r.changes.filter(c => /Commercial Benefits/i.test(c.heading));
+  assert.ok(benefits.length);
+  assert.ok(benefits.every(c => c.absorbable === false),
+    'a benefits clause must never be absorbable into the template');
+});
+
+test('the previous client\'s money can never be proposed for the template', () => {
+  // The regression that matters: the template is itself seeded from a real
+  // client's letter, so it still holds THAT client's price and payment table.
+  // Judging only against the current client's values marked those "general" —
+  // which would have offered to bake the previous client's money into the
+  // template, contaminating every future letter.
+  const r = compareDocs(blocks(fixture('a')), blocks(fixture('b')),
+    { buyer_1_name_en: 'Karp' }, COLMAP);           // deliberately thin facts
+
+  for (const c of r.proposals) {
+    assert.ok(!/\d[\d,]{3,}/.test([c.before, c.after].join(' ')),
+      'a block carrying an amount was proposed for the template: ' + (c.after || c.before));
+    assert.notStrictEqual(c.kind, 'table', 'a payment table is never template material');
+  }
+});
+
+test('money, percentages and dates are client data whoever the client is', () => {
+  assert.ok(intrinsicallyClient('the price is 3,823,000'));
+  assert.ok(intrinsicallyClient('a fee of 0.75%'));
+  assert.ok(intrinsicallyClient('on 12.05.2026'));
+  assert.ok(intrinsicallyClient('NIS four million'));
+  assert.strictEqual(intrinsicallyClient('The parties shall act in good faith.'), null);
+
+  // The same clause with different numbers is the same clause, refilled.
+  assert.ok(onlyDigitsDiffer('Payment of 100,000 is due', 'Payment of 250,000 is due'));
+  assert.ok(!onlyDigitsDiffer('Payment is due', 'Delivery is due'));
+});
+
+test('nothing decides on its own — every proposal is a proposal', () => {
+  const r = compareDocs(blocks(fixture('a')), blocks(fixture('b')), {}, COLMAP);
+  for (const c of r.changes) {
+    assert.ok(['client', 'general', 'unsure'].includes(c.verdict));
+    assert.strictEqual(c.absorbable, c.verdict === 'general');
+    assert.ok(c.reason && c.reason.length, 'every judgement must say why');
+  }
+  // proposals and clientOnly together account for every change, with no overlap
+  assert.strictEqual(r.proposals.length + r.clientOnly.length, r.changes.length);
+});
+
+// ============================================================
+// Making the template: one real letter, minus everything that was that
+// client's. This is the step that decides whether a previous client's data
+// can reach the next letter, so it is tested from both directions.
+// ============================================================
+const { extractTemplate, assertClean } = require('../lib/synopsis/template');
+
+// Real keys from config/synopsis-columns.json — not invented ones. If a key
+// here stops existing on the map, that is a failure worth seeing.
+const COLMAP = JSON.parse(fs.readFileSync(
+  path.join(__dirname, '..', 'config', 'synopsis-columns.json'), 'utf8'));
+
+const WEINSTEIN = {
+  buyer_1_name_en: 'Weinstein', purchase_price: '3823000',
+  apartment_no: '19', building_no: '1',
+  seller_company: 'א.פ.י נתיב פיתוח בע"מ', seller_company_no: '511519134', gush: '34574',
+};
+
+test('the test facts use keys that actually exist on the column map', () => {
+  const keys = new Set(COLMAP.fields.map(f => f.key));
+  for (const k of Object.keys(WEINSTEIN))
+    assert.ok(keys.has(k), 'no such field on the column map: ' + k);
+});
+
+test('the template is what is left after the client is removed', () => {
+  const r = extractTemplate(blocks(fixture('a')), WEINSTEIN, COLMAP);
+
+  // Structure survives: every heading is still there, in order.
+  const heads = r.template.filter(b => b.kind === 'heading').map(b => b.text);
+  assert.deepStrictEqual(heads,
+    ['SYNOPSIS OF CONTRACT', '1. The Parties', '2. The Purchase Price', '3. Commercial Benefits']);
+
+  // The client's own content became positions, not words.
+  assert.ok(r.removed >= 4);
+  assert.ok(r.slots.every(s => s.kind === 'slot' && !('text' in s)),
+    'a slot must not carry the text it replaced');
+  assert.ok(r.slots.every(s => s.reason && s.reason.length), 'every removal must say why');
+});
+
+test('nothing of the source client survives into the stored template', () => {
+  const r = extractTemplate(blocks(fixture('a')), WEINSTEIN, COLMAP);
+  const text = r.template.filter(b => b.kind !== 'slot').map(b => b.text).join(' ');
+
+  assert.ok(!/Weinstein/i.test(text), 'the previous client\'s name must be gone');
+  assert.ok(!/3,?823,?000/.test(text), 'the previous client\'s price must be gone');
+  assert.ok(!/382,?300/.test(text), 'the previous client\'s payment table must be gone');
+  assert.ok(!/kitchen|parking space/i.test(text), 'the previous client\'s benefits must be gone');
+
+  assert.strictEqual(assertClean(r.template, WEINSTEIN, COLMAP), true);
+});
+
+test('what the whole project shares is boilerplate, not client data', () => {
+  const r = extractTemplate(blocks(fixture('a')), WEINSTEIN, COLMAP);
+  const text = r.template.filter(b => b.kind !== 'slot').map(b => b.text).join(' ');
+
+  // The seller's company and its number are the same for every buyer here.
+  // Stripping them would gut the template of real content.
+  assert.ok(/511519134/.test(text), 'the seller company number belongs in the template');
+  assert.ok(/נתיב פיתוח/.test(text), 'the seller name belongs in the template');
+});
+
+test('a template that still holds client data is refused, not saved', () => {
+  // Simulate the classifier having missed something.
+  const dirty = [{ index: 0, kind: 'paragraph', text: 'Sold to Mr. Weinstein for 3,823,000.' }];
+  assert.throws(() => assertClean(dirty, WEINSTEIN, COLMAP), /עדיין מכילה נתונים/);
+});
+
+test('an empty document cannot become a template', () => {
+  assert.throws(() => extractTemplate([], WEINSTEIN, COLMAP), /אין מה לפרק/);
+});
+
+// ============================================================
+// The collision Shira found: "כתוב 8 אחוז ריבית שזה כללי ובדיוק ללקוח יש נתון 8
+// על משהו אחר — זה יושמט?"  It would have. This is what stops it.
+// ============================================================
+const { blockTopic } = require('../lib/synopsis/topics');
+const { judgeBlock, clientMarkers } = require('../lib/synopsis/compare-docs');
+
+test('the same number on two different subjects is not the same fact', () => {
+  const facts = { tax_profile: 'דירה שניה - 8%', purchase_price: '3823000' };
+  const mk = clientMarkers(facts, COLMAP);
+
+  // 8% that IS this client's tax — removed.
+  const tax = judgeBlock(null, 'The Purchaser shall pay purchase tax at the rate of 8%.',
+                         '4. Taxation', mk);
+  assert.strictEqual(tax.verdict, 'client');
+
+  // 8% that merely shares the digits — NOT removed on the strength of that.
+  const interest = judgeBlock(null, 'Interest at the rate of 8% per annum shall accrue on any late payment.',
+                              'General Provisions', mk);
+  assert.notStrictEqual(interest.verdict, 'client',
+    'a general interest clause must not be stripped because the digits match a tax rate');
+  assert.strictEqual(interest.absorbable, false,
+    'and it must not be silently kept either — it goes for a second opinion');
+});
+
+test('a block is placed by its subject, and never guessed', () => {
+  assert.strictEqual(blockTopic('3. Commercial Benefits', 'x').topic, 'benefits');
+  assert.strictEqual(blockTopic('2. The Purchase Price', 'x').topic, 'price');
+  assert.ok(blockTopic('4. Taxation', 'purchase tax at 8%').confident);
+
+  // Nothing recognisable: no topic is invented.
+  const none = blockTopic('', 'The parties shall act in good faith.');
+  assert.ok(!none.confident, 'an unreadable block must not be given a confident topic');
+});
+
+test('the model is asked once, about the doubtful blocks only, and decides nothing', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'synopsis', 'ask-model.js'), 'utf8');
+
+  // It must never be handed board structure — only words.
+  for (const leak of ['columnId', 'column_id', 'boardId', 'board_id', 'itemId', 'item_id'])
+    assert.ok(!src.includes(leak), 'the model must never see ' + leak);
+
+  // It cannot reach monday from here, whatever it answers.
+  assert.ok(!src.includes('change_column_value') && !src.includes('api.monday.com'));
+
+  // One call, capped, carrying the batch together.
+  assert.ok(/MAX_BLOCKS/.test(src));
+  assert.strictEqual((src.match(/await askJSON\(/g) || []).length, 1,
+    'exactly one model call per letter');
+
+  // Anything that is not one of the two words is discarded, not coerced.
+  assert.ok(src.includes("v.verdict !== 'client' && v.verdict !== 'general'"));
+});
+
+test('when the model is unavailable nothing is decided in its place', async () => {
+  const { classifyUnsure } = require('../lib/synopsis/ask-model');
+  const before = process.env.ANTHROPIC_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+  try {
+    const out = await classifyUnsure([{ index: 0, text: 'x', heading: 'y' }], {});
+    assert.strictEqual(out.size, 0, 'no key must mean no verdicts, not default verdicts');
+  } finally {
+    if (before !== undefined) process.env.ANTHROPIC_API_KEY = before;
+  }
+});
+
+// ============================================================
+// Emptying a field — an UPDATE that sets the value to nothing, not a delete.
+// Until this was fixed, clearing a box did nothing at all AND the page said
+// "nothing to update — the board is already full", so a deliberate change was
+// thrown away and reported back as success.
+// ============================================================
+const { emptyValue } = require('../lib/synopsis/write-gate');
+
+test('every writable column type knows how to be emptied', () => {
+  assert.strictEqual(emptyValue('text'), '');
+  assert.strictEqual(emptyValue('long_text'), '');
+  assert.strictEqual(emptyValue('numbers'), '');
+  assert.deepStrictEqual(emptyValue('date'), {});
+  assert.deepStrictEqual(emptyValue('status'), {});
+  assert.deepStrictEqual(emptyValue('dropdown'), { labels: [] });
+  assert.deepStrictEqual(emptyValue('email'), { email: '', text: '' });
+});
+
+test('what must not be emptied through the form, is not', () => {
+  // Files are the one irreversible thing on the board; links are structural.
+  assert.throws(() => emptyValue('file'), /קבצים/);
+  assert.throws(() => emptyValue('board_relation'), /קישור/);
+  assert.throws(() => emptyValue('mirror'), /לא ניתן לרוקן/);
+});
+
+test('a clear is refused when there is nothing there to clear', async () => {
+  const map = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'config', 'synopsis-columns.json'), 'utf8'));
+  const field = map.fields.find(f => f.writable && f.ownerColumnId && f.owner === 'deal');
+
+  let hit = false;
+  await assert.rejects(
+    () => applyWrite({ action: 'update_column', fieldKey: field.key, value: '', clear: true }, {
+      map, dealId: '1', dealBoardId: String(map.boards.deal.id),
+      ownerItemIds: {}, session: { email: 'x@y.z', roles: ['admin'], userId: 'u' },
+      runId: 'r', before: { [field.key]: '' },
+      log: () => {}, write: () => { hit = true; return {}; },
+    }),
+    /כבר ריק/);
+  assert.strictEqual(hit, false, 'monday must not be called for a no-op clear');
+});
+
+test('clearing goes through the one permitted action, and is logged as a deletion', async () => {
+  const map = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'config', 'synopsis-columns.json'), 'utf8'));
+  const field = map.fields.find(f => f.writable && f.ownerColumnId && f.owner === 'deal'
+                                     && ['text', 'long_text'].includes(f.ownerType || f.type));
+
+  const lines = [];
+  const entry = await applyWrite(
+    { action: 'update_column', fieldKey: field.key, value: '', clear: true }, {
+      map, dealId: '1', dealBoardId: String(map.boards.deal.id),
+      ownerItemIds: {}, session: { email: 'x@y.z', roles: ['admin'], userId: 'u' },
+      runId: 'r', before: { [field.key]: 'something that was there' },
+      log: e => lines.push(e), write: (b, i, c, v) => ({ boardId: b, columnId: c, value: v }),
+    });
+
+  assert.strictEqual(entry.proposal.action, 'update_column',
+    'emptying is an update, not a second kind of action');
+  assert.strictEqual(entry.event, 'write.emptied');
+  assert.strictEqual(entry.before, 'something that was there');
+  assert.strictEqual(entry.after, '');
+  assert.strictEqual(lines.length, 1, 'a deletion must always leave a line behind');
+});
+
+test('the page sends deletions explicitly, never as a blank value', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'synopsis.html'), 'utf8');
+
+  // A clear is its own list, and only for fields the board actually holds.
+  assert.ok(/const clear = Object\.keys\(DRAFT\)/.test(html));
+  assert.ok(html.includes("!isBlank(BOARD[k])"),
+    'an untouched empty field must never be sent as a deletion');
+  assert.ok(/values, clear \}/.test(html), 'the clear list must reach the server');
+
+  // And the paralegal is told, by name, what is about to be deleted.
+  assert.ok(html.includes('יתרוקנו'), 'emptying a value must be confirmed before it happens');
+});
+
+
+test('every name the routes take off the barrel actually exists on it', () => {
+  // A module can go missing from a deploy without anything failing at boot:
+  // routes/synopsis.js reaches synopsis.reference.state() only when someone
+  // opens the build page, and until then the gap is invisible. This test makes
+  // an incomplete upload fail here instead of in front of a paralegal.
+  const barrel = require('../lib/synopsis');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'synopsis.js'), 'utf8');
+  // Only real uses — `synopsis.name(` or `synopsis.name.` — so the filename in
+  // the header comment is not mistaken for a missing export.
+  const used = [...new Set([...src.matchAll(/\bsynopsis\.([a-zA-Z_][a-zA-Z0-9_]*)\s*[.(]/g)]
+    .map(m => m[1]))];
+  const missing = used.filter(n => barrel[n] === undefined);
+  assert.deepStrictEqual(missing, [],
+    'routes/synopsis.js uses names the barrel does not export: ' + missing.join(', '));
 });

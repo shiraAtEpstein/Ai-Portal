@@ -292,16 +292,24 @@ function trendSentence(change){
   var d=el('div');
   d.style.fontSize='12.5px';
   d.style.marginTop='4px';
-  if(!change){ d.className='empty'; d.textContent='אין עדיין מספיק שבועות להשוואה'; return d; }
+  if(!change){ d.className='empty'; d.textContent='צריך לפחות שלושה שבועות כדי לדבר על מגמה'; return d; }
   var dir = change.pct<=-5 ? {t:'שיפור',c:'var(--ok)'}
           : change.pct>=5  ? {t:'האטה',c:'var(--bad)'}
           : {t:'ללא שינוי',c:'var(--muted)'};
-  var strong=el('b',null,dir.t+(Math.abs(change.pct)>=5?(' של '+Math.abs(change.pct)+'%'):''));
+  // A ratio of medians explodes on a small baseline: 0:43 -> 2:30 prints as
+  // "+245%", which reads as a catastrophe. Past a doubling, say it as a
+  // multiple — the same fact, honestly scaled.
+  var size = Math.abs(change.pct) < 5 ? ''
+    : (change.times >= 2 ? (' — פי ' + change.times)
+    : (change.times > 0 && change.times <= 0.5) ? (' — פי ' + (Math.round((1/change.times)*10)/10) + ' מהר יותר')
+    : (' של ' + Math.abs(change.pct) + '%'));
+  var strong=el('b',null,dir.t+size);
   strong.style.color=dir.c;
   d.appendChild(strong);
+  var weeks = change.baselineWeeks===1 ? 'בשבוע הקודם' : ('ב-'+change.baselineWeeks+' השבועות הקודמים');
   d.appendChild(document.createTextNode(
-    ' — השבוע ' + fmtDur(change.currentSeconds) + ' (' + change.currentReplies + ' מענים), ' +
-    'מול ' + fmtDur(change.baselineSeconds) + ' ב-' + change.baselineWeeks + ' השבועות הקודמים'));
+    ' — השבוע ' + fmtDur(change.currentSeconds) + ' (' + change.currentReplies + ' מענים), מול ' +
+    fmtDur(change.baselineSeconds) + ' ' + weeks));
   return d;
 }
 
@@ -451,15 +459,16 @@ function personCard(s, isMe, windowDays, consistencyDays){
 
   var peakSec=el('div','sec');
   var ph2=el('div','sech');
-  ph2.appendChild(el('span',null,'מתי אתה הכי מהיר'));
-  ph2.appendChild(el('span','note','לפי השעה שבה הלקוח כתב'));
+  ph2.appendChild(el('span',null,'מתי אתה עונה'));
+  ph2.appendChild(el('span','note','לפי השעה שבה יצא המענה'));
   peakSec.appendChild(ph2);
   var bands=s.bands||[];
   if(bands.length){
     // The full profile across the day, so it reads as "you are a morning
     // person" rather than a single hour that could be noise.
-    var slowest=bands.reduce(function(a,b){return b.medianSeconds>a.medianSeconds?b:a;});
-    var maxv=slowest.medianSeconds||1;
+    // The bar is HOW MUCH answering happened in that stretch of the day.
+    var busiest=bands.reduce(function(a,b){return b.replies>a.replies?b:a;});
+    var maxv=busiest.replies||1;
     var tbl=el('div');
     bands.forEach(function(b){
       var row=el('div','bar');
@@ -469,11 +478,11 @@ function personCard(s, isMe, windowDays, consistencyDays){
       row.appendChild(lab);
       var track=el('div','track'); track.style.height='12px';
       var fill=el('div','fill');
-      fill.style.width=Math.max(4,Math.round((b.medianSeconds/maxv)*100))+'%';
+      fill.style.width=Math.max(4,Math.round((b.replies/maxv)*100))+'%';
       // Best band gets the accent; the rest stay recessive so the eye lands on it.
       fill.style.background=(s.bestBand&&b.key===s.bestBand.key)?'var(--ok)':'#c3ccc6';
       track.appendChild(fill); row.appendChild(track);
-      var v=el('div','bv'); v.innerHTML='<b>'+fmtDur(b.medianSeconds)+'</b> <span>('+b.replies+')</span>';
+      var v=el('div','bv'); v.innerHTML='<b>'+b.replies+'</b> <span>מענים · '+fmtDur(b.medianSeconds)+'</span>';
       row.appendChild(v);
       tbl.appendChild(row);
     });
@@ -481,8 +490,8 @@ function personCard(s, isMe, windowDays, consistencyDays){
     if(s.bestBand){
       var note=el('div');
       note.style.fontSize='12.5px'; note.style.marginTop='4px';
-      note.innerHTML='הכי מהיר ב<b>'+s.bestBand.label+'</b>'+
-        (s.bestHour?(' · השעה החזקה ביותר: <b>'+hhmm(s.bestHour.hour)+'</b>'):'');
+      note.innerHTML='רוב המענים שלך ב<b>'+s.bestBand.label+'</b> — חציון '+fmtDur(s.bestBand.medianSeconds)+
+        (s.bestHour?(' · השעה העמוסה ביותר: <b>'+hhmm(s.bestHour.hour)+'</b>'):'');
       peakSec.appendChild(note);
     }
   } else {
@@ -499,10 +508,11 @@ function personCard(s, isMe, windowDays, consistencyDays){
   consSec.appendChild(dayStrip(c));
   if(c){
     var sum=el('div','empty');
-    sum.style.color = c.openNow ? 'var(--bad)' : 'var(--muted)';
-    sum.textContent = c.openNow
-      ? ('כרגע ממתינות לך ' + c.openNow + ' הודעות — היום עוד לא ייסגר נקי')
-      : 'אין כרגע הודעות ממתינות לך 🎉';
+    sum.style.color='var(--muted)';
+    // Deliberately NOT a second "waiting right now" count. That number lives on
+    // the backlog line below and comes from the board; having two of them on one
+    // card, from two different sources, was the contradiction Shira caught.
+    sum.textContent='התא האחרון הוא היום, לפי המצב ברגע זה.';
     consSec.appendChild(sum);
   }
   card.appendChild(consSec);
@@ -601,7 +611,8 @@ function render(d){
     'המספרים מחושבים מהיסטוריית ההודעות (processing_jobs). ' +
     'החציון והאחוזים כוללים גם שיחות שעדיין ממתינות — לפי הזמן שהן ממתינות עד עכשיו, שהוא רף תחתון. ' +
     'שיחה שנענתה נזקפת למי שענה בפועל; שיחה שלא נענתה נזקפת לאחראי עליה. ' +
-    'המגמה ופרופיל השעות מחושבים על שיחות שנענו בלבד, כי לשיחה פתוחה אין עדיין שבוע מענה. ' +
+    'המגמה ופרופיל השעות מחושבים על שיחות שנענו בלבד, כי לשיחה פתוחה אין עדיין מענה לשייך לשבוע או לשעה. ' +
+    'פרופיל השעות מראה מתי יצאו המענים שלך, לא מתי הלקוח כתב. ' +
     'יום נספר כ"נסגר נקי" אם בסופו לא נשארה אף הודעה שממתינה לך, לא משנה מתי היא הגיעה. ' +
     'האחראי נלקח מהמצב הנוכחי — שיוך היסטורי לא נשמר. שיחה יורדת מהרשימה ברגע שמישהו במשרד עונה בוואטסאפ.';
 }

@@ -74,6 +74,7 @@
   .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;margin-top:16px;}
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 17px 14px;}
   .card.me{border-color:#c8d4cb;box-shadow:0 0 0 2px #e7f0e9;}
+  .card.expanded{grid-column:1 / -1;}
   .chead{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:12px;}
   .cname{font-size:16px;font-weight:bold;}
   .cmeta{font-size:12px;color:var(--muted);white-space:nowrap;}
@@ -86,10 +87,10 @@
   .sec{margin-top:13px;}
   .sech{font-size:11.5px;color:var(--muted);font-weight:bold;margin-bottom:6px;display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
   .sech .note{font-weight:normal;color:#a8adb5;}
-  .spark{display:block;width:100%;height:44px;overflow:visible;}
+  .spark{display:block;width:100%;max-width:460px;height:44px;overflow:visible;}
   .empty{font-size:12px;color:#b0b5bc;padding:6px 0;}
 
-  .strip{display:flex;gap:3px;}
+  .strip{display:flex;gap:3px;max-width:560px;}
   .day{flex:1;min-width:0;height:26px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;line-height:1;cursor:default;}
   .day.ok{background:var(--ok);color:#fff;}
   .day.warn{background:var(--warn);color:#1f2430;}
@@ -108,11 +109,17 @@
   .showBtn.open{background:#2b2f38;color:#fff;border-color:#2b2f38;}
 
   .detail{margin-top:12px;background:#fafbfc;border:1px solid var(--line);border-radius:9px;padding:10px;}
-  table.inner{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden;}
+  .detailScroll{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  table.inner{width:100%;min-width:640px;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:8px;overflow:hidden;}
+  table.inner th:first-child, table.inner td:first-child{min-width:230px;}
+  table.inner th:nth-child(2), table.inner td:nth-child(2){white-space:nowrap;}
+  /* Long Latin group names must wrap between words, never mid-word, and never
+     one word per line. */
+  .chatname{overflow-wrap:break-word;word-break:normal;}
   table.inner th{padding:7px 9px;font-size:10.5px;background:#f6f7f8;color:var(--muted);text-align:right;font-weight:bold;}
   table.inner td{padding:9px;font-size:12.5px;border-bottom:1px solid #f2f3f5;vertical-align:top;}
   table.inner tr:last-child td{border-bottom:0;}
-  .chatname{font-weight:bold;}
+  .chatname{font-weight:bold;line-height:1.35;}
   .client{font-size:11.5px;color:#93a08f;margin-top:2px;}
   .moved{font-size:11px;color:var(--warn);margin-top:3px;}
   .tag{display:inline-block;border-radius:6px;padding:2px 7px;font-size:11px;font-weight:bold;white-space:nowrap;}
@@ -156,7 +163,7 @@
 
   <div class="panel">
     <div class="phead" id="pctHead">אחוזי מענה — כל המשרד</div>
-    <div class="psub">מכלל המענים בחלון הזמן, איזה חלק ניתן תוך שעה, תוך 4 שעות ותוך 8 שעות. אין יעד — זו תמונת מצב, לא ציון.</div>
+    <div class="psub">מכלל השיחות בחלון — כולל אלה שעדיין ממתינות, לפי הזמן שהן ממתינות עד עכשיו. אין יעד; זו תמונת מצב, לא ציון.</div>
     <div class="bars" id="bars"></div>
   </div>
 
@@ -275,27 +282,38 @@ function sparkline(points, label){
 
   var box=el('div');
   box.appendChild(svg);
-  var first=pts[0];
-  var dir = last.medianSeconds<first.medianSeconds ? {t:'משתפר',c:'var(--ok)'}
-          : last.medianSeconds>first.medianSeconds ? {t:'מאט',c:'var(--bad)'}
-          : {t:'יציב',c:'var(--muted)'};
-  var cap=el('div','sech');
-  var l=el('span',null,'אחרון: '+fmtDur(last.medianSeconds));
-  var rgt=el('span',null,dir.t); rgt.style.color=dir.c;
-  cap.appendChild(l); cap.appendChild(rgt);
-  cap.style.marginTop='2px'; cap.style.marginBottom='0';
-  box.appendChild(cap);
   return box;
+}
+
+// The trend in a sentence. Comparing the first point to the last let one freak
+// week at either end flip the label; this compares the CURRENT week to the
+// median of the person's own completed weeks, and says both numbers out loud.
+function trendSentence(change){
+  var d=el('div');
+  d.style.fontSize='12.5px';
+  d.style.marginTop='4px';
+  if(!change){ d.className='empty'; d.textContent='אין עדיין מספיק שבועות להשוואה'; return d; }
+  var dir = change.pct<=-5 ? {t:'שיפור',c:'var(--ok)'}
+          : change.pct>=5  ? {t:'האטה',c:'var(--bad)'}
+          : {t:'ללא שינוי',c:'var(--muted)'};
+  var strong=el('b',null,dir.t+(Math.abs(change.pct)>=5?(' של '+Math.abs(change.pct)+'%'):''));
+  strong.style.color=dir.c;
+  d.appendChild(strong);
+  d.appendChild(document.createTextNode(
+    ' — השבוע ' + fmtDur(change.currentSeconds) + ' (' + change.currentReplies + ' מענים), ' +
+    'מול ' + fmtDur(change.baselineSeconds) + ' ב-' + change.baselineWeeks + ' השבועות הקודמים'));
+  return d;
 }
 
 /* ------------------------------------------------- consistency day strip */
 /* Status encoding, so every cell carries a GLYPH and there is a legend — the
    colour never carries the meaning on its own.                              */
 function dayClass(d){
-  if(!d.opened) return {c:'none',g:'·',t:'לא נפתחו שיחות'};
-  if(d.sameDay===d.opened) return {c:'ok',g:'✓',t:'כל השיחות נענו באותו יום'};
-  if(d.sameDay===0) return {c:'bad',g:'✕',t:'אף שיחה לא נענתה באותו יום'};
-  return {c:'warn',g:'!',t:'חלק מהשיחות נענו באותו יום'};
+  // The day is scored on what was STILL OPEN when it ended — not on what
+  // arrived. An old unanswered message darkens every day it survives.
+  if(d.clean) return {c:'ok',g:'✓',t:'היום נסגר בלי הודעות ממתינות'};
+  if(d.openAtEndOfDay>=3) return {c:'bad',g:String(d.openAtEndOfDay),t:d.openAtEndOfDay+' הודעות נשארו ממתינות בסוף היום'};
+  return {c:'warn',g:String(d.openAtEndOfDay),t:d.openAtEndOfDay+' הודעות נשארו ממתינות בסוף היום'};
 }
 function dayStrip(cons){
   if(!cons||!cons.days||!cons.days.length) return el('div','empty','אין נתוני עקביות בחלון');
@@ -304,14 +322,15 @@ function dayStrip(cons){
   cons.days.forEach(function(d){
     var k=dayClass(d);
     var cell=el('div','day '+k.c, k.g);
-    cell.title=d.date+' · '+k.t+' ('+d.sameDay+'/'+d.opened+(d.stillOpen?' · '+d.stillOpen+' עדיין פתוחות':'')+')';
+    cell.title=d.date+' · '+k.t+(d.arrived?(' · נפתחו באותו יום: '+d.arrived):'')+
+      (d.oldestOpenDays?(' · הוותיקה ממתינה '+d.oldestOpenDays+' ימים'):'');
     strip.appendChild(cell);
   });
   wrapEl.appendChild(strip);
   var lg=el('div','legend');
-  [['ok','✓','הכל נענה'],['warn','!','חלקי'],['bad','✕','לא נענה'],['none','·','אין שיחות']].forEach(function(x){
+  [['ok','✓','נסגר נקי'],['warn','1–2','נשארו ממתינות'],['bad','3+','נשארו הרבה']].forEach(function(x){
     var s=el('span');
-    var sw=el('span','swatch'); sw.style.background='var(--'+(x[0]==='none'?'none':x[0])+')';
+    var sw=el('span','swatch'); sw.style.background='var(--'+x[0]+')';
     s.appendChild(sw); s.appendChild(document.createTextNode(x[1]+' '+x[2]));
     lg.appendChild(s);
   });
@@ -382,7 +401,9 @@ function detailTable(items){
     tr.appendChild(aTd);
     t.appendChild(tr);
   });
-  box.appendChild(t);
+  var scroller=el('div','detailScroll');
+  scroller.appendChild(t);
+  box.appendChild(scroller);
   return box;
 }
 
@@ -397,37 +418,75 @@ function metricTile(value, label, dim){
 }
 
 function personCard(s, isMe, windowDays, consistencyDays){
-  var card=el('div','card'+(isMe?' me':''));
+  var isOpen=!!openCards[s.email||s.name] && (s.items||[]).length;
+  var card=el('div','card'+(isMe?' me':'')+(isOpen?' expanded':''));
   var head=el('div','chead');
   head.appendChild(el('div','cname', s.name + (isMe?' (את/ה)':'')));
-  head.appendChild(el('div','cmeta', s.replies ? (s.replies+' מענים ב-'+windowDays+' ימים') : 'אין מענים בחלון'));
+  head.appendChild(el('div','cmeta', s.measured
+    ? (s.measured+' שיחות · ' + s.answeredCount + ' נענו' + (s.openCount ? (' · ' + s.openCount + ' עדיין ממתינות') : ''))
+    : 'אין שיחות בחלון'));
   card.appendChild(head);
 
   var mets=el('div','metrics');
-  mets.appendChild(metricTile(s.median||'—','חציון', !s.replies));
-  mets.appendChild(metricTile(pctTxt(s.within1hPct),'תוך שעה', !s.replies));
-  mets.appendChild(metricTile(pctTxt(s.within4hPct),'תוך 4 שעות', !s.replies));
-  mets.appendChild(metricTile(pctTxt(s.within8hPct),'תוך 8 שעות', !s.replies));
+  mets.appendChild(metricTile(s.median||'—','חציון', !s.measured));
+  mets.appendChild(metricTile(pctTxt(s.within1hPct),'תוך שעה', !s.measured));
+  mets.appendChild(metricTile(pctTxt(s.within4hPct),'תוך 4 שעות', !s.measured));
+  mets.appendChild(metricTile(pctTxt(s.within8hPct),'תוך 8 שעות', !s.measured));
   card.appendChild(mets);
+  if(s.openCount){
+    var warn=el('div','empty');
+    warn.style.color='var(--warn)';
+    warn.style.marginTop='-8px';
+    warn.textContent='כולל '+s.openCount+' שיחות שעדיין ממתינות, לפי הזמן שהן ממתינות עד עכשיו.';
+    card.appendChild(warn);
+  }
 
   var trendSec=el('div','sec');
-  var th=el('div','sech'); th.appendChild(el('span',null,'מגמת חציון לפי שבוע'));
+  var th=el('div','sech'); th.appendChild(el('span',null,'מגמה שבועית (שיחות שנענו)'));
   th.appendChild(el('span','note', s.trend&&s.trend.length?(s.trend.length+' שבועות'):''));
   trendSec.appendChild(th);
   trendSec.appendChild(sparkline(s.trend,'מגמת חציון של '+s.name));
+  trendSec.appendChild(trendSentence(s.change));
   card.appendChild(trendSec);
 
   var peakSec=el('div','sec');
-  var ph2=el('div','sech'); ph2.appendChild(el('span',null,'שעת השיא שלך'));
+  var ph2=el('div','sech');
+  ph2.appendChild(el('span',null,'מתי אתה הכי מהיר'));
+  ph2.appendChild(el('span','note','לפי השעה שבה הלקוח כתב'));
   peakSec.appendChild(ph2);
-  if(s.bestHour){
-    var pk=el('div');
-    pk.style.fontSize='13px';
-    pk.innerHTML='הכי מהיר כשהלקוח כותב ב-<b>'+hhmm(s.bestHour.hour)+'</b> — חציון '+
-      fmtDur(s.bestHour.medianSeconds)+' <span style="color:var(--muted)">('+s.bestHour.replies+' מענים)</span>';
-    peakSec.appendChild(pk);
+  var bands=s.bands||[];
+  if(bands.length){
+    // The full profile across the day, so it reads as "you are a morning
+    // person" rather than a single hour that could be noise.
+    var slowest=bands.reduce(function(a,b){return b.medianSeconds>a.medianSeconds?b:a;});
+    var maxv=slowest.medianSeconds||1;
+    var tbl=el('div');
+    bands.forEach(function(b){
+      var row=el('div','bar');
+      row.style.gridTemplateColumns='104px 1fr 96px';
+      row.style.marginBottom='5px';
+      var lab=el('div','bl',b.label); lab.style.fontWeight='normal'; lab.style.fontSize='12px';
+      row.appendChild(lab);
+      var track=el('div','track'); track.style.height='12px';
+      var fill=el('div','fill');
+      fill.style.width=Math.max(4,Math.round((b.medianSeconds/maxv)*100))+'%';
+      // Best band gets the accent; the rest stay recessive so the eye lands on it.
+      fill.style.background=(s.bestBand&&b.key===s.bestBand.key)?'var(--ok)':'#c3ccc6';
+      track.appendChild(fill); row.appendChild(track);
+      var v=el('div','bv'); v.innerHTML='<b>'+fmtDur(b.medianSeconds)+'</b> <span>('+b.replies+')</span>';
+      row.appendChild(v);
+      tbl.appendChild(row);
+    });
+    peakSec.appendChild(tbl);
+    if(s.bestBand){
+      var note=el('div');
+      note.style.fontSize='12.5px'; note.style.marginTop='4px';
+      note.innerHTML='הכי מהיר ב<b>'+s.bestBand.label+'</b>'+
+        (s.bestHour?(' · השעה החזקה ביותר: <b>'+hhmm(s.bestHour.hour)+'</b>'):'');
+      peakSec.appendChild(note);
+    }
   } else {
-    peakSec.appendChild(el('div','empty','אין מספיק מענים בשעה אחת כדי לקבוע שעת שיא'));
+    peakSec.appendChild(el('div','empty','אין עדיין מספיק שיחות שנענו כדי לראות פרופיל שעות'));
   }
   card.appendChild(peakSec);
 
@@ -435,13 +494,15 @@ function personCard(s, isMe, windowDays, consistencyDays){
   var ch=el('div','sech');
   ch.appendChild(el('span',null,'עקביות — '+consistencyDays+' הימים האחרונים'));
   var c=s.consistency;
-  ch.appendChild(el('span','note', c&&c.sameDayPct!=null ? (c.sameDayPct+'% נענו באותו יום') : ''));
+  ch.appendChild(el('span','note', c&&c.cleanPct!=null ? (c.cleanDays+' מתוך '+c.totalDays+' ימים נסגרו נקי') : ''));
   consSec.appendChild(ch);
   consSec.appendChild(dayStrip(c));
-  if(c&&c.activeDays){
+  if(c){
     var sum=el('div','empty');
-    sum.style.color='var(--muted)';
-    sum.textContent=c.cleanDays+' מתוך '+c.activeDays+' ימים פעילים נסגרו נקי'+(c.stillOpen?' · '+c.stillOpen+' שיחות עדיין פתוחות':'');
+    sum.style.color = c.openNow ? 'var(--bad)' : 'var(--muted)';
+    sum.textContent = c.openNow
+      ? ('כרגע ממתינות לך ' + c.openNow + ' הודעות — היום עוד לא ייסגר נקי')
+      : 'אין כרגע הודעות ממתינות לך 🎉';
     consSec.appendChild(sum);
   }
   card.appendChild(consSec);
@@ -459,7 +520,7 @@ function personCard(s, isMe, windowDays, consistencyDays){
   btn.addEventListener('click',function(){ openCards[key]=!openCards[key]; render(LAST); });
   bl.appendChild(btn);
   card.appendChild(bl);
-  if(openCards[key]&&items.length) card.appendChild(detailTable(items));
+  if(isOpen) card.appendChild(detailTable(items));
   return card;
 }
 
@@ -478,7 +539,7 @@ function renderBars(f){
     fill.style.width=(row[1]==null?0:row[1])+'%';
     track.appendChild(fill); b.appendChild(track);
     var v=el('div','bv');
-    v.innerHTML='<b>'+pctTxt(row[1])+'</b>'+(row[2]!=null&&f.totalReplies?(' <span>'+row[2]+'/'+f.totalReplies+'</span>'):'');
+    v.innerHTML='<b>'+pctTxt(row[1])+'</b>'+(row[2]!=null&&f.measured?(' <span>'+row[2]+'/'+f.measured+'</span>'):'');
     b.appendChild(v);
     box.appendChild(b);
   });
@@ -497,7 +558,7 @@ function render(d){
   // has no teamMedian the server is older than this page, and the cards would
   // silently fill with dashes. Say so instead.
   var stale=document.getElementById('staleNote');
-  if(f.teamMedianSeconds==null&&(d.staff||[]).some(function(s){return s.replies>0;})){
+  if(f.teamMedianSeconds==null&&(d.staff||[]).some(function(s){return s.measured>0;})){
     stale.className='staleNote'; stale.style.display='';
     stale.innerHTML='⚠ <b>השרת מריץ גרסה ישנה של הדוח.</b> חלק מהמדדים יופיעו ריקים. ' +
       'ודאו ש-<code>lib/staff-response.js</code> ו-<code>lib/staff-metrics.js</code> הועלו בשמות האלה ושה-deploy הסתיים.';
@@ -505,11 +566,12 @@ function render(d){
 
   var cons=f.consistency;
   document.getElementById('kpis').innerHTML=
-    kpi('חציון מענה לכל הודעה',(f.median||'—'),'מה שלקוח טיפוסי מחכה · '+(f.totalReplies||0)+' מענים',true)+
+    kpi('חציון מענה לכל הודעה',(f.median||'—'),
+        'כולל '+(f.openCount||0)+' שממתינות עכשיו · '+(f.measured||0)+' שיחות',true)+
     kpi('חציון הצוות',(f.teamMedian||'—'),'החציון של איש צוות טיפוסי'+(f.teamSize?(' · '+f.teamSize+' אנשים'):''))+
     kpi('ממתינות עכשיו',(f.openTotal!=null?f.openTotal:'—'),((f.required||0)+' דורשות · '+(f.voice||0)+' קוליות'))+
-    kpi('עקביות המשרד',(cons&&cons.sameDayPct!=null?cons.sameDayPct+'%':'—'),
-        cons?(cons.sameDay+' מתוך '+cons.opened+' נענו באותו יום'):'—');
+    kpi('ימים שנסגרו נקי',(cons&&cons.cleanPct!=null?cons.cleanPct+'%':'—'),
+        cons?(cons.cleanDays+' מתוך '+cons.totalDays+' ימים בלי הודעות ממתינות בסוף היום'):'—');
 
   document.getElementById('pctHead').textContent = mine ? 'אחוזי מענה — כל המשרד (לשם השוואה)' : 'אחוזי מענה — כל המשרד';
   renderBars(f);
@@ -536,9 +598,12 @@ function render(d){
   document.getElementById('exclNote').textContent=parts.length?(parts.join(' · ')+'.'):'';
 
   document.getElementById('foot').textContent=
-    'המספרים מחושבים מהיסטוריית ההודעות (processing_jobs). "תוך שעה/4/8" נמדד מרגע ההודעה הראשונה שממתינה ועד המענה הראשון של המשרד. ' +
-    'שעת השיא מחושבת לפי השעה שבה הלקוח כתב. עקביות נזקפת לאחראי על השיחה — והשיוך הוא לפי מי שאחראי עליה היום, ' +
-    'כי שיוך היסטורי לא נשמר. שיחה יורדת מהרשימה מעצמה ברגע שמישהו במשרד עונה בוואטסאפ.';
+    'המספרים מחושבים מהיסטוריית ההודעות (processing_jobs). ' +
+    'החציון והאחוזים כוללים גם שיחות שעדיין ממתינות — לפי הזמן שהן ממתינות עד עכשיו, שהוא רף תחתון. ' +
+    'שיחה שנענתה נזקפת למי שענה בפועל; שיחה שלא נענתה נזקפת לאחראי עליה. ' +
+    'המגמה ופרופיל השעות מחושבים על שיחות שנענו בלבד, כי לשיחה פתוחה אין עדיין שבוע מענה. ' +
+    'יום נספר כ"נסגר נקי" אם בסופו לא נשארה אף הודעה שממתינה לך, לא משנה מתי היא הגיעה. ' +
+    'האחראי נלקח מהמצב הנוכחי — שיוך היסטורי לא נשמר. שיחה יורדת מהרשימה ברגע שמישהו במשרד עונה בוואטסאפ.';
 }
 
 /* ------------------------------------------------------------- the fetch */

@@ -26,18 +26,62 @@ function windowDaysFrom(req) {
   return Math.min(180, Math.max(1, Number.isFinite(n) ? n : 30));
 }
 
+function isAdmin(req) {
+  const roles = (req.session && req.session.roles) || [];
+  return roles.some((r) => String(r).toLowerCase() === 'admin');
+}
+
+// Cut the full report down to what ONE person may see: their own row, plus the
+// firm-wide baselines they are measured against. Everything that would name a
+// colleague is dropped SERVER-SIDE — a page that merely hides other rows is not
+// a permission, it is a suggestion, and the JSON is one devtools tab away.
+//
+// The firm aggregates stay: without the team median and the firm percentiles a
+// personal number means nothing. They are counts and medians over the whole
+// firm, never a per-colleague breakdown.
+function scopeToSelf(data, email) {
+  const me = String(email || '').trim().toLowerCase();
+  const mine = (data.staff || []).filter((s) => String(s.email || '').trim().toLowerCase() === me);
+  const firm = Object.assign({}, data.firm);
+  // A per-person figure that happens to live on the firm object would leak the
+  // roster, so only the aggregate fields survive.
+  delete firm.excluded;
+  return {
+    generatedAt: data.generatedAt,
+    windowDays: data.windowDays,
+    trendWeeks: data.trendWeeks,
+    consistencyDays: data.consistencyDays,
+    scope: 'self',
+    email: me,
+    firm,
+    staff: mine,
+    firmLine: null,
+    unassigned: null,
+    crossCover: [],
+  };
+}
+
 module.exports = function createStaffResponseRouter() {
   const router = express.Router();
 
-  router.get('/api/admin/staff-response', authenticate, requireAdmin, async (req, res) => {
+  // The board. Open to ANY signed-in user now — an admin gets the whole firm,
+  // everyone else gets their own row and the firm baselines, and the cut is made
+  // here on the server. This is what lets the same page serve both audiences.
+  const board = async (req, res) => {
     try {
       const data = await buildStaffResponse({ windowDays: windowDaysFrom(req) });
-      res.json(data);
+      if (isAdmin(req)) return res.json(Object.assign({ scope: 'firm' }, data));
+      return res.json(scopeToSelf(data, req.session && req.session.email));
     } catch (e) {
       console.error('[staff-response] failed:', e.message);
       res.status(500).json({ error: 'failed to build staff response report' });
     }
-  });
+  };
+
+  router.get('/api/staff-response', authenticate, board);
+  // Kept so existing links and bookmarks keep working; same handler, so an
+  // admin sees the same thing at either path.
+  router.get('/api/admin/staff-response', authenticate, board);
 
   // See exactly what the 08:15 email will look like, with today's real numbers,
   // without sending anything. Open it in the browser.

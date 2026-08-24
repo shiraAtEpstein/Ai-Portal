@@ -98,6 +98,13 @@
     </div>
 
     <div class="sidebar-bottom">
+      <!-- Every staff member's own WhatsApp waiting list (public/messages.html).
+           Not admin-gated: the page is scoped to the signed-in person by the
+           server, so there is nothing here to restrict. The badge shows how many
+           are waiting on THEM. -->
+      <button class="admin-btn" id="whatsapp-open-btn" onclick="location.href='/messages.html'">
+        <span data-i18n="waWaiting">💬 Show WhatsApp</span><span id="whatsapp-count"></span>
+      </button>
       <button class="admin-btn gmail-btn" id="gmail-connect-btn">🔗 Connect Gmail</button>
       <button class="admin-btn" id="activity-open-btn" data-i18n="activityLog">📋 Activity Log</button>
      <!--   <button style="display:none" class="admin-btn" id="marketing-open-btn">📣 Marketing</button> -->
@@ -335,6 +342,7 @@
 <script src="/js/daily.js"></script>
 <script src="/js/boot.js"></script>
 <script src="/js/agentpicker.js"></script>
+<script src="/js/wa-button.js"></script>
 
 </body>
 </html>

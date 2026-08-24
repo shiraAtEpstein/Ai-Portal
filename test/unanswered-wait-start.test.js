@@ -104,6 +104,46 @@ test('an unclassified message still starts a wait — the fail-safe flags, never
   }
 });
 
+test('a STAFF thumbs-up counts as an answer and closes the wait', { skip: !URL_ }, async () => {
+  process.env.DATABASE_URL = URL_;
+  const { Pool } = require('pg');
+  const pool = new Pool({ connectionString: URL_ });
+  const ingest = require('../whatsapp/ingest/db');
+  try {
+    // Shira's rule, and the right one: when the partner puts a 👍 on a client's
+    // document that IS him saying "seen, fine". Dropping it would leave the
+    // client's message looking unanswered when it plainly was not.
+    await seed(pool, [
+      ['x', 'in', '718757311', null, '2026-08-24 06:00:00+00', 'required', null],           // client asks
+      ['y', 'in', '546422750', '546422750', '2026-08-24 06:05:00+00', null, 'reactionMessage'], // staff 👍
+    ]);
+    const chats = await ingest.listUnansweredChats({ hours: 0, staffPhones: STAFF });
+    assert.strictEqual(chats.length, 0, "a staffer's 👍 is an answer — the chat must clear");
+  } finally {
+    await pool.end().catch(() => {});
+  }
+});
+
+test('a CLIENT thumbs-up on the same question does NOT answer it', { skip: !URL_ }, async () => {
+  process.env.DATABASE_URL = URL_;
+  const { Pool } = require('pg');
+  const pool = new Pool({ connectionString: URL_ });
+  const ingest = require('../whatsapp/ingest/db');
+  try {
+    // The mirror image, and the reason the filter is by SENDER and not by kind.
+    await seed(pool, [
+      ['x', 'in', '718757311', null, '2026-08-24 06:00:00+00', 'required', null],
+      ['y', 'in', '718757311', null, '2026-08-24 06:05:00+00', 'none', 'reactionMessage'],
+    ]);
+    const [chat] = await ingest.listUnansweredChats({ hours: 0, staffPhones: STAFF });
+    assert.ok(chat, 'the question is still unanswered');
+    assert.strictEqual(new Date(chat.firstUnansweredAt).toISOString(), '2026-08-24T06:00:00.000Z');
+    assert.strictEqual(chat.unansweredCount, 1, "the client's own 👍 must not pad the count");
+  } finally {
+    await pool.end().catch(() => {});
+  }
+});
+
 test('a chat whose only new arrivals are reactions leaves the board', { skip: !URL_ }, async () => {
   process.env.DATABASE_URL = URL_;
   const { Pool } = require('pg');

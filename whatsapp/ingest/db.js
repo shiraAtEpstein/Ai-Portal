@@ -15,6 +15,22 @@ const businessHours = require('../../lib/business-hours');
 // working-clock import so the two can never name different places.
 const TZ_SQL = businessHours.config().timezone;
 
+// Rows that are NOT somebody asking for something. A 👍 reaction, a delivery
+// receipt, a key-exchange record: all arrive down the same pipe as a real
+// message, and counting one as an unanswered client message starts a wait that
+// can never be answered — you cannot reply to a thumbs-up.
+//
+// Kept deliberately SHORT. Anything not on this list, and anything not yet
+// classified (msg_kind IS NULL), still counts — the fail-safe runs toward
+// flagging a message, never toward hiding one.
+const NON_MESSAGE_KINDS = [
+  'reactionMessage',           // 👍 on someone else's message (Baileys)
+  'reaction',                  // the same thing from the Cloud API / history shape
+  'protocolMessage',           // revokes, ephemeral-setting changes, app state
+  'senderKeyDistributionMessage',
+  'messageContextInfo',
+];
+
 let ensured = false;
 async function ensureTables() {
   if (ensured) return;
@@ -148,6 +164,18 @@ async function ensureTables() {
   // it was really sent. NULL for rows not yet backfilled -> falls back to
   // created_at via COALESCE.
   await p.query(`ALTER TABLE processing_jobs ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;`);
+  // WHAT KIND of message this row is — 'conversation', 'audioMessage',
+  // 'reactionMessage', … Filled at ingest from the payload, backfilled for
+  // history by backfillMsgKind(). It exists for one reason: the payload is
+  // encrypted, so SQL cannot tell a real message from a 👍, and a reaction was
+  // opening an "unanswered" wait that nobody could ever close — a chat answered
+  // the same morning read as twelve days overdue. NULL means "not classified
+  // yet" and is treated as a real message, never dropped.
+  await p.query(`ALTER TABLE processing_jobs ADD COLUMN IF NOT EXISTS msg_kind TEXT;`);
+  await p.query(
+    `CREATE INDEX IF NOT EXISTS idx_pj_msg_kind_missing
+       ON processing_jobs (created_at) WHERE msg_kind IS NULL;`
+  );
   await p.query(
     `CREATE INDEX IF NOT EXISTS idx_pj_sent_at_missing
        ON processing_jobs (created_at) WHERE sent_at IS NULL;`
@@ -482,6 +510,9 @@ async function enqueueJob({
   payloadObj,
   ts_seconds, // WhatsApp send time (messageTimestamp), seconds since epoch
 } = {}) {
+  // Derived here rather than at the call site so every ingest path — live
+  // socket, history sync, replay — records it the same way.
+  const kind = (() => { try { return messageKind(payloadObj); } catch (_) { return null; } })();
   await ensureTables();
   const p = getPool();
   if (!p) return null;
@@ -497,9 +528,9 @@ async function enqueueJob({
   const sentSeconds = Number.isFinite(tsNum) && tsNum > 0 ? tsNum : null;
   const r = await p.query(
     `INSERT INTO processing_jobs
-       (source, source_item_id, chat_jid, is_group, direction, sender_phone, sender_staff_phone9, contact_id, deal_id, payload_encrypted, sent_at)
+       (source, source_item_id, chat_jid, is_group, direction, sender_phone, sender_staff_phone9, contact_id, deal_id, payload_encrypted, sent_at, msg_kind)
      VALUES ('whatsapp', $1, $2, $3, $4, $5, $6, $7, $8, $9,
-             CASE WHEN $10::double precision IS NULL THEN NULL ELSE to_timestamp($10::double precision) END)
+             CASE WHEN $10::double precision IS NULL THEN NULL ELSE to_timestamp($10::double precision) END, $11)
      ON CONFLICT (source, source_item_id) DO NOTHING
      RETURNING id`,
     [
@@ -513,6 +544,7 @@ async function enqueueJob({
       deal_id || null,
       payloadEncrypted,
       sentSeconds,
+      kind,
     ]
   );
   return (r.rows[0] && r.rows[0].id) || null;
@@ -814,9 +846,21 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
      -- redelivered late after a reconnect is still timed from when it was SENT.
      base AS (
        SELECT chat_jid, direction, sender_phone, sender_staff_phone9, payload_encrypted, contact_id, is_group,
+              client_category,
               COALESCE(sent_at, created_at) AS eff_at
        FROM processing_jobs
        WHERE source = 'whatsapp' AND chat_jid IS NOT NULL AND deleted_at IS NULL
+         -- A 👍 is not a question. Reactions and protocol records arrive down
+         -- the same pipe as real messages, and one sitting under the firm's
+         -- last answer opened a wait nobody could ever close: a chat answered
+         -- that morning read as twelve days overdue, because the reaction —
+         -- not the client — was holding the clock.
+         --
+         -- Dropped from the base set entirely, so such a row is neither a client
+         -- message that starts a wait nor a firm reply that ends one.
+         -- msg_kind IS NULL means "not classified yet" and still counts: the
+         -- fail-safe runs toward flagging a message, never toward hiding one.
+         AND (msg_kind IS NULL OR msg_kind <> ALL($2::text[]))
      ),
      -- "firm side" = the message was sent by a staffer: an outbound Lawly-line
      -- message, a resolved staff sender (by phone OR display name), or a raw
@@ -841,7 +885,7 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
      -- all of them if the firm never replied). This is the "unanswered block".
      block AS (
        SELECT b.chat_jid, b.eff_at, b.payload_encrypted, b.contact_id,
-              b.is_group, b.sender_phone
+              b.is_group, b.sender_phone, b.client_category
        FROM base b
        JOIN per_chat pc ON pc.chat_jid = b.chat_jid
        WHERE b.direction = 'in'
@@ -851,7 +895,22 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
      ),
      block_agg AS (
        SELECT chat_jid,
-              MIN(eff_at) AS first_unanswered_at,   -- oldest waiting message
+              -- WHERE THE WAIT REALLY STARTS.
+              --
+              -- Not simply the oldest message in the block. The triage already
+              -- classifies every client message (client_category): 'none' is a
+              -- closer — a 👍, a "תודה", a plain FYI — and nobody can reply to
+              -- one. A chat answered at 09:00 and then reacted to at 12:01 was
+              -- reading as TWELVE DAYS overdue, because the reaction was
+              -- holding the clock and no answer could ever release it.
+              --
+              -- So the wait starts at the oldest message that plausibly wants
+              -- an answer. Anything not yet classified (NULL) counts as wanting
+              -- one: the fail-safe runs toward flagging, never toward hiding.
+              MIN(eff_at) FILTER (
+                WHERE COALESCE(client_category, 'unclassified') <> 'none'
+              ) AS first_needing_reply_at,
+              MIN(eff_at) AS first_unanswered_at,   -- oldest message of any kind
               MAX(eff_at) AS last_unanswered_at,
               COUNT(*)        AS msg_count,
               bool_or(is_group) AS is_group,
@@ -866,12 +925,13 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
             pc.last_client_at,
             pc.last_firm_at,
             ba.first_unanswered_at,
+            ba.first_needing_reply_at,
             ba.last_unanswered_at,
             ba.msg_count,
             ba.payloads,
             ba.is_group,
             ba.last_client_phone,
-            ROUND(EXTRACT(EPOCH FROM (now() - ba.first_unanswered_at)) / 3600.0, 1) AS hours_waiting,
+            ROUND(EXTRACT(EPOCH FROM (now() - COALESCE(ba.first_needing_reply_at, ba.first_unanswered_at))) / 3600.0, 1) AS hours_waiting,
             g.name AS group_name,
             g.participant_phones,
             c.monday_client_name,
@@ -885,7 +945,7 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
      LEFT JOIN unanswered_dismissals dz ON dz.chat_jid = pc.chat_jid
      WHERE pc.last_client_at IS NOT NULL
      ORDER BY pc.last_client_at DESC`,
-    [staff]
+    [staff, NON_MESSAGE_KINDS]
   );
 
   const out = [];
@@ -901,7 +961,11 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
     //   calendarHoursWaiting — REAL elapsed hours. Feeds everything a person
     //                          READS: the wait beside each row, the ops
     //                          dashboard's oldest/aging figures, the ordering.
-    const waited = hasBlock ? businessHours.businessHoursBetween(row.first_unanswered_at, Date.now()) : null;
+    // The instant the clock really starts — see first_needing_reply_at above.
+    // Falls back to the oldest message when every one of them is a closer, in
+    // which case the chat-level triage will almost certainly drop it anyway.
+    const waitFrom = row.first_needing_reply_at || row.first_unanswered_at;
+    const waited = hasBlock ? businessHours.businessHoursBetween(waitFrom, Date.now()) : null;
     const calendarWaited = hasBlock && row.hours_waiting != null ? Number(row.hours_waiting) : null;
     // ── WHY THE THRESHOLD STAYS ON THE WALL CLOCK ──────────────────────────
     // The `hours` threshold answers "is this old enough to bother somebody
@@ -967,7 +1031,8 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
       hoursWaiting: waited,               // WORKING hours — response-speed metrics only
       calendarHoursWaiting: calendarWaited, // REAL elapsed hours — what people read
       lastInboundAt: row.last_client_at,
-      firstUnansweredAt: row.first_unanswered_at,
+      firstUnansweredAt: waitFrom,                 // what every wait is shown from
+      oldestInBlockAt: row.first_unanswered_at,    // including closers — diagnostics
       unansweredCount: msgCount,
       lastClientPhone: row.last_client_phone || null, // last-9 digits, for a wa.me link
       responsibleEmail: row.responsible_email == null ? null : String(row.responsible_email), // '' = resolved to default owner; null = not resolved yet
@@ -981,8 +1046,46 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
   // overnight has zero working hours, the whole batch ties, and the genuinely
   // oldest message stops heading the list. The timestamp cannot tie.
   out.sort((a, b) => new Date(a.firstUnansweredAt).getTime() - new Date(b.firstUnansweredAt).getTime());
+
   console.log(`[unanswered/why] ${out.length} chat(s) TAKEN out of ${r.rows.length} chat(s) with a client message`);
   return out;
+}
+
+// Backfill msg_kind for rows ingested before the column existed. Same shape and
+// the same idempotence as backfillSentAt: only touches NULLs, bounded per pass,
+// and rows it cannot read are stamped 'unknown' so they are not rescanned
+// forever. Run from the scheduler's periodic maintenance pass.
+//
+// Until a row is backfilled its msg_kind is NULL and it counts as a real
+// message — the fail-safe is to flag, never to hide.
+async function backfillMsgKind({ limit = 200 } = {}) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return { scanned: 0, filled: 0, reactions: 0 };
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 200, 1), 1000);
+  const r = await p.query(
+    `SELECT id, payload_encrypted FROM processing_jobs
+     WHERE source = 'whatsapp' AND msg_kind IS NULL
+     ORDER BY created_at DESC LIMIT $1`,
+    [lim]
+  );
+  let filled = 0, reactions = 0;
+  for (const row of r.rows) {
+    let kind = 'unknown';
+    try {
+      const json = enc.decrypt(row.payload_encrypted || '');
+      const msg = json ? JSON.parse(json) : null;
+      kind = messageKind(msg) || 'unknown';
+    } catch (_) { /* unreadable -> 'unknown', still a real message */ }
+    await p.query(`UPDATE processing_jobs SET msg_kind = $2 WHERE id = $1 AND msg_kind IS NULL`, [row.id, kind]);
+    filled++;
+    if (NON_MESSAGE_KINDS.indexOf(kind) !== -1) reactions++;
+  }
+  if (r.rows.length) {
+    console.log(`[msg-kind-backfill] scanned ${r.rows.length}, filled ${filled}` +
+      (reactions ? `, ${reactions} of them reactions/receipts that will stop holding a wait open` : ''));
+  }
+  return { scanned: r.rows.length, filled, reactions };
 }
 
 // ============================================================================
@@ -1262,6 +1365,8 @@ module.exports = {
   applyTaskUpdate,
   listUnansweredChats,
   diagnoseChat,
+  backfillMsgKind,
+  NON_MESSAGE_KINDS,
   undismissChat,
   listDismissals,
   setResponsibleOverride,

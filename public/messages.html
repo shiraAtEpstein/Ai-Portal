@@ -3,102 +3,159 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>הודעות שממתינות למענה · Lawly</title>
+  <title>הוואטסאפים שלי · Lawly</title>
+  <!--
+    ==========================================================================
+    public/messages.html — "הוואטסאפים שלי".
+
+    The personal cut of the control board (public/Board.html): the SAME design,
+    the SAME statuses, and the SAME two edits — change the status, change the
+    אחראי — but showing only the chats routed to the signed-in person.
+
+    Deliberately identical to Board.html rather than a simplified cousin: a
+    person who is shown a shorter version of a colleague's screen has to learn
+    two screens, and the two then drift apart every time one of them is touched.
+
+    The scoping is done SERVER-SIDE by GET /api/me/board. This page never
+    receives another person's chats, so there is nothing here to hide. An admin
+    gets a שלי / כל המשרד toggle; for anyone else the request for the firm view
+    is refused by the server, not by this file.
+
+    TWO CLOCKS: the wait shown against a row is REAL elapsed time, worded by the
+    server (lib/wait-label.js) — sent today in hours, any earlier day in days.
+    The working clock (08:00–22:00, no Saturday — lib/business-hours.js) is what
+    the response-SPEED figures on /staff-response.html are measured on, and it
+    appears here only in the footnote.
+    ==========================================================================
+  -->
   <style>
     :root{
       --ink:#1f2430; --muted:#8a9099; --teal:#6e8b7c; --clientteal:#93a08f;
-      --amber:#c08a2d; --red:#b4462f; --line:#eceef1; --card:#ffffff; --bg:#f4f4f6;
-      --dark:#2b2f38;
+      --amber:#c08a2d; --red:#b4462f; --line:#eceef1; --card:#fff; --bg:#f4f4f6; --dark:#2b2f38;
     }
     *{box-sizing:border-box}
     body{margin:0;background:var(--bg);font-family:Arial,Helvetica,sans-serif;color:var(--ink);direction:rtl;}
-    .wrap{max-width:680px;margin:0 auto;padding:24px 16px 48px;}
-    .card{background:var(--card);border:1px solid #e2e3e7;border-radius:12px;overflow:hidden;}
-    header{background:var(--dark);padding:22px 26px;}
+    .wrap{max-width:980px;margin:0 auto;padding:24px 16px 56px;}
+    .card{background:var(--card);border:1px solid #e2e3e7;border-radius:12px;overflow:hidden;margin-bottom:18px;}
+    header{background:var(--dark);padding:22px 26px;display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:12px;}
     header .kicker{color:#9aa1ac;font-size:12px;letter-spacing:.3px;margin-bottom:6px;}
-    header h1{color:#fff;font-size:21px;margin:0;font-weight:bold;}
-    .bar{display:flex;align-items:center;justify-content:space-between;padding:14px 26px 6px;font-size:13px;color:var(--muted);}
-    .bar button{font:inherit;color:#2b2f38;background:#eef0f2;border:1px solid #e2e3e7;border-radius:6px;padding:6px 14px;cursor:pointer;}
-    .bar button:hover{background:#e6e9ec;}
-    .scope{font-weight:bold;color:#6b7280;}
+    header h1{color:#fff;font-size:20px;margin:0;font-weight:bold;}
+    header .btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+    header button{font:inherit;border-radius:6px;border:1px solid #4a4f59;background:#3a3f49;color:#e8eaee;padding:7px 14px;cursor:pointer;}
+    header button:hover{background:#454b56;}
+    header button:disabled{opacity:.55;cursor:default;}
+    header a.back{color:#9aa1ac;font-size:13px;text-decoration:none;padding:7px 4px;}
+    header a.back:hover{color:#e8eaee;}
+    .scopebtns{display:flex;border:1px solid #4a4f59;border-radius:6px;overflow:hidden;}
+    .scopebtns button{border:0;border-radius:0;padding:7px 13px;}
+    .scopebtns button.on{background:#e8eaee;color:#2b2f38;font-weight:bold;}
+    .counts{display:flex;gap:14px;padding:14px 26px 4px;font-size:13px;color:var(--muted);flex-wrap:wrap;}
+    .counts b{color:var(--ink);}
     table{width:100%;border-collapse:collapse;}
-    th{font-size:12px;color:var(--muted);font-weight:bold;text-align:right;padding:6px 24px 8px;border-bottom:1px solid var(--line);}
-    th.time{text-align:left;}
-    td{padding:13px 24px;border-bottom:1px solid var(--line);vertical-align:top;}
-    td.time{text-align:left;font-size:14px;white-space:nowrap;font-weight:bold;}
-    .label{font-size:15px;font-weight:bold;color:var(--ink);}
+    th{font-size:12px;color:var(--muted);font-weight:bold;text-align:right;padding:10px 16px 8px;border-bottom:1px solid var(--line);}
+    th.time,th.status{text-align:center;}
+    td{padding:12px 16px;border-bottom:1px solid var(--line);vertical-align:top;font-size:14px;}
+    td.time{text-align:center;white-space:nowrap;font-weight:bold;}
+    td.status{text-align:center;white-space:nowrap;}
+    .label{font-weight:bold;color:var(--ink);}
     .label a{color:var(--ink);text-decoration:none;}
     .chatlink{color:#0a7cff;font-size:12px;font-weight:normal;}
-    .client{font-size:13px;color:var(--clientteal);margin-top:3px;}
-    .state{padding:40px 26px;text-align:center;color:var(--muted);font-size:15px;line-height:1.7;}
-    .empty{padding:44px 26px;text-align:center;color:#3f8f6a;font-size:16px;}
-    .foot{padding:14px 26px 22px;font-size:11.5px;color:#aab0b8;line-height:1.7;border-top:1px solid var(--line);}
-    .err{color:var(--red);}
-    select{font:inherit;font-size:13px;border:1px solid #d9dce1;border-radius:6px;padding:5px 8px;background:#fff;color:var(--ink);max-width:180px;}
+    .client{font-size:13px;color:var(--clientteal);margin-top:2px;}
+    .resp{font-size:13px;color:#565a62;}
+    .addr{color:#0a7cff;font-size:11px;font-weight:bold;margin-inline-start:6px;white-space:nowrap;}
+    .manual{color:#6e8b7c;font-size:11px;font-weight:bold;margin-inline-start:6px;white-space:nowrap;}
+    .shared{color:#8a6bd0;font-size:11px;font-weight:bold;margin-inline-start:6px;white-space:nowrap;}
+    .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:bold;color:#fff;}
+    .b-required{background:var(--red);}
+    .b-potential{background:var(--amber);}
+    .b-pending{background:#9aa0a8;}
+    .b-voice{background:#5b6bd0;}
+    select{font:inherit;font-size:13px;border:1px solid #d9dce1;border-radius:6px;padding:5px 8px;background:#fff;color:var(--ink);max-width:190px;}
     select:disabled{opacity:.5;}
     tr.saving{opacity:.45;}
     tr.done{opacity:0;transition:opacity .35s ease;}
     .rowerr{color:var(--red);font-size:12px;margin-top:5px;}
+    .state{padding:38px 26px;text-align:center;color:var(--muted);font-size:15px;line-height:1.7;}
+    .empty{padding:44px 26px;text-align:center;color:#3f8f6a;font-size:16px;}
+    .foot{padding:14px 26px 22px;font-size:11.5px;color:#aab0b8;line-height:1.7;border-top:1px solid var(--line);}
+    .err{color:var(--red);}
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
       <header>
-        <div class="kicker">משרד אפשטיין · Lawly</div>
-        <h1>הודעות שממתינות למענה</h1>
+        <div>
+          <div class="kicker">משרד אפשטיין · Lawly</div>
+          <h1>הוואטסאפים שלי — הודעות שממתינות למענה</h1>
+        </div>
+        <div class="btns">
+          <div class="scopebtns" id="scopeBtns" hidden>
+            <button id="scopeMine" type="button" class="on">שלי</button>
+            <button id="scopeAll" type="button">כל המשרד</button>
+          </div>
+          <button id="refresh" type="button">רענון</button>
+          <a class="back" href="/">← חזרה ללולי</a>
+        </div>
       </header>
-      <div class="bar">
-        <div id="scope" class="scope"></div>
-        <button id="refresh" type="button">רענון</button>
-      </div>
-      <div id="content">
-        <div class="state">טוען…</div>
-      </div>
+      <div class="counts" id="counts"></div>
+      <div id="content"><div class="state">טוען…</div></div>
       <div class="foot">
-        הרשימה מתעדכנת אוטומטית. שיחה יורדת מהרשימה ברגע שמישהו במשרד עונה בוואטסאפ.
+        כל שיחה שממתינה למענה שלך מופיעה כאן עם הסטטוס, זמן ההמתנה והאחראי.
+        ברגע שמישהו במשרד עונה בוואטסאפ — היא יורדת מהרשימה מעצמה.
+        אפשר גם לסמן «נענה» או «לא דורש מענה», ולשנות אחראי. אם הלקוח יכתוב שוב, השיחה תחזור.
+        <span id="clockNote"></span>
         <span id="updated"></span>
       </div>
     </div>
   </div>
 
   <script>
-    // Natural-Hebrew wait label — mirrors lib/unanswered-digest.js waitLabel().
-    function waitLabel(h){
-      var n = Number(h);
-      if(!isFinite(n)) return '';
-      if(n >= 24){
-        var d = Math.round(n/24);
-        if(d === 1) return 'יום';
-        if(d === 2) return 'יומיים';
-        return d + ' ימים';
-      }
-      var hr = Math.max(1, Math.round(n));
-      if(hr === 1) return 'שעה';
-      if(hr === 2) return 'שעתיים';
-      return hr + ' שעות';
-    }
-    // Urgency colour by how long it's been waiting.
-    function waitColor(h){
-      var n = Number(h) || 0;
-      if(n >= 72) return 'var(--red)';
-      if(n >= 24) return 'var(--amber)';
-      return 'var(--teal)';
-    }
-    function el(tag, cls, text){
-      var e = document.createElement(tag);
-      if(cls) e.className = cls;
-      if(text != null) e.textContent = text;
-      return e;
-    }
+    /* The label of the firm's WORKING clock, from /api/board/meta, used only in
+       the footnote — it is the clock the response-speed figures are measured
+       on, not the clock these rows are shown in. */
+    var clock = { label:'8:00–22:00, ללא שבת' };
+
+    /* The wording next to a row comes from the SERVER (lib/wait-label.js) as
+       `waitedLabel`, already phrased Shira's way: sent today -> hours, any
+       older day -> days ("אתמול", "לפני 4 ימים"). Built there rather than here
+       so every screen and both emails say the same thing, and so "today" means
+       the firm's today rather than the viewer's.
+
+       Note this is REAL elapsed time, deliberately. The working clock
+       (08:00-22:00, no Saturday) is what the response-speed figures are
+       measured on — see /staff-response.html — but a client who wrote on
+       Thursday has been waiting since Thursday, and this list is for acting,
+       not for scoring. */
+    /* Colour comes from the SERVER as `waitedTone`, decided from the same
+       calendar-day count the words are built from, so the two can never
+       contradict each other. An hours threshold looked equivalent and was not:
+       a message sent at 23:50 and read at 00:10 says "אתמול" and is 0.3 hours
+       old, and an hours rule painted it calm-green under that word. */
+    var TONE_COLOR = { ok:'var(--teal)', warn:'var(--amber)', bad:'var(--red)' };
+    function toneColor(t){ return TONE_COLOR[t] || TONE_COLOR.ok; }
+    function el(t,c,x){ var e=document.createElement(t); if(c)e.className=c; if(x!=null)e.textContent=x; return e; }
 
     var content = document.getElementById('content');
-    var scopeEl = document.getElementById('scope');
+    var countsEl = document.getElementById('counts');
     var updatedEl = document.getElementById('updated');
-    // Hand-settable statuses (נענה / לא דורש מענה) come from the server so the
-    // labels stay in one place — config/board-statuses.json.
-    var statuses = [];
+    var clockNoteEl = document.getElementById('clockNote');
+    var refreshBtn = document.getElementById('refresh');
+    var scopeBtns = document.getElementById('scopeBtns');
+    var scopeMineBtn = document.getElementById('scopeMine');
+    var scopeAllBtn = document.getElementById('scopeAll');
+    var loading = false;
+    var scope = 'mine';
+    var meta = { statuses: [], staff: [], isAdmin: false, email: null };
 
+    function badge(status){
+      var map = { required:['🔴 ממתין למענה','b-required'], potential:['🟡 אולי דורש מענה','b-potential'], voice:['🎤 הודעה קולית','b-voice'], pending:['⏳ בבדיקה','b-pending'] };
+      var m = map[status] || map.pending;
+      return el('span','badge ' + m[1], m[0]);
+    }
+
+    /* POST helper — surfaces the server's own Hebrew message when there is one,
+       including the 403 a person gets for a chat that is not theirs. */
     function post(url, body){
       return fetch(url, {
         method:'POST', credentials:'include', cache:'no-store',
@@ -116,18 +173,29 @@
       return fetch('/api/board/meta', { credentials:'include', cache:'no-store', headers:{ Accept:'application/json' } })
         .then(function(r){ if(!r.ok) throw new Error('meta'); return r.json(); })
         .then(function(m){
-          statuses = ((m && m.statuses) || []).filter(function(s){ return s.setBy === 'staff' && s.clears; });
+          meta = m || meta;
+          if(meta.clock){ clock = meta.clock; }
+          clockNoteEl.textContent = ' הזמן שליד כל שיחה הוא הזמן שעבר מאז שהלקוח כתב. מהירות המענה במדדים נמדדת בשעות עבודה בלבד (' + (clock.label || '') + ').';
+          if(meta.isAdmin) scopeBtns.hidden = false;
+          return meta;
         })
-        .catch(function(){ statuses = []; }); // list still renders read-only
+        .catch(function(){ return meta; }); // the list still renders, read-only
     }
 
-    // Per-row status dropdown. The server re-checks that the caller is the
-    // assignee (or an admin) before anything is cleared.
+    function setRowDisabled(tr, on){
+      var sels = tr.querySelectorAll('select');
+      for(var i=0;i<sels.length;i++) sels[i].disabled = !!on;
+    }
+
+    /* "שינוי סטטוס" — only the hand-settable statuses that clear the row
+       (נענה / לא דורש מענה). The AI statuses are the badge and are not settable
+       by hand: the classifier owns them and would overwrite a manual value on
+       the next rebuild. */
     function statusSelect(it, tr, errBox){
       var sel = document.createElement('select');
       var ph = document.createElement('option');
       ph.value = ''; ph.textContent = 'שינוי סטטוס…'; sel.appendChild(ph);
-      statuses.forEach(function(s){
+      meta.statuses.filter(function(s){ return s.setBy === 'staff' && s.clears; }).forEach(function(s){
         var o = document.createElement('option');
         o.value = s.key; o.textContent = (s.icon ? s.icon + ' ' : '') + s.label;
         sel.appendChild(o);
@@ -137,114 +205,208 @@
         var chosen = sel.value;
         sel.value = '';
         errBox.textContent = '';
-        sel.disabled = true;
         tr.classList.add('saving');
+        setRowDisabled(tr, true);
         post('/api/board/status', { chatJid: it.chatJid, status: chosen })
           .then(function(){ tr.classList.add('done'); setTimeout(load, 400); })
           .catch(function(e){
-            sel.disabled = false;
-            tr.classList.remove('saving');
+            tr.classList.remove('saving'); setRowDisabled(tr, false);
             errBox.textContent = e.message || 'לא ניתן לעדכן.';
           });
       });
       return sel;
     }
 
-    function render(data){
-      scopeEl.textContent = data.isAdmin ? 'תצוגת כל המשרד' : 'ההודעות שלך';
+    /* אחראי — every staff member, plus (when the chat was assigned by hand) an
+       option to drop the override and go back to automatic routing.
+       Reassigning a chat to somebody else removes it from YOUR list on the next
+       load, which is the intended way to hand a message over. */
+    function responsibleSelect(it, tr, errBox){
+      var sel = document.createElement('select');
+      var cur = (it.responsibleEmails && it.responsibleEmails.length === 1) ? it.responsibleEmails[0] : '';
+      var known = meta.staff.some(function(s){ return s.email === cur; });
+      if(!cur || !known){
+        var keep = document.createElement('option');
+        keep.value = '__keep__';
+        keep.textContent = it.responsibleName || '—';
+        sel.appendChild(keep);
+      }
+      meta.staff.forEach(function(s){
+        var o = document.createElement('option');
+        o.value = s.email; o.textContent = s.name;
+        if(s.email === cur) o.selected = true;
+        sel.appendChild(o);
+      });
+      if(it.manualAssigned){
+        var clr = document.createElement('option');
+        clr.value = '__clear__'; clr.textContent = '↺ חזרה לשיוך אוטומטי';
+        sel.appendChild(clr);
+      }
+      sel.addEventListener('change', function(){
+        var v = sel.value;
+        if(v === '__keep__') return;
+        errBox.textContent = '';
+        tr.classList.add('saving');
+        setRowDisabled(tr, true);
+        post('/api/board/responsible', { chatJid: it.chatJid, email: v === '__clear__' ? '' : v })
+          .then(function(){ setTimeout(load, 200); })
+          .catch(function(e){
+            tr.classList.remove('saving'); setRowDisabled(tr, false);
+            errBox.textContent = e.message || 'לא ניתן לשנות אחראי.';
+          });
+      });
+      return sel;
+    }
+
+    /* The toggle's lit state is derived from what the SERVER returned, never
+       from what was clicked. Setting it optimistically left the button lit on
+       "כל המשרד" after a 403 while the table showed an error — and the 3-minute
+       auto-refresh then kept re-requesting the rejected scope forever. */
+    function paintScope(active){
+      scopeMineBtn.classList.toggle('on', active !== 'firm');
+      scopeAllBtn.classList.toggle('on', active === 'firm');
+    }
+
+    function render(d){
+      scope = d.scope === 'firm' ? 'all' : 'mine';
+      paintScope(d.scope);
+      var items = d.items || [];
+      var nReq = items.filter(function(x){return x.status==='required';}).length;
+      var nPot = items.filter(function(x){return x.status==='potential';}).length;
+      var nVoice = items.filter(function(x){return x.status==='voice';}).length;
+
+      countsEl.innerHTML = '';
+      countsEl.appendChild(el('span', null, (d.scope === 'firm' ? 'כל המשרד — ממתינות: ' : 'ממתינות עליך: ')));
+      countsEl.appendChild(el('b', null, String(items.length)));
+      countsEl.appendChild(el('span', null, '  ·  🔴 ' + nReq + '   🟡 ' + nPot + '   🎤 ' + nVoice));
+
       content.innerHTML = '';
-      var items = data.items || [];
       if(!items.length){
-        content.appendChild(el('div','empty','אין כרגע הודעות שממתינות למענה 🎉'));
-        stampUpdated();
-        return;
+        content.appendChild(el('div','empty', d.scope === 'firm'
+          ? 'אין כרגע הודעות שממתינות למענה 🎉'
+          : 'אין כרגע הודעות שממתינות לך 🎉'));
+        stamp(); return;
       }
       var table = el('table');
-      var thead = el('tr');
-      thead.appendChild(el('th', null, 'שיחה / לקוח'));
-      thead.appendChild(el('th', 'time', 'זמן המתנה'));
-      if(statuses.length) thead.appendChild(el('th', null, 'פעולה'));
-      table.appendChild(thead);
+      var hr = el('tr');
+      hr.appendChild(el('th', null, 'שיחה / לקוח'));
+      hr.appendChild(el('th', 'status', 'סטטוס'));
+      hr.appendChild(el('th', 'time', 'נשלחה'));
+      hr.appendChild(el('th', null, 'אחראי'));
+      hr.appendChild(el('th', null, 'פעולה'));
+      table.appendChild(hr);
 
       items.forEach(function(it){
         var tr = el('tr');
         var errBox = el('div','rowerr');
+
         var nameTd = el('td');
-        var label = el('div','label');
+        /* The chat NAME is plain text and the wa.me link is a separate, small
+           target. The stored phone is only the last nine digits and the link is
+           built by prefixing 972, so a non-Israeli client's number becomes a
+           plausible but wrong Israeli one. Making the row's name the link meant
+           the obvious click could open a chat with a stranger; opening the
+           wrong conversation now takes a deliberate click on the small link. */
+        var label = el('div','label', it.label || '');
+        nameTd.appendChild(label);
         if(it.link){
           var a = document.createElement('a');
+          a.className = 'chatlink';
           a.href = it.link; a.target = '_blank'; a.rel = 'noopener';
-          a.textContent = it.label || '';
-          label.appendChild(a);
-          var lk = el('span','chatlink',' ↗ פתיחת צ׳אט');
-          label.appendChild(lk);
-        } else {
-          label.textContent = it.label || '';
+          a.textContent = '↗ פתיחת צ׳אט';
+          nameTd.appendChild(a);
         }
-        nameTd.appendChild(label);
-        if(it.clientName){ nameTd.appendChild(el('div','client', it.clientName)); }
+        if(it.clientName) nameTd.appendChild(el('div','client', it.clientName));
         nameTd.appendChild(errBox);
         tr.appendChild(nameTd);
 
-        var timeTd = el('td','time', waitLabel(it.hoursWaiting));
-        timeTd.style.color = waitColor(it.hoursWaiting);
-        tr.appendChild(timeTd);
+        var stTd = el('td','status'); stTd.appendChild(badge(it.status)); tr.appendChild(stTd);
 
-        if(statuses.length){
-          var actTd = el('td');
-          if(it.chatJid) actTd.appendChild(statusSelect(it, tr, errBox));
-          tr.appendChild(actTd);
+        var tmTd = el('td','time', it.waitedLabel || '—');
+        tmTd.style.color = toneColor(it.waitedTone);
+        if(it.waitedSince) tmTd.title = new Date(it.waitedSince).toLocaleString('he-IL');
+        tr.appendChild(tmTd);
+
+        var respTd = el('td','resp');
+        if(meta.staff && meta.staff.length){
+          respTd.appendChild(responsibleSelect(it, tr, errBox));
+        } else {
+          respTd.appendChild(document.createTextNode(it.responsibleName || '—'));
         }
+        if(it.addressed){ respTd.appendChild(el('span','addr','↩ פנייה בשם')); }
+        if(it.manualAssigned){ respTd.appendChild(el('span','manual','✎ שויך ידנית')); }
+        /* A chat routed to two people appears on BOTH their lists — that is the
+           honest picture, either of them could answer. Saying so prevents the
+           reading "we both have to". */
+        if((it.responsibleEmails || []).length > 1){ respTd.appendChild(el('span','shared','● משותף')); }
+        tr.appendChild(respTd);
+
+        var actTd = el('td');
+        if(meta.statuses && meta.statuses.length){ actTd.appendChild(statusSelect(it, tr, errBox)); }
+        tr.appendChild(actTd);
+
         table.appendChild(tr);
       });
       content.appendChild(table);
-      stampUpdated();
+      stamp();
     }
 
-    function stampUpdated(){
+    function stamp(){
       var t = new Date();
-      var hh = String(t.getHours()).padStart(2,'0');
-      var mm = String(t.getMinutes()).padStart(2,'0');
-      updatedEl.textContent = '· עודכן ב-' + hh + ':' + mm;
+      updatedEl.textContent = ' · עודכן ב-' + String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
     }
 
-    var refreshBtn = document.getElementById('refresh');
-    var loading = false;
-
-    function load(){
-      if(loading) return;            // ignore double-clicks while a load is in flight
-      loading = true;
-      refreshBtn.disabled = true;
-      refreshBtn.textContent = 'מרענן…';
-      fetch('/api/me/unanswered?hours=0', { credentials:'include', cache:'no-store', headers:{ Accept:'application/json' } })
+    function load(onFail){
+      if(loading) return;
+      loading = true; refreshBtn.disabled = true; refreshBtn.textContent = 'מרענן…';
+      var answered = false;
+      fetch('/api/me/board?scope=' + scope, { credentials:'include', cache:'no-store', headers:{ Accept:'application/json' } })
         .then(function(r){
-          if(r.status === 401){ throw { auth:true }; }
-          if(!r.ok){ throw new Error('HTTP ' + r.status); }
+          if(r.status === 401) throw { auth:true };
+          if(r.status === 403) throw { msg:'תצוגת כל המשרד פתוחה למנהלים בלבד.' };
+          if(!r.ok) throw { msg:'שגיאה (HTTP ' + r.status + ').' };
           return r.json();
         })
-        .then(render)
+        .then(function(d){ answered = true; render(d); })
         .catch(function(e){
+          // Only revert the toggle when the REQUEST failed. A throw inside
+          // render() is a page bug, not a refused scope, and reverting there
+          // would tell the user their scope was rejected when it was honoured.
+          if(!answered && typeof onFail === 'function') onFail();
           content.innerHTML = '';
+          countsEl.innerHTML = '';
           if(e && e.auth){
-            var d = el('div','state');
-            d.appendChild(document.createTextNode('יש להתחבר כדי לראות את הרשימה. '));
-            var a = document.createElement('a'); a.href='/'; a.textContent='התחברות';
-            d.appendChild(a);
-            content.appendChild(d);
+            var dv = el('div','state');
+            dv.appendChild(document.createTextNode('יש להתחבר כדי לראות את הרשימה. '));
+            var a = document.createElement('a'); a.href = '/'; a.textContent = 'התחברות';
+            dv.appendChild(a);
+            content.appendChild(dv);
           } else {
-            content.appendChild(el('div','state err','לא ניתן לטעון את הרשימה כרגע. נסו רענון.'));
+            content.appendChild(el('div','state err', (e && e.msg) || 'לא ניתן לטעון את הרשימה כרגע. נסו רענון.'));
           }
         })
-        .then(function(){                 // always re-enable the button (success or error)
-          loading = false;
-          refreshBtn.disabled = false;
-          refreshBtn.textContent = 'רענון';
-        });
+        .then(function(){ loading = false; refreshBtn.disabled = false; refreshBtn.textContent = 'רענון'; });
     }
 
+    function setScope(next){
+      if(scope === next) return;
+      var previous = scope;
+      scope = next;
+      paintScope(next === 'all' ? 'firm' : 'mine');
+      content.innerHTML = '<div class="state">טוען…</div>';
+      load(function onFail(){
+        // Refused or unreachable: go back to the scope that was actually being
+        // shown, so neither the button nor the auto-refresh is left lying.
+        scope = previous;
+        paintScope(previous === 'all' ? 'firm' : 'mine');
+      });
+    }
+    scopeMineBtn.addEventListener('click', function(){ setScope('mine'); });
+    scopeAllBtn.addEventListener('click', function(){ setScope('all'); });
     refreshBtn.addEventListener('click', load);
+
     loadMeta().then(load);
-    setInterval(load, 180 * 1000); // auto-refresh every 3 min (each load runs AI triage)
+    setInterval(load, 180 * 1000); // every 3 min — each load runs the AI triage
   </script>
 </body>
 </html>

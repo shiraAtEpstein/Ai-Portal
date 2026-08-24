@@ -334,6 +334,43 @@ module.exports = function createUnansweredRouter() {
   });
 
   // -------------------------------------------------------------------------
+  // WHY DOES THIS CHAT SAY THAT? — read-only, admin only.
+  //
+  //   GET /api/admin/unanswered/why?chat=weinstein
+  //
+  // Added after a row read "waiting 12 days" on a conversation that had plainly
+  // been answered that morning. The wait is measured from the oldest message
+  // the firm has not replied to, so an impossible number always means the same
+  // thing: something the detector is not counting as a firm reply. Reading the
+  // code cannot say WHICH thing — only the rows can.
+  //
+  // Returns what each message IS (kind, side, sender, timestamp source), never
+  // what it says, with phones masked to the last three digits.
+  // -------------------------------------------------------------------------
+  router.get('/api/admin/unanswered/why', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const chat = String((req.query && req.query.chat) || '').trim();
+      if (!chat) return res.status(400).json({ error: 'Add ?chat=<part of the group name>' });
+      const dir = loadDirectory();
+      const staffPhones = (dir.staff || []).map((s) => s.phone9).filter(Boolean);
+      const out = await ingestDb.diagnoseChat({
+        chatLike: chat,
+        limit: parseInt((req.query && req.query.limit) || '25', 10),
+        staffPhones,
+      });
+      res.json(Object.assign({
+        // Said out loud, because it is the most common cause and it is invisible
+        // from the board: anyone answering from a phone that is not in this list
+        // is read as a CLIENT, and their reply never closes the wait.
+        staffDirectory: (dir.staff || []).map((s) => ({ name: s.name, phone9: s.phone9 })),
+      }, out));
+    } catch (e) {
+      console.error('[unanswered/why] failed:', e.message);
+      res.status(500).json({ error: 'diagnosis failed', detail: e.message });
+    }
+  });
+
+  // -------------------------------------------------------------------------
   // THE PERSONAL BOARD — "הוואטסאפים שלי" (public/messages.html).
   //
   // The same board every admin sees, cut down to the chats routed to the

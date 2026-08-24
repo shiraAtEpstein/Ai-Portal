@@ -163,7 +163,7 @@
 
   <div class="panel">
     <div class="phead" id="pctHead">אחוזי מענה — כל המשרד</div>
-    <div class="psub">מכלל השיחות בחלון — כולל אלה שעדיין ממתינות, לפי הזמן שהן ממתינות עד עכשיו. אין יעד; זו תמונת מצב, לא ציון.</div>
+    <div class="psub">מכלל השיחות בחלון — כולל אלה שעדיין ממתינות, לפי הזמן שהן ממתינות עד עכשיו. נמדד בשעות עבודה בלבד. אין יעד; זו תמונת מצב, לא ציון.</div>
     <div class="bars" id="bars"></div>
   </div>
 
@@ -180,14 +180,20 @@ function fmtDur(s){
   var v=Math.max(0,Math.round(s)), h=Math.floor(v/3600), m=Math.floor((v%3600)/60);
   return h+':'+String(m).padStart(2,'0');
 }
-function waitLabel(h){
-  var n=Number(h);
-  if(!isFinite(n)||n<=0) return '—';
-  if(n>=24){var d=Math.round(n/24);return d===1?'יום':d===2?'יומיים':d+' ימים';}
-  var hr=Math.max(1,Math.round(n));
-  return hr===1?'שעה':hr===2?'שעתיים':hr+' שעות';
-}
-function waitColor(h){var n=Number(h)||0;return n>=72?'var(--bad)':n>=24?'var(--warn)':'var(--teal)';}
+/* TWO CLOCKS ON THIS PAGE, and the distinction is the whole point:
+
+     how long has THIS message been sitting there  -> REAL elapsed time
+     how fast do we answer                         -> WORKING hours
+
+   Every per-message wait (the rows below, and the "הוותיקה ממתינה" tile) is
+   elapsed, and arrives from the server already worded (lib/wait-label.js).
+   Every speed figure — the medians, the percentages, the trend, the peak hours
+   — is measured on the working clock (08:00-22:00, no Saturday), because
+   nobody is slow for not replying at 03:00. The footnote says so out loud. */
+/* Colour comes from the SERVER as a tone, decided from the same calendar-day
+   count the words are built from, so the two can never contradict each other. */
+var TONE_COLOR={ok:'var(--teal)',warn:'var(--warn)',bad:'var(--bad)'};
+function toneColor(t){return TONE_COLOR[t]||TONE_COLOR.ok;}
 function hhmm(hr){return String(hr).padStart(2,'0')+':00';}
 function pctTxt(p){return p==null?'—':p+'%';}
 var STATUS_LABEL={required:'🔴 דורש מענה',potential:'🟡 אולי דורש מענה',voice:'🎤 הודעה קולית',pending:'⏳ בבדיקה'};
@@ -398,7 +404,9 @@ function detailTable(items){
     if(it.movedFromExcluded) nameTd.appendChild(el('div','moved','↩ משויך ל-'+it.movedFromExcluded+' (מחוץ ללוח)'));
     nameTd.appendChild(errBox); tr.appendChild(nameTd);
     var typeTd=el('td'); typeTd.appendChild(el('span','tag '+(it.status||'potential'),STATUS_LABEL[it.status]||it.status||'—')); tr.appendChild(typeTd);
-    var wTd=el('td',null,waitLabel(it.hoursWaiting)); wTd.style.color=waitColor(it.hoursWaiting); wTd.style.fontWeight='bold'; wTd.style.whiteSpace='nowrap'; tr.appendChild(wTd);
+    var wTd=el('td',null,it.waitedLabel||'—'); wTd.style.color=toneColor(it.waitedTone); wTd.style.fontWeight='bold'; wTd.style.whiteSpace='nowrap';
+    if(it.waitedSince) wTd.title=new Date(it.waitedSince).toLocaleString('he-IL');
+    tr.appendChild(wTd);
     var rTd=el('td');
     if(canEdit&&staffList.length&&it.chatJid) rTd.appendChild(responsibleSelect(it,tr,errBox));
     else rTd.appendChild(el('span',null,it.responsibleName||'—'));
@@ -436,24 +444,25 @@ function personCard(s, isMe, windowDays, consistencyDays){
   card.appendChild(head);
 
   var mets=el('div','metrics');
-  mets.appendChild(metricTile(s.median||'—','חציון', !s.measured));
+  mets.appendChild(metricTile(s.median||'—','חציון (שעות עבודה)', !s.measured));
   // Beside the median, never instead of it. The median says what a typical
   // conversation looks like; the mean says how much is piled up. When they are
   // far apart, that gap IS the finding.
-  mets.appendChild(metricTile(s.avg||'—','ממוצע', !s.measured));
+  mets.appendChild(metricTile(s.avg||'—','ממוצע (שעות עבודה)', !s.measured));
   // The tail, next to the middle. Without it the card can say "0:36" while a
   // client has been waiting eleven days — the median is robust, and that is
   // exactly why it must not stand alone.
-  var oldest = s.oldestOpenSeconds!=null ? waitLabel(s.oldestOpenSeconds/3600) : '—';
-  var oldestTile = metricTile(oldest,'הוותיקה ממתינה', s.oldestOpenSeconds==null);
-  if(s.oldestOpenSeconds!=null){
-    var q=oldestTile.querySelector('.mv');
-    q.style.color = s.oldestOpenSeconds>=72*3600 ? 'var(--bad)'
-                  : s.oldestOpenSeconds>=24*3600 ? 'var(--warn)' : 'var(--ink)';
+  /* Elapsed, not working hours: this names ONE message, and the honest answer
+     to "how long has the worst one been sitting there" is eleven days, not the
+     seven working days those eleven contained. */
+  var oldest = s.oldestOpenLabel || '—';
+  var oldestTile = metricTile(oldest,'הוותיקה — נשלחה', s.oldestOpenLabel==null);
+  if(s.oldestOpenTone && s.oldestOpenTone!=='ok'){
+    oldestTile.querySelector('.mv').style.color = toneColor(s.oldestOpenTone);
   }
   mets.appendChild(oldestTile);
-  mets.appendChild(metricTile(pctTxt(s.within4hPct),'תוך 4 שעות', !s.measured));
-  mets.appendChild(metricTile(pctTxt(s.within8hPct),'תוך 8 שעות', !s.measured));
+  mets.appendChild(metricTile(pctTxt(s.within4hPct),'תוך 4 שע׳ עבודה', !s.measured));
+  mets.appendChild(metricTile(pctTxt(s.within8hPct),'תוך 8 שע׳ עבודה', !s.measured));
   card.appendChild(mets);
   if(s.medianSeconds!=null && s.avgSeconds!=null && s.avgSeconds >= s.medianSeconds*3){
     var gap=el('div','empty');
@@ -562,7 +571,7 @@ function kpi(lbl,val,sub,hero){
 function renderBars(f){
   var box=document.getElementById('bars');
   box.innerHTML='';
-  [['תוך שעה',f.within1hPct,f.within1h],['תוך 4 שעות',f.within4hPct,f.within4h],['תוך 8 שעות',f.within8hPct,f.within8h]]
+  [['תוך שעת עבודה',f.within1hPct,f.within1h],['תוך 4 שע׳ עבודה',f.within4hPct,f.within4h],['תוך 8 שע׳ עבודה',f.within8hPct,f.within8h]]
   .forEach(function(row){
     var b=el('div','bar');
     b.appendChild(el('div','bl',row[0]));
@@ -581,6 +590,7 @@ function render(d){
   LAST=d;
   var f=d.firm||{}, mine=d.scope==='self';
 
+
   document.getElementById('meta').textContent=
     (mine?'התצוגה שלך':'תצוגת כל המשרד')+' · חלון '+d.windowDays+' ימים · ללא יעד זמן · עודכן '+
     new Date(d.generatedAt).toLocaleString('he-IL');
@@ -597,9 +607,9 @@ function render(d){
 
   var cons=f.consistency;
   document.getElementById('kpis').innerHTML=
-    kpi('חציון מענה לכל הודעה',(f.median||'—'),
+    kpi('חציון מענה לכל הודעה (שעות עבודה)',(f.median||'—'),
         'ממוצע '+(f.avg||'—')+' · כולל '+(f.openCount||0)+' שממתינות · '+(f.measured||0)+' שיחות',true)+
-    kpi('חציון הצוות',(f.teamMedian||'—'),'החציון של איש צוות טיפוסי'+(f.teamSize?(' · '+f.teamSize+' אנשים'):''))+
+    kpi('חציון הצוות (שעות עבודה)',(f.teamMedian||'—'),'החציון של איש צוות טיפוסי'+(f.teamSize?(' · '+f.teamSize+' אנשים'):''))+
     kpi('ממתינות עכשיו',(f.openTotal!=null?f.openTotal:'—'),((f.required||0)+' דורשות · '+(f.voice||0)+' קוליות'))+
     kpi('ימים שנסגרו נקי',(cons&&cons.cleanPct!=null?cons.cleanPct+'%':'—'),
         cons?(cons.cleanDays+' מתוך '+cons.totalDays+' ימים בלי הודעות ממתינות בסוף היום'):'—');
@@ -629,6 +639,9 @@ function render(d){
   document.getElementById('exclNote').textContent=parts.length?(parts.join(' · ')+'.'):'';
 
   document.getElementById('foot').textContent=
+    'מהירות המענה — החציון, הממוצע ואחוזי המענה — נמדדת בשעות עבודה בלבד (' + (f.clockLabel || '8:00–22:00, ללא שבת') + '): ' +
+    'הלילה ושבת אינם נספרים, ולכן המספרים כאן אינם ברי-השוואה לדוחות שהופקו לפני המעבר לשעון העבודה. ' +
+    'לעומת זאת הזמן שליד כל שיחה ברשימות, ו"הוותיקה ממתינה", הם הזמן האמיתי שעבר מאז שהלקוח כתב. ' +
     'המספרים מחושבים מהיסטוריית ההודעות (processing_jobs). ' +
     'החציון והאחוזים כוללים גם שיחות שעדיין ממתינות — לפי הזמן שהן ממתינות עד עכשיו, שהוא רף תחתון. ' +
     'שיחה שנענתה נזקפת למי שענה בפועל; שיחה שלא נענתה נזקפת לאחראי עליה. ' +

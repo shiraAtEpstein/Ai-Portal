@@ -5,7 +5,7 @@
 // ============================================================
 const { getPool } = require('../../db');
 const enc = require('../../lib/crypto');
-const { textPreview } = require('./phone');
+const { textPreview, messageKind } = require('./phone');
 // Every wait in the system is measured on the firm's working clock (08:00–22:00,
 // no Saturday) — see lib/business-hours.js. Wall-clock hours are still logged
 // beside it in [unanswered/why], because when a number looks wrong the first
@@ -985,6 +985,101 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
   return out;
 }
 
+// ============================================================================
+// diagnoseChat — why does THIS chat say what it says?
+//
+// Built after a row read "waiting 12 days" on a conversation whose newest
+// message arrived that morning and which the firm had plainly answered. The
+// wait is measured from the OLDEST message the firm has not replied to, so a
+// number that looks impossible always means one thing: a message the detector
+// is NOT counting as a firm reply. There are only a few ways that happens —
+//
+//   • the sender came through as an anonymous @lid, so sender_phone is NULL,
+//     and sender_staff_phone9 was never filled (the row predates the name
+//     resolution, or the backfill has not been run);
+//   • the staffer's WhatsApp display name does not resolve to anyone in
+//     config/staff-directory.json;
+//   • the person answering is not IN the directory at all;
+//   • the row is not really a reply — a 👍 REACTION is ingested like any other
+//     inbound message, and one sitting under the firm's last answer opens an
+//     "unanswered block" that then never closes.
+//
+// — and reading the code cannot tell them apart. This can. Read-only, admin
+// only, and deliberately WITHOUT message text: it returns what each row IS
+// (kind, side, sender, time), never what it says. Phones are masked.
+// ============================================================================
+async function diagnoseChat({ chatLike = '', limit = 25, staffPhones = [] } = {}) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return { chats: [] };
+  const like = String(chatLike || '').trim();
+  if (!like) return { chats: [] };
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 25, 1), 100);
+  const staff = Array.isArray(staffPhones) ? staffPhones.filter(Boolean) : [];
+
+  const groups = await p.query(
+    `SELECT provider_group_jid AS jid, name FROM whatsapp_groups
+     WHERE name ILIKE '%'||$1||'%' AND removed_at IS NULL LIMIT 5`, [like]
+  );
+  const jids = groups.rows.map((g) => g.jid);
+  if (!jids.length) return { chats: [], note: 'no group name matched "' + like + '"' };
+
+  const mask = (ph) => (ph ? '···' + String(ph).slice(-3) : null);
+  const out = [];
+  for (const g of groups.rows) {
+    const r = await p.query(
+      `SELECT direction, sender_phone, sender_staff_phone9, deleted_at, payload_encrypted,
+              COALESCE(sent_at, created_at) AS eff, created_at, sent_at
+       FROM processing_jobs
+       WHERE source='whatsapp' AND chat_jid=$1 AND deleted_at IS NULL
+       ORDER BY eff DESC LIMIT $2`, [g.jid, lim]
+    );
+    const messages = r.rows.reverse().map((row) => {
+      let msg = null;
+      try { msg = JSON.parse(enc.decrypt(row.payload_encrypted || '')); } catch (_) {}
+      const isFirm = !!row.sender_staff_phone9 || row.direction === 'out'
+        || (row.sender_phone && staff.indexOf(row.sender_phone) !== -1);
+      return {
+        at: row.eff,
+        // Where the time came from. A row whose sent_at is null is timed by
+        // when we ingested it, which drifts after a reconnect.
+        timeFrom: row.sent_at ? 'sent_at' : 'created_at (ingest time)',
+        direction: row.direction,
+        kind: messageKind(msg),
+        pushName: (msg && (msg.pushName || msg.verifiedBizName)) || null,
+        senderPhone: mask(row.sender_phone),
+        senderStaffPhone9: row.sender_staff_phone9 || null,
+        // THE column that matters: what the unanswered detector thinks this is.
+        side: isFirm ? 'FIRM' : 'client/other',
+        whyNotFirm: isFirm ? null
+          : (!row.sender_phone && !row.sender_staff_phone9
+              ? 'no phone (@lid) and no staff match — run the sender-staff backfill, or add this display name to config/staff-directory.json'
+              : 'sender is not in config/staff-directory.json'),
+      };
+    });
+    const firm = messages.filter((m) => m.side === 'FIRM');
+    const lastFirmAt = firm.length ? firm[firm.length - 1].at : null;
+    const block = messages.filter((m) => m.side !== 'FIRM' && (!lastFirmAt || new Date(m.at) > new Date(lastFirmAt)));
+    out.push({
+      group: g.name,
+      lastFirmAt,
+      firstUnansweredAt: block.length ? block[0].at : null,
+      firstUnansweredKind: block.length ? block[0].kind : null,
+      blockCount: block.length,
+      // The single most useful line: if this is a reaction, or a message the
+      // firm actually sent, the wait shown on the board is measured from the
+      // wrong row and this names it.
+      verdict: !firm.length
+        ? 'NO message in this window counts as a firm reply — that is why the wait reaches back so far'
+        : (block.length && block[0].kind === 'reactionMessage'
+            ? 'the wait starts at a REACTION (👍) — it is not a message anyone needs to answer'
+            : 'looks normal: the wait starts at the first client message after the firm last replied'),
+      messages,
+    });
+  }
+  return { chats: out };
+}
+
 // Recent ingested messages for TESTING that WhatsApp capture really works.
 // Read-only, no decryption: returns direction, masked sender, chat label, status
 // and time so you can send a WhatsApp message and watch it land with the right
@@ -1166,6 +1261,7 @@ module.exports = {
   getOpenItemsForDeal,
   applyTaskUpdate,
   listUnansweredChats,
+  diagnoseChat,
   undismissChat,
   listDismissals,
   setResponsibleOverride,

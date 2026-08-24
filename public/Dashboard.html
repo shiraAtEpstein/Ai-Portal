@@ -65,12 +65,27 @@
   </div>
 
   <script>
-    function fmtHours(h){
+    /* TWO CLOCKS, and they must never share a formatter — that is exactly how
+       this page ended up showing "הוותיקה ביותר" in working hours next to
+       "חציון זמן תגובה" in wall-clock, adjacent and unlabelled.
+
+         fmtElapsed  — how long a MESSAGE has been sitting there. Real time.
+         fmtWork     — how fast the firm ANSWERS. Working hours (08:00-22:00,
+                       no Saturday), and a working day is 14 hours, not 24. */
+    var WORKING_DAY_H = 14;
+    function fmtElapsed(h){
       if(h == null) return '—';
       var n = Number(h);
       if(!isFinite(n)) return '—';
       if(n >= 24) return (Math.round(n/24*10)/10) + ' ימים';
       return (Math.round(n*10)/10) + ' שע׳';
+    }
+    function fmtWork(h){
+      if(h == null) return '—';
+      var n = Number(h);
+      if(!isFinite(n)) return '—';
+      if(n >= WORKING_DAY_H*2) return (Math.round(n/WORKING_DAY_H*10)/10) + ' ימי עבודה';
+      return (Math.round(n*10)/10) + ' שע׳ עבודה';
     }
     function el(tag, cls, text){ var e=document.createElement(tag); if(cls)e.className=cls; if(text!=null)e.textContent=text; return e; }
     function tile(num, lab, color){
@@ -87,15 +102,18 @@
     function render(d){
       body.innerHTML = '';
       var live = d.live || {}, hist = d.history || {}, aging = live.aging || {};
+      /* The working-day length is policy (config/business-hours.json), not a
+         page constant — a hardcoded 14 drifts the first time it is tuned. */
+      if(d.workingDayHours) WORKING_DAY_H = Number(d.workingDayHours) || WORKING_DAY_H;
 
       // --- KPI tiles ---
       body.appendChild(el('div','section-title','עכשיו'));
       var tiles = el('div','tiles');
       tiles.appendChild(tile(String(live.waitingNow || 0), 'ממתינות עכשיו', (live.waitingNow>0?'var(--red)':'var(--teal)')));
-      tiles.appendChild(tile(fmtHours(live.oldestHours), 'הוותיקה ביותר'));
-      tiles.appendChild(tile(fmtHours(hist.avgHours), 'זמן תגובה ממוצע'));
-      tiles.appendChild(tile(fmtHours(hist.medianHours), 'חציון זמן תגובה'));
-      tiles.appendChild(tile((hist.pctWithin3h==null?'—':hist.pctWithin3h+'%'), 'נענו תוך 3 שעות'));
+      tiles.appendChild(tile(fmtElapsed(live.oldestHours), 'הוותיקה ביותר'));
+      tiles.appendChild(tile(fmtWork(hist.avgHours), 'זמן תגובה ממוצע (שעות עבודה)'));
+      tiles.appendChild(tile(fmtWork(hist.medianHours), 'חציון זמן תגובה (שעות עבודה)'));
+      tiles.appendChild(tile((hist.pctWithin3h==null?'—':hist.pctWithin3h+'%'), 'נענו תוך 3 שעות עבודה'));
       tiles.appendChild(tile(String(hist.answeredTurns||0), 'הודעות שטופלו (' + (d.days||30) + ' ימים)'));
       body.appendChild(tiles);
 
@@ -120,6 +138,7 @@
         seg(aging.lt3,'var(--teal)'); seg(aging.h3to24,'var(--amber)'); seg(aging.gt24,'var(--red)');
         body.appendChild(bar);
         var lg = el('div','legend');
+        /* Elapsed time, like every other per-message figure on the page. */
         lg.innerHTML = '<span><i style="background:var(--teal)"></i>עד 3 שעות</span>' +
                        '<span><i style="background:var(--amber)"></i>3–24 שעות</span>' +
                        '<span><i style="background:var(--red)"></i>מעל 24 שעות</span>';
@@ -127,7 +146,7 @@
       }
 
       // --- response-time trend ---
-      body.appendChild(el('div','section-title','מגמת זמן תגובה ממוצע (לפי יום)'));
+      body.appendChild(el('div','section-title','מגמת זמן תגובה ממוצע בשעות עבודה (לפי יום)'));
       var daily = hist.daily || [];
       if(!daily.length){
         body.appendChild(el('div','state','אין עדיין מספיק נתונים להצגת מגמה.'));
@@ -138,9 +157,12 @@
         daily.forEach(function(x){
           var b = el('div','b');
           b.style.height = Math.max(3, Math.round((x.avgHours||0)/max*100)) + '%';
-          if((x.avgHours||0) >= 24) b.style.background='var(--red)';
-          else if((x.avgHours||0) >= 3) b.style.background='var(--amber)';
-          b.title = x.day + ' · ' + fmtHours(x.avgHours) + ' · ' + x.n + ' הודעות';
+          /* WORKING hours, so the bands are working days — not the 3/24 the
+             aging legend above uses for ELAPSED hours. Two different clocks
+             were sharing one pair of numbers with nothing to tell them apart. */
+          if((x.avgHours||0) >= WORKING_DAY_H*2) b.style.background='var(--red)';
+          else if((x.avgHours||0) >= WORKING_DAY_H) b.style.background='var(--amber)';
+          b.title = x.day + ' · ' + fmtWork(x.avgHours) + ' · ' + x.n + ' הודעות';
           bars.appendChild(b);
         });
         chart.appendChild(bars);
@@ -169,7 +191,10 @@
       }
 
       var t = new Date(); var hh=String(t.getHours()).padStart(2,'0'), mm=String(t.getMinutes()).padStart(2,'0');
-      document.getElementById('foot').textContent = 'המספרים "עכשיו" חיים; זמני התגובה מחושבים על פני ' + (d.days||30) + ' הימים האחרונים. עודכן ב-' + hh + ':' + mm + '.';
+      document.getElementById('foot').textContent =
+        'זמני ההמתנה ("עכשיו") הם הזמן האמיתי שעבר מאז שהלקוח כתב. זמני התגובה נמדדים בשעות עבודה בלבד (' +
+        (d.clockLabel || '8:00–22:00, ללא שבת') + ') — הלילה ושבת אינם נספרים, ולכן אינם ברי-השוואה לדוחות ישנים. ' +
+        'המספרים "עכשיו" חיים; זמני התגובה מחושבים על פני ' + (d.days||30) + ' הימים האחרונים. עודכן ב-' + hh + ':' + mm + '.';
     }
 
     function load(){

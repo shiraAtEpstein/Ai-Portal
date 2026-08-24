@@ -101,8 +101,15 @@
       <!-- Every staff member's own WhatsApp waiting list (public/messages.html).
            Not admin-gated: the page is scoped to the signed-in person by the
            server, so there is nothing here to restrict. The badge shows how many
-           are waiting on THEM. -->
-      <button class="admin-btn" id="whatsapp-open-btn" onclick="location.href='/messages.html'">
+           are waiting on THEM.
+
+           NOTE the inline display:block. `.admin-btn` is `display:none` in
+           style.css — the class means "sidebar button", but its default state is
+           HIDDEN, and each button that everyone may see turns itself back on
+           (#settings-open-btn does exactly this, and boot.js sets it in JS for
+           the synopsis button). Without it this button was in the page and
+           invisible to everybody. -->
+      <button class="admin-btn" id="whatsapp-open-btn" style="display:block;" onclick="location.href='/messages.html'">
         <span data-i18n="waWaiting">💬 Show WhatsApp</span><span id="whatsapp-count"></span>
       </button>
       <button class="admin-btn gmail-btn" id="gmail-connect-btn">🔗 Connect Gmail</button>

@@ -3,6 +3,7 @@
   var HE = {
     subtitle:'מאובטח · חסוי', newChatBtn:'+ צ׳אט חדש', recentChats:'צ׳אטים אחרונים',
     activityLog:'📋 יומן פעילות', manageUsers:'⚙ ניהול משתמשים', signOut:'התנתקות',
+    waWaiting:'💬 הצג וואטסאפ',
     welcomeTitle:'התחלת צ׳אט חדש',
     welcomeBody:'לחצו על "צ׳אט חדש", בחרו סוכן למעלה והקלידו את ההודעה. הצ׳אטים הקודמים שלכם נמצאים מימין.',
     headerName:'צ׳אט חדש', headerDesc:'בחרו סוכן כדי להתחיל', chooseAgent:'בחירת סוכן…',

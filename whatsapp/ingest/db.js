@@ -15,21 +15,36 @@ const businessHours = require('../../lib/business-hours');
 // working-clock import so the two can never name different places.
 const TZ_SQL = businessHours.config().timezone;
 
-// Rows that are NOT somebody asking for something. A 👍 reaction, a delivery
-// receipt, a key-exchange record: all arrive down the same pipe as a real
-// message, and counting one as an unanswered client message starts a wait that
-// can never be answered — you cannot reply to a thumbs-up.
+// ── WHAT COUNTS AS A MESSAGE, AND FOR WHOM ─────────────────────────────────
+// A 👍 arrives down the same pipe as a real message, and the two directions
+// need OPPOSITE treatment — Shira's call, and she is right:
 //
-// Kept deliberately SHORT. Anything not on this list, and anything not yet
-// classified (msg_kind IS NULL), still counts — the fail-safe runs toward
-// flagging a message, never toward hiding one.
-const NON_MESSAGE_KINDS = [
+//   a CLIENT's 👍  is not a question. Counting it as one opened an
+//                  "unanswered" wait that nobody could ever close, because
+//                  there is no way to reply to a thumbs-up. That is how a chat
+//                  answered at 09:00 came to read as twelve days overdue.
+//
+//   a STAFFER's 👍 IS an answer. When the partner thumbs-up a client's document
+//                  that is him saying "seen, fine" — dropping it would leave the
+//                  client's message looking unanswered when it plainly was not.
+//
+// So reactions are filtered by SENDER, not by kind alone.
+const REACTION_KINDS = [
   'reactionMessage',           // 👍 on someone else's message (Baileys)
   'reaction',                  // the same thing from the Cloud API / history shape
+];
+
+// System records — nobody typed these, so they are neither a question nor an
+// answer, whichever side they came from.
+const SYSTEM_KINDS = [
   'protocolMessage',           // revokes, ephemeral-setting changes, app state
   'senderKeyDistributionMessage',
   'messageContextInfo',
 ];
+
+// Kept for the metrics module and for anything that just wants "not a real
+// message from a client".
+const NON_MESSAGE_KINDS = REACTION_KINDS.concat(SYSTEM_KINDS);
 
 let ensured = false;
 async function ensureTables() {
@@ -850,17 +865,22 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
               COALESCE(sent_at, created_at) AS eff_at
        FROM processing_jobs
        WHERE source = 'whatsapp' AND chat_jid IS NOT NULL AND deleted_at IS NULL
-         -- A 👍 is not a question. Reactions and protocol records arrive down
-         -- the same pipe as real messages, and one sitting under the firm's
-         -- last answer opened a wait nobody could ever close: a chat answered
-         -- that morning read as twelve days overdue, because the reaction —
-         -- not the client — was holding the clock.
-         --
-         -- Dropped from the base set entirely, so such a row is neither a client
-         -- message that starts a wait nor a firm reply that ends one.
+         -- System records (revokes, key exchange) are nobody's words.
+         AND (msg_kind IS NULL OR msg_kind <> ALL($3::text[]))
+         -- Reactions are filtered BY SENDER, not by kind:
+         --   a staffer's 👍 stays — it is the firm answering, and dropping it
+         --     would leave a client's message looking unanswered when it was not;
+         --   a client's 👍 goes — it is not a question, and one sitting under
+         --     the firm's last answer opened a wait nobody could ever close.
          -- msg_kind IS NULL means "not classified yet" and still counts: the
          -- fail-safe runs toward flagging a message, never toward hiding one.
-         AND (msg_kind IS NULL OR msg_kind <> ALL($2::text[]))
+         AND (
+           direction = 'out'
+           OR sender_staff_phone9 IS NOT NULL
+           OR sender_phone IN (SELECT phone9 FROM staff)
+           OR msg_kind IS NULL
+           OR msg_kind <> ALL($2::text[])
+         )
      ),
      -- "firm side" = the message was sent by a staffer: an outbound Lawly-line
      -- message, a resolved staff sender (by phone OR display name), or a raw
@@ -945,7 +965,7 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
      LEFT JOIN unanswered_dismissals dz ON dz.chat_jid = pc.chat_jid
      WHERE pc.last_client_at IS NOT NULL
      ORDER BY pc.last_client_at DESC`,
-    [staff, NON_MESSAGE_KINDS]
+    [staff, REACTION_KINDS, SYSTEM_KINDS]
   );
 
   const out = [];
@@ -1079,7 +1099,7 @@ async function backfillMsgKind({ limit = 200 } = {}) {
     } catch (_) { /* unreadable -> 'unknown', still a real message */ }
     await p.query(`UPDATE processing_jobs SET msg_kind = $2 WHERE id = $1 AND msg_kind IS NULL`, [row.id, kind]);
     filled++;
-    if (NON_MESSAGE_KINDS.indexOf(kind) !== -1) reactions++;
+    if (REACTION_KINDS.indexOf(kind) !== -1) reactions++;
   }
   if (r.rows.length) {
     console.log(`[msg-kind-backfill] scanned ${r.rows.length}, filled ${filled}` +
@@ -1367,6 +1387,8 @@ module.exports = {
   diagnoseChat,
   backfillMsgKind,
   NON_MESSAGE_KINDS,
+  REACTION_KINDS,
+  SYSTEM_KINDS,
   undismissChat,
   listDismissals,
   setResponsibleOverride,

@@ -18,6 +18,7 @@ const { buildDigest, sendDigests, buildBoard, invalidateBoardCache } = require('
 const ingestDb = require('../whatsapp/ingest/db');
 const db = require('../db');
 const { loadDirectory, routeGroupToStaff } = require('../lib/routing');
+const businessHours = require('../lib/business-hours');
 
 const DEFAULT_HOURS = parseInt(process.env.UNANSWERED_HOURS || '3', 10);
 
@@ -227,10 +228,14 @@ module.exports = function createUnansweredRouter() {
       // Live: everything currently waiting (hours=0), same source as the page.
       const chats = await ingestDb.listUnansweredChats({ hours: 0, staffPhones });
       let oldest = 0;
+      // These describe HOW LONG A MESSAGE HAS BEEN SITTING THERE, so they use
+      // real elapsed time — the same clock as the words on every list. The
+      // working clock belongs to the SPEED figures below (history), which is
+      // why the two are labelled apart on the page.
       const aging = { lt3: 0, h3to24: 0, gt24: 0 };
       const perStaff = {};
       for (const c of chats) {
-        const h = Number(c.hoursWaiting) || 0;
+        const h = Number(c.calendarHoursWaiting) || 0;
         if (h > oldest) oldest = h;
         if (h < 3) aging.lt3++; else if (h < 24) aging.h3to24++; else aging.gt24++;
         const { responsible } = routeGroupToStaff(c.participant_phones, dir);
@@ -250,6 +255,8 @@ module.exports = function createUnansweredRouter() {
           aging,
           perStaff: perStaffArr,
         },
+        clockLabel: businessHours.config().label,
+        workingDayHours: businessHours.config().workingDayHours,
         history,
       });
     } catch (e) {
@@ -309,9 +316,71 @@ module.exports = function createUnansweredRouter() {
         staff: (dir.staff || [])
           .filter((s) => s.email)
           .map((s) => ({ name: s.name, email: s.email })),
+        // The working clock the SPEED figures are measured on. The wait shown
+        // against each row is real elapsed time (item.waitedLabel) — these two
+        // are different questions, and the pages say which is which. Sent from
+        // the server so a page can never state a policy the server is not
+        // actually applying.
+        clock: {
+          label: businessHours.config().label,
+          startHour: businessHours.config().startHour,
+          endHour: businessHours.config().endHour,
+          workingNow: businessHours.isWorkingNow(),
+        },
       });
     } catch (e) {
       res.status(500).json({ error: 'Failed to load board metadata.', detail: e.message });
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // THE PERSONAL BOARD — "הוואטסאפים שלי" (public/messages.html).
+  //
+  // The same board every admin sees, cut down to the chats routed to the
+  // signed-in person. The cut is made HERE, on the server, before the JSON
+  // leaves: a page that merely hides other people's rows is not a permission,
+  // it is a suggestion, and the JSON is one devtools tab away. (Same reasoning
+  // as scopeToSelf() in routes/staff-response.js.)
+  //
+  // "Routed to me" is EXACTLY the board's own definition — item.responsibleEmails
+  // — which is also what assertMayEdit checks before allowing an edit, and what
+  // the daily email routes on. One definition, so the page, the email and the
+  // permission can never disagree about whose message this is.
+  //
+  // ?scope=all gives the whole firm and is ADMIN ONLY; anyone else asking for it
+  // is refused rather than quietly downgraded, because silently returning a
+  // different list than the one requested is how a page ends up lying about
+  // what it is showing.
+  // -------------------------------------------------------------------------
+  router.get('/api/me/board', authenticate, async (req, res) => {
+    try {
+      const email = (req.session && req.session.email) || null;
+      const admin = isAdminSession(req);
+      const wantsAll = String((req.query && req.query.scope) || 'mine').toLowerCase() === 'all';
+      if (wantsAll && !admin) {
+        return res.status(403).json({ error: 'תצוגת כל המשרד פתוחה למנהלים בלבד.' });
+      }
+
+      const board = await buildBoard();
+      const all = board.items || [];
+      const items = wantsAll
+        ? all
+        : all.filter((it) => (it.responsibleEmails || []).some((e) => sameEmail(e, email)));
+
+      res.json({
+        email,
+        isAdmin: admin,
+        scope: wantsAll ? 'firm' : 'mine',
+        // How many the person would see in the other view. Lets an admin's
+        // toggle show a real number instead of loading the board twice.
+        firmTotal: admin ? all.length : null,
+        count: items.length,
+        items,
+        generatedAt: board.generatedAt,
+      });
+    } catch (e) {
+      console.error('[board] personal board failed:', e.message);
+      res.status(500).json({ error: 'לא ניתן לטעון את הרשימה כרגע.', detail: e.message });
     }
   });
 

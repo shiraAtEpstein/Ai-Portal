@@ -6,6 +6,14 @@
 const { getPool } = require('../../db');
 const enc = require('../../lib/crypto');
 const { textPreview } = require('./phone');
+// Every wait in the system is measured on the firm's working clock (08:00–22:00,
+// no Saturday) — see lib/business-hours.js. Wall-clock hours are still logged
+// beside it in [unanswered/why], because when a number looks wrong the first
+// question is always "how long has it REALLY been sitting there".
+const businessHours = require('../../lib/business-hours');
+// The zone the daily buckets in responseStats are cut on. Kept beside the
+// working-clock import so the two can never name different places.
+const TZ_SQL = businessHours.config().timezone;
 
 let ensured = false;
 async function ensureTables() {
@@ -572,6 +580,13 @@ async function listAttention() {
   await ensureTables();
   const p = getPool();
   if (!p) return { awaitingReply: [], openFirmItems: [] };
+  // NOTE: this `hours_waiting` is WALL-CLOCK, deliberately. It is deal-level
+  // metadata ("the client last wrote 3h ago") on the deals pipeline, not a
+  // response-time measurement on the WhatsApp waiting board, and nothing in the
+  // UI currently renders it. It was left on the wall clock rather than half-
+  // converted; if this ever becomes a number somebody is judged by, move it to
+  // businessHours.businessHoursBetween(row.last_inbound_at, Date.now()) like
+  // listUnansweredChats does, and say so on screen.
   const awaiting = await p.query(
     `SELECT id, name, monday_board_id, monday_item_id, last_inbound_at, last_outbound_at,
             round(EXTRACT(EPOCH FROM (now() - last_inbound_at)) / 3600.0, 1) AS hours_waiting
@@ -879,9 +894,29 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
     // No unanswered block => the firm's last message came after every client
     // message (or there are none) => nothing awaiting a reply.
     const hasBlock = row.first_unanswered_at != null;
-    // Wait time is measured from the OLDEST unanswered message in the block.
-    const waited = hasBlock && row.hours_waiting != null ? Number(row.hours_waiting) : null;
-    const tooRecent = waited != null && waited < h;
+    // Measured from the OLDEST unanswered message in the block. TWO NUMBERS,
+    // because there are two questions:
+    //   hoursWaiting         — WORKING hours (08:00-22:00, no Saturday). Feeds
+    //                          the response-speed metrics only.
+    //   calendarHoursWaiting — REAL elapsed hours. Feeds everything a person
+    //                          READS: the wait beside each row, the ops
+    //                          dashboard's oldest/aging figures, the ordering.
+    const waited = hasBlock ? businessHours.businessHoursBetween(row.first_unanswered_at, Date.now()) : null;
+    const calendarWaited = hasBlock && row.hours_waiting != null ? Number(row.hours_waiting) : null;
+    // ── WHY THE THRESHOLD STAYS ON THE WALL CLOCK ──────────────────────────
+    // The `hours` threshold answers "is this old enough to bother somebody
+    // about", and that is a question about real elapsed time. Measuring it in
+    // working hours would have quietly broken the one thing this feature
+    // exists for: the digest runs at 08:00 with a 3-hour threshold, and at
+    // 08:00 NOTHING has three working hours behind it — so every message that
+    // arrived overnight, and the whole weekend on a Sunday, would have been
+    // dropped from the only email of the day. The message would simply never
+    // be mentioned.
+    //
+    // So: INCLUSION is wall-clock, MEASUREMENT is working hours. A message from
+    // 23:00 last night appears in the morning list, and the time printed next
+    // to it is the working time it has actually been waiting.
+    const tooRecent = calendarWaited != null && calendarWaited < h;
     const msgCount = row.msg_count != null ? Number(row.msg_count) : 0;
     // Manually dismissed AND no newer client message since the dismissal.
     const dismissedAt = row.dismissed_at ? new Date(row.dismissed_at) : null;
@@ -891,9 +926,9 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
     let decision;
     if (!hasBlock) decision = `SKIP (firm replied after — firm last wrote ${row.last_firm_at || 'n/a'})`;
     else if (dismissed) decision = `SKIP (marked handled at ${row.dismissed_at}, no newer client msg)`;
-    else if (tooRecent) decision = `SKIP (too recent — oldest unanswered waited ${waited}h < threshold ${h}h)`;
-    else decision = `TAKE (${msgCount} unanswered client msg(s), oldest waited ${waited}h, no firm reply after)`;
-    console.log(`[unanswered/why] "${label}" | oldestUnanswered=${row.first_unanswered_at || 'none'} (${row.last_client_phone || 'lid/unknown'}) | lastClient=${row.last_client_at} | lastFirm=${row.last_firm_at || 'never'} | block=${msgCount} | waited=${waited}h -> ${decision}`);
+    else if (tooRecent) decision = `SKIP (too recent — oldest unanswered waited ${calendarWaited}h wall-clock < threshold ${h}h)`;
+    else decision = `TAKE (${msgCount} unanswered client msg(s), oldest waited ${waited} working h, no firm reply after)`;
+    console.log(`[unanswered/why] "${label}" | oldestUnanswered=${row.first_unanswered_at || 'none'} (${row.last_client_phone || 'lid/unknown'}) | lastClient=${row.last_client_at} | lastFirm=${row.last_firm_at || 'never'} | block=${msgCount} | waited=${waited} working h (${calendarWaited}h wall-clock) -> ${decision}`);
 
     if (!hasBlock || tooRecent || dismissed) continue;
 
@@ -929,7 +964,8 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
       groupName: row.group_name || null,
       label,
       clientName: row.monday_client_name || row.display_name || null,
-      hoursWaiting: waited,               // measured from the OLDEST unanswered msg
+      hoursWaiting: waited,               // WORKING hours — response-speed metrics only
+      calendarHoursWaiting: calendarWaited, // REAL elapsed hours — what people read
       lastInboundAt: row.last_client_at,
       firstUnansweredAt: row.first_unanswered_at,
       unansweredCount: msgCount,
@@ -940,9 +976,11 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
       lastText,                           // last line only (debugging)
     });
   }
-  // Sort OLDEST-waiting first (longest hoursWaiting at the top) — most urgent
-  // first, matching how the digest should read.
-  out.sort((a, b) => (b.hoursWaiting || 0) - (a.hoursWaiting || 0));
+  // OLDEST FIRST, by the moment the client actually wrote. Sorting on working
+  // hours looked equivalent but is not: at 08:00 everything that arrived
+  // overnight has zero working hours, the whole batch ties, and the genuinely
+  // oldest message stops heading the list. The timestamp cannot tie.
+  out.sort((a, b) => new Date(a.firstUnansweredAt).getTime() - new Date(b.firstUnansweredAt).getTime());
   console.log(`[unanswered/why] ${out.length} chat(s) TAKEN out of ${r.rows.length} chat(s) with a client message`);
   return out;
 }
@@ -1020,33 +1058,53 @@ async function responseStats({ days = 30, staffPhones = [] } = {}) {
         AND client_category = 'required'
     ),
     resp AS (
+      -- The two raw instants, NOT their difference. The subtraction is a
+      -- working-hours integration now (lib/business-hours.js), so it happens in
+      -- JavaScript. These are SPEED figures — the median and average response
+      -- time — and the ops dashboard labels them "שעות עבודה" to keep them
+      -- apart from the elapsed-time tiles beside them.
       SELECT t.client_at,
-             EXTRACT(EPOCH FROM (
-               (SELECT MIN(m.created_at) FROM msgs m
-                 WHERE m.chat_jid = t.chat_jid AND m.side = 'firm' AND m.created_at > t.client_at)
-               - t.client_at)) / 3600.0 AS hours
+             to_char(t.client_at AT TIME ZONE '${TZ_SQL}', 'YYYY-MM-DD') AS day,
+             (SELECT MIN(m.created_at) FROM msgs m
+               WHERE m.chat_jid = t.chat_jid AND m.side = 'firm' AND m.created_at > t.client_at)
+             AS replied_at
       FROM turns t
     )`;
-  const summary = await p.query(
-    CTE + `
-    SELECT
-      (SELECT count(*) FROM turns)::int AS total_turns,
-      (SELECT count(*) FROM resp WHERE hours IS NOT NULL)::int AS answered_turns,
-      (SELECT round(avg(hours)::numeric, 1) FROM resp WHERE hours IS NOT NULL) AS avg_hours,
-      (SELECT round(percentile_cont(0.5) WITHIN GROUP (ORDER BY hours)::numeric, 1)
-         FROM resp WHERE hours IS NOT NULL) AS median_hours,
-      (SELECT round(100.0 * count(*) FILTER (WHERE hours <= 3) / NULLIF(count(*), 0), 0)
-         FROM resp WHERE hours IS NOT NULL) AS pct_within_3h`,
-    [staff, d]
-  );
-  const daily = await p.query(
-    CTE + `
-    SELECT to_char(date_trunc('day', client_at), 'YYYY-MM-DD') AS day,
-           round(avg(hours)::numeric, 1) AS avg_hours, count(*)::int AS n
-    FROM resp WHERE hours IS NOT NULL
-    GROUP BY 1 ORDER BY 1`,
-    [staff, d]
-  );
+  const rows = (await p.query(CTE + ` SELECT client_at, day, replied_at FROM resp`, [staff, d])).rows;
+
+  // Aggregate here rather than in SQL: percentile_cont cannot see a working
+  // clock, and doing it twice (once per query) is how the two halves of a
+  // dashboard end up disagreeing.
+  const answered = [];
+  const byDay = new Map();
+  for (const r of rows) {
+    if (!r.replied_at) continue;
+    const hrs = businessHours.businessSecondsBetween(r.client_at, r.replied_at) / 3600;
+    answered.push(hrs);
+    if (!byDay.has(r.day)) byDay.set(r.day, []);
+    byDay.get(r.day).push(hrs);
+  }
+  const round1 = (n) => (n == null ? null : Math.round(n * 10) / 10);
+  const avgOf = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+  const medianOf = (xs) => {
+    if (!xs.length) return null;
+    const v = xs.slice().sort((a, b) => a - b);
+    const n = v.length;
+    return n % 2 ? v[(n - 1) / 2] : (v[n / 2 - 1] + v[n / 2]) / 2;
+  };
+  const summaryRow = {
+    total_turns: rows.length,
+    answered_turns: answered.length,
+    avg_hours: round1(avgOf(answered)),
+    median_hours: round1(medianOf(answered)),
+    // "within 3 hours" now means three WORKING hours, which is the only
+    // reading that matches the rest of the system.
+    pct_within_3h: answered.length
+      ? Math.round((answered.filter((h) => h <= 3).length / answered.length) * 100)
+      : null,
+  };
+  const dailyRows = [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .map(([day, xs]) => ({ day, avg_hours: round1(avgOf(xs)), n: xs.length }));
   // Category breakdown of CLIENT messages in the window (in, non-staff).
   const cats = await p.query(
     `SELECT
@@ -1060,7 +1118,7 @@ async function responseStats({ days = 30, staffPhones = [] } = {}) {
        AND COALESCE(sent_at, created_at) >= now() - make_interval(days => $2)`,
     [staff, d]
   );
-  const s = summary.rows[0] || {};
+  const s = summaryRow;
   const cb = cats.rows[0] || {};
   return {
     days: d,
@@ -1069,7 +1127,10 @@ async function responseStats({ days = 30, staffPhones = [] } = {}) {
     avgHours: s.avg_hours != null ? Number(s.avg_hours) : null,
     medianHours: s.median_hours != null ? Number(s.median_hours) : null,
     pctWithin3h: s.pct_within_3h != null ? Number(s.pct_within_3h) : null,
-    daily: daily.rows.map((r) => ({ day: r.day, avgHours: r.avg_hours != null ? Number(r.avg_hours) : null, n: r.n })),
+    daily: dailyRows.map((r) => ({ day: r.day, avgHours: r.avg_hours != null ? Number(r.avg_hours) : null, n: r.n })),
+    // Every number above is measured on the firm's working clock. Sent so the
+    // dashboard can say so instead of leaving a reader to assume wall-clock.
+    clockLabel: businessHours.config().label,
     categories: {
       required: cb.required || 0,
       none: cb.none || 0,

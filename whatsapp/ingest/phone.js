@@ -192,4 +192,15 @@ function msgTimestamp(msg) {
   return null;
 }
 
-module.exports = { normalizePhone, senderFromMessage, jidUser, jidDomain, isLidJid, phoneJidFromKey, textPreview };
+// The kind of message this is, once the wrappers are peeled: 'reactionMessage',
+// 'audioMessage', 'conversation', 'imageMessage', … Diagnostics only — it says
+// what a row IS without exposing what it SAYS.
+function messageKind(message) {
+  const m = unwrapMessage(message && message.message ? message.message : message);
+  if (!m || typeof m !== 'object') return 'unknown';
+  if (typeof m.type === 'string') return m.type;            // Cloud-API / history shape
+  const keys = Object.keys(m).filter((k) => k !== 'messageContextInfo');
+  return keys.length ? keys[0] : 'unknown';
+}
+
+module.exports = { normalizePhone, senderFromMessage, jidUser, jidDomain, isLidJid, phoneJidFromKey, textPreview, messageKind, unwrapMessage };

@@ -72,6 +72,7 @@
       <div class="foot">
         כל שיחה שלא נענתה מופיעה כאן עם הסטטוס, זמן ההמתנה, והאחראי. ברגע שמישהו במשרד עונה בוואטסאפ — היא נעלמת מהלוח.
         אפשר גם לסמן ידנית «נענה» או «לא דורש מענה», ולשנות אחראי. אם הלקוח יכתוב שוב, השיחה תחזור לרשימה.
+        <span id="clockNote"></span>
         <span id="updated"></span>
       </div>
     </div>
@@ -84,12 +85,22 @@
   </div>
 
   <script>
-    function waitLabel(h){
-      var n = Number(h); if(!isFinite(n)) return '';
-      if(n >= 24){ var d = Math.round(n/24); if(d===1) return 'יום'; if(d===2) return 'יומיים'; return d + ' ימים'; }
-      var hr = Math.max(1, Math.round(n)); if(hr===1) return 'שעה'; if(hr===2) return 'שעתיים'; return hr + ' שעות';
-    }
-    function waitColor(h){ var n=Number(h)||0; if(n>=72) return 'var(--red)'; if(n>=24) return 'var(--amber)'; return 'var(--teal)'; }
+    /* The label of the firm's WORKING clock, from /api/board/meta, used only in
+       the footnote — it is the clock the response-speed figures are measured
+       on, not the clock these rows are shown in. */
+    var clock = { label:'8:00–22:00, ללא שבת' };   // only .label is read
+    /* The wording next to a row is REAL elapsed time and comes from the server
+       (lib/wait-label.js) as `waitedLabel`: sent today -> hours, any older day
+       -> days. The working clock is what the response-speed figures on
+       /staff-response.html are measured on; this list is for acting, and a
+       client who wrote on Thursday has been waiting since Thursday. */
+    /* Colour comes from the SERVER as `waitedTone`, decided from the same
+       calendar-day count the words are built from, so the two can never
+       contradict each other. An hours threshold looked equivalent and was not:
+       a message sent at 23:50 and read at 00:10 says "אתמול" and is 0.3 hours
+       old, and an hours rule painted it calm-green under that word. */
+    var TONE_COLOR = { ok:'var(--teal)', warn:'var(--amber)', bad:'var(--red)' };
+    function toneColor(t){ return TONE_COLOR[t] || TONE_COLOR.ok; }
     function el(t,c,x){ var e=document.createElement(t); if(c)e.className=c; if(x!=null)e.textContent=x; return e; }
     function fmtTime(ts){
       if(!ts) return '';
@@ -133,6 +144,9 @@
         .then(function(r){ if(!r.ok) throw new Error('meta'); return r.json(); })
         .then(function(m){
           meta = m || meta;
+          if(meta.clock) clock = meta.clock;
+          var note = document.getElementById('clockNote');
+          if(note) note.textContent = ' הזמן שליד כל שיחה הוא הזמן שעבר מאז שהלקוח כתב. מהירות המענה במדדים נמדדת בשעות עבודה בלבד (' + (clock.label || '') + ').';
           if(meta.isAdmin) toggleClearedBtn.classList.remove('hidden');
           return meta;
         })
@@ -228,7 +242,7 @@
       var hr = el('tr');
       hr.appendChild(el('th', null, 'שיחה / לקוח'));
       hr.appendChild(el('th', 'status', 'סטטוס'));
-      hr.appendChild(el('th', 'time', 'ממתין'));
+      hr.appendChild(el('th', 'time', 'נשלחה'));
       hr.appendChild(el('th', null, 'אחראי'));
       hr.appendChild(el('th', null, 'פעולה'));
       table.appendChild(hr);
@@ -245,8 +259,10 @@
 
         var stTd = el('td','status'); stTd.appendChild(badge(it.status)); tr.appendChild(stTd);
 
-        var tmTd = el('td','time', waitLabel(it.hoursWaiting));
-        tmTd.style.color = waitColor(it.hoursWaiting); tr.appendChild(tmTd);
+        var tmTd = el('td','time', it.waitedLabel || '—');
+        tmTd.style.color = toneColor(it.waitedTone);
+        if(it.waitedSince) tmTd.title = new Date(it.waitedSince).toLocaleString('he-IL');
+        tr.appendChild(tmTd);
 
         var respTd = el('td','resp');
         if(meta.staff && meta.staff.length){

@@ -32,11 +32,17 @@ module.exports = function createMeRouter() {
   // NOTE: /api/me lives in routes/auth.js, which mounts first. A duplicate here
   // never ran — anything added to it silently had no effect. Do not re-add it.
 
-  // The signed-in user's UNANSWERED client chats — powers the "הודעות שממתינות"
-  // page (public/messages.html) that the daily email links to. Reuses the same
-  // deterministic detector + AI triage as the digest, then scopes to what THIS
-  // user is responsible for (admins/owner see the whole firm). The list clears
-  // itself: once someone replies in WhatsApp, the chat drops out automatically.
+  // LEGACY — kept only for old bookmarks and the previous version of the email
+  // button. The "הוואטסאפים שלי" page now uses GET /api/me/board
+  // (routes/unanswered.js), which scopes on the BOARD's own routing
+  // (item.responsibleEmails) — the same definition assertMayEdit uses to decide
+  // who may edit a chat.
+  //
+  // This endpoint scopes on the DIGEST's routing (digest.byPerson) instead, and
+  // gives admins the whole firm rather than their own list. The two therefore
+  // answer "which of these are mine?" slightly differently. Nothing in the app
+  // calls this any more; do not build anything new on it, and prefer deleting
+  // it once the old email links have aged out.
   //   GET /api/me/unanswered?hours=0  -> { email, isAdmin, count, items[], generatedAt }
   router.get('/api/me/unanswered', authenticate, async (req, res) => {
     try {

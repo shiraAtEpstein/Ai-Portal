@@ -50,12 +50,18 @@ const REACTION_KINDS = [
 const SYSTEM_KINDS = [
   'protocolMessage',           // revokes, ephemeral-setting changes, app state
   'system',                    // key exchange and nothing else
+  'stub',                      // "X joined the group", "security code changed"
 ];
 
 // Values written by the first, broken version of messageKind(). A row holding
 // one of these was mislabelled, so the backfill re-reads it instead of skipping
 // it. Nothing writes these any more, so the pass converges and then stops.
-const REPAIR_KINDS = ['senderKeyDistributionMessage', 'messageContextInfo'];
+const REPAIR_KINDS = [
+  'senderKeyDistributionMessage',  // the key exchange, read as the message itself
+  'messageContextInfo',
+  'key',                           // a stub's envelope, read as its content
+  'messageStubParameters',
+];
 
 // Kept for the metrics module and for anything that just wants "not a real
 // message from a client".

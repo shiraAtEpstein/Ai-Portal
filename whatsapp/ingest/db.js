@@ -36,11 +36,26 @@ const REACTION_KINDS = [
 
 // System records — nobody typed these, so they are neither a question nor an
 // answer, whichever side they came from.
+//
+// NOTE what is NOT here any more. 'senderKeyDistributionMessage' and
+// 'messageContextInfo' used to be on this list, and that was a bad mistake: in
+// a group WhatsApp attaches the key-exchange record ALONGSIDE the real message,
+// so labelling a row by it dropped ordinary group traffic — the firm's own
+// replies included — and every group chat read as unanswered from the
+// beginning of time. messageKind() no longer returns them while real content is
+// present, and any row still carrying one is now treated as an ordinary
+// message and re-examined by the repair pass below. Fail open, always.
+//
+// 'system' is the honest label for a row that really did carry nothing else.
 const SYSTEM_KINDS = [
   'protocolMessage',           // revokes, ephemeral-setting changes, app state
-  'senderKeyDistributionMessage',
-  'messageContextInfo',
+  'system',                    // key exchange and nothing else
 ];
+
+// Values written by the first, broken version of messageKind(). A row holding
+// one of these was mislabelled, so the backfill re-reads it instead of skipping
+// it. Nothing writes these any more, so the pass converges and then stops.
+const REPAIR_KINDS = ['senderKeyDistributionMessage', 'messageContextInfo'];
 
 // Kept for the metrics module and for anything that just wants "not a real
 // message from a client".
@@ -1101,9 +1116,9 @@ async function backfillMsgKind({ limit = 200 } = {}) {
   const lim = Math.min(Math.max(parseInt(limit, 10) || 200, 1), 1000);
   const r = await p.query(
     `SELECT id, payload_encrypted FROM processing_jobs
-     WHERE source = 'whatsapp' AND msg_kind IS NULL
+     WHERE source = 'whatsapp' AND (msg_kind IS NULL OR msg_kind = ANY($2::text[]))
      ORDER BY created_at DESC LIMIT $1`,
-    [lim]
+    [lim, REPAIR_KINDS]
   );
   let filled = 0, reactions = 0;
   for (const row of r.rows) {
@@ -1113,12 +1128,14 @@ async function backfillMsgKind({ limit = 200 } = {}) {
       const msg = json ? JSON.parse(json) : null;
       kind = messageKind(msg) || 'unknown';
     } catch (_) { /* unreadable -> 'unknown', still a real message */ }
-    await p.query(`UPDATE processing_jobs SET msg_kind = $2 WHERE id = $1 AND msg_kind IS NULL`, [row.id, kind]);
+    // No `AND msg_kind IS NULL`: a row picked up for REPAIR already has a
+    // (wrong) value, and the point is to overwrite it.
+    await p.query(`UPDATE processing_jobs SET msg_kind = $2 WHERE id = $1`, [row.id, kind]);
     filled++;
     if (REACTION_KINDS.indexOf(kind) !== -1) reactions++;
   }
   if (r.rows.length) {
-    console.log(`[msg-kind-backfill] scanned ${r.rows.length}, filled ${filled}` +
+    console.log(`[msg-kind-backfill] scanned ${r.rows.length}, wrote ${filled}` +
       (reactions ? `, ${reactions} of them reactions/receipts that will stop holding a wait open` : ''));
   }
   return { scanned: r.rows.length, filled, reactions };
@@ -1405,6 +1422,7 @@ module.exports = {
   NON_MESSAGE_KINDS,
   REACTION_KINDS,
   SYSTEM_KINDS,
+  REPAIR_KINDS,
   undismissChat,
   listDismissals,
   setResponsibleOverride,

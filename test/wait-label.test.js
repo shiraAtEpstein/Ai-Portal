@@ -93,3 +93,19 @@ test('messageKind still names a row that really is nothing but key exchange', ()
   assert.strictEqual(messageKind({ message: { protocolMessage: { type: 0 } } }), 'protocolMessage');
   assert.strictEqual(messageKind({ message: {} }), 'unknown');
 });
+
+test('a group system notification is a stub, not a client message', () => {
+  // Baileys sends "X joined", "the security code changed" as a row with a key
+  // and a messageStubType but no .message. Reading the first key of the
+  // envelope labelled these 'key' or 'messageStubParameters' — 364 rows in the
+  // firm's data — and they counted as client messages that could open a wait.
+  assert.strictEqual(messageKind({ key: { id: 'x' }, messageStubType: 27, messageStubParameters: ['9'] }), 'stub');
+  assert.strictEqual(messageKind({ messageStubParameters: ['a'], key: {}, messageStubType: 2 }), 'stub');
+});
+
+test('a content-less row with no stub markers still counts', () => {
+  // Fail open. A missed call, or a payload that lost its body, is not something
+  // to hide from the person who has to act on the list.
+  assert.strictEqual(messageKind({ key: { id: 'z' }, call: {} }), 'noContent');
+  assert.strictEqual(messageKind({ key: { id: 'z' } }), 'noContent');
+});

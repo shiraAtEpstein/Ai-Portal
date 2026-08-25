@@ -190,6 +190,36 @@ test('but one unclassified message among the closers keeps it on the board', { s
   }
 });
 
+test('a group message mislabelled as a key-exchange record still counts', { skip: !URL_ }, async () => {
+  process.env.DATABASE_URL = URL_;
+  const { Pool } = require('pg');
+  const pool = new Pool({ connectionString: URL_ });
+  const ingest = require('../whatsapp/ingest/db');
+  try {
+    // THE REGRESSION THIS EXISTS FOR. In a group, WhatsApp attaches the
+    // key-exchange record alongside the real message, and the first version of
+    // messageKind() read the first key — so ordinary group traffic, the firm's
+    // own replies included, was labelled 'senderKeyDistributionMessage' and
+    // dropped as a system record. Replies went invisible and every group chat
+    // read as unanswered from the beginning of time.
+    //
+    // The label can no longer be produced, but rows written by the old version
+    // are still in the table until the repair pass reaches them. Until then
+    // they must count as ordinary messages — fail open — or the board stays
+    // wrong for as long as the backfill takes.
+    await seed(pool, [
+      ['x', 'in', '718757662', null, '2026-08-23 18:00:00+00', 'required', null],
+      ['y', 'in', '546422750', '546422750', '2026-08-23 20:28:00+00', null, 'senderKeyDistributionMessage'],
+      ['z', 'in', '718757662', null, '2026-08-23 20:38:00+00', 'none', 'reactionMessage'],
+    ]);
+    const chats = await ingest.listUnansweredChats({ hours: 0, staffPhones: STAFF });
+    assert.strictEqual(chats.length, 0,
+      'the firm DID reply — a mislabelled group message must not make the reply vanish');
+  } finally {
+    await pool.end().catch(() => {});
+  }
+});
+
 test('a chat whose only new arrivals are reactions leaves the board', { skip: !URL_ }, async () => {
   process.env.DATABASE_URL = URL_;
   const { Pool } = require('pg');

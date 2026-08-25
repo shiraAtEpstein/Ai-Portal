@@ -369,21 +369,47 @@ module.exports = function createUnansweredRouter() {
       const partner = (dir.staff || []).find((s) => s.inAllGroups) || null;
       const fullList = new Set([dir.defaultOwnerEmail].concat(partner ? [partner.email] : []));
 
-      const recipients = [];
+      // Everyone who COULD receive, if a slot reached them.
+      const everyone = [];
       for (const [email, entry] of Object.entries(digest.byPerson)) {
         if (fullList.has(email)) continue;
-        recipients.push({ email, name: entry.name, count: entry.items.length, list: 'their own' });
+        everyone.push({ email, name: entry.name, count: entry.items.length, list: 'their own' });
       }
       for (const email of fullList) {
         const person = (dir.staff || []).find((s) => s.email === email);
-        recipients.push({
+        everyone.push({
           email,
           name: person ? person.name : (owner ? owner.name : ''),
           count: digest.all.length,
           list: 'the whole firm',
         });
       }
-      const willSend = recipients.filter((r) => r.count > 0);
+
+      // Now cut that down PER SLOT, which is the only honest answer to "who
+      // gets mail". Reporting the whole roster made this page say five emails
+      // would go out when the schedule holds one narrow slot and exactly one
+      // email would — and this page is meant to be the thing you trust when the
+      // environment variables are invisible from the portal.
+      const norm = (e) => String(e || '').trim().toLowerCase();
+      const perSlot = slots.map((sl) => {
+        const only = sl.to === 'everyone' ? null : new Set(sl.to.map(norm));
+        const drop = new Set((sl.except || []).map(norm));
+        const reached = everyone
+          .filter((r) => (!only || only.has(norm(r.email))) && !drop.has(norm(r.email)))
+          .filter((r) => r.count > 0);
+        // Somebody named in a slot who has nothing waiting gets no email. Say
+        // so, or a quiet slot reads as a broken one.
+        const namedButEmpty = only
+          ? [...only].filter((e) => !everyone.some((r) => norm(r.email) === e && r.count > 0))
+          : [];
+        return {
+          at: sl.at,
+          who: describe(sl),
+          wouldSend: reached,
+          nothingWaitingFor: namedButEmpty,
+        };
+      });
+      const willSend = perSlot.flatMap((x) => x.wouldSend);
 
       res.json({
         mode: testEmail ? 'TEST' : 'LIVE',
@@ -391,18 +417,23 @@ module.exports = function createUnansweredRouter() {
         // interpret the fields below.
         summary: testEmail
           ? `TEST MODE — the ${times.join(', ')} run emails ONLY ${testEmail}, with a "[בדיקה]" subject. No member of staff receives anything. Remove UNANSWERED_TEST_EMAIL on Render to go live.`
-          : `LIVE — ${slots.map(describe).join('  |  ')} (Asia/Jerusalem). Each person gets their own list; ${[...fullList].join(' and ')} get the whole firm's. The 08:00 run would send ${willSend.length} email(s) right now.`,
+          : (slots.length
+              ? `LIVE — ${slots.map(describe).join('  |  ')} (Asia/Jerusalem). Right now that is ${willSend.length} email(s): ${willSend.map((r) => r.email + ' (' + r.count + ')').join(', ') || 'none, nobody has anything waiting'}.`
+              : 'NOTHING IS SCHEDULED — config/digest-schedule.json has no slots, so no daily email goes out at all.'),
         timesLocal: times,
         // Said in words, because "08:00, 13:15" does not tell you that the
         // second one goes to one person only.
         schedule: slots.map(describe),
         timezone: 'Asia/Jerusalem',
         thresholdHours: hours,
-        thresholdMeaning: 'a chat appears once the client has waited this many REAL hours (not working hours) — so an overnight message is still in the 08:00 list',
+        thresholdMeaning: 'a chat appears once the client has waited this many REAL hours (not working hours) — so an overnight message is still in the morning list',
         testEmail,
-        recipients: recipients.sort((a, b) => b.count - a.count),
+        // Per slot, because that is the question. `everyoneWhoCouldReceive` is
+        // kept underneath for when you want to know who a wider slot WOULD
+        // reach, but it is not the answer to "who gets mail tonight".
+        slots: perSlot,
         wouldSendNow: willSend.length,
-        skippedBecauseEmpty: recipients.length - willSend.length,
+        everyoneWhoCouldReceive: everyone.sort((a, b) => b.count - a.count),
         note: 'Sending goes through the Gmail API — check /api/admin/mail-health if a run reports failures.',
       });
     } catch (e) {

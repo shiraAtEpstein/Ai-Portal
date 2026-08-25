@@ -192,15 +192,34 @@ function msgTimestamp(msg) {
   return null;
 }
 
+// Keys WhatsApp attaches ALONGSIDE the real content. In a GROUP, Baileys puts
+// the key-exchange record in the same object as the message, and it frequently
+// comes first — so `Object.keys()[0]` on a perfectly ordinary group message
+// returns 'senderKeyDistributionMessage'.
+//
+// That is not a detail. Reading the first key blindly labelled most group
+// traffic — including the firm's own replies — as a system record, and the
+// unanswered detector drops system records. Replies went invisible and every
+// group chat read as unanswered from the beginning of time.
+//
+// So these are never a message's identity while anything else is present.
+const SIDE_CHANNEL_KEYS = ['senderKeyDistributionMessage', 'messageContextInfo'];
+
 // The kind of message this is, once the wrappers are peeled: 'reactionMessage',
 // 'audioMessage', 'conversation', 'imageMessage', … Diagnostics only — it says
 // what a row IS without exposing what it SAYS.
+//
+// 'system' means the row carried nothing but side-channel keys: a genuine
+// key-exchange record with no message in it. A single label for that case keeps
+// the repair pass in whatsapp/ingest/db.js convergent — nothing is left holding
+// a value that pass would want to re-examine.
 function messageKind(message) {
   const m = unwrapMessage(message && message.message ? message.message : message);
   if (!m || typeof m !== 'object') return 'unknown';
   if (typeof m.type === 'string') return m.type;            // Cloud-API / history shape
-  const keys = Object.keys(m).filter((k) => k !== 'messageContextInfo');
-  return keys.length ? keys[0] : 'unknown';
+  const keys = Object.keys(m).filter((k) => SIDE_CHANNEL_KEYS.indexOf(k) === -1);
+  if (keys.length) return keys[0];
+  return Object.keys(m).length ? 'system' : 'unknown';
 }
 
-module.exports = { normalizePhone, senderFromMessage, jidUser, jidDomain, isLidJid, phoneJidFromKey, textPreview, messageKind, unwrapMessage };
+module.exports = { normalizePhone, senderFromMessage, jidUser, jidDomain, isLidJid, phoneJidFromKey, textPreview, messageKind, unwrapMessage, SIDE_CHANNEL_KEYS };

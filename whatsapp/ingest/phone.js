@@ -214,7 +214,22 @@ const SIDE_CHANNEL_KEYS = ['senderKeyDistributionMessage', 'messageContextInfo']
 // the repair pass in whatsapp/ingest/db.js convergent — nothing is left holding
 // a value that pass would want to re-examine.
 function messageKind(message) {
-  const m = unwrapMessage(message && message.message ? message.message : message);
+  if (!message || typeof message !== 'object') return 'unknown';
+
+  // NO CONTENT AT ALL. Baileys sends group events — "X joined", "the security
+  // code changed" — as rows with a key and a messageStubType but no `.message`.
+  // Reading the first key of the envelope labelled those 'key' or
+  // 'messageStubParameters', and they were then counted as client messages that
+  // could open a wait. Nobody is waiting for an answer to a join notification.
+  //
+  // Only a row that SAYS it is a stub is treated as one. A content-less row with
+  // no stub markers (a missed call, a payload that lost its body) is left as
+  // 'noContent' and still counts — fail open, as everywhere else here.
+  if (!message.message) {
+    return (message.messageStubType != null || message.messageStubParameters) ? 'stub' : 'noContent';
+  }
+
+  const m = unwrapMessage(message.message);
   if (!m || typeof m !== 'object') return 'unknown';
   if (typeof m.type === 'string') return m.type;            // Cloud-API / history shape
   const keys = Object.keys(m).filter((k) => SIDE_CHANNEL_KEYS.indexOf(k) === -1);

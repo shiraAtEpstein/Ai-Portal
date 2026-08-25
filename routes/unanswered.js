@@ -334,6 +334,84 @@ module.exports = function createUnansweredRouter() {
   });
 
   // -------------------------------------------------------------------------
+  // WILL THE DAILY EMAIL GO OUT, WHEN, AND TO WHOM? — read-only, admin only.
+  //
+  //   GET /api/admin/unanswered/schedule
+  //
+  // The answer lives in environment variables on Render, which nobody can see
+  // from the portal — so "is the digest live or still in test mode?" has been a
+  // question only the server logs could answer, and only at 08:00. This says it
+  // on demand, and it resolves the ACTUAL recipient list rather than describing
+  // the rule: who would get an email right now, with how many chats each.
+  //
+  // Nothing is sent. The recipient names come from config/staff-directory.json,
+  // and no chat labels or message text are returned — only counts.
+  // -------------------------------------------------------------------------
+  router.get('/api/admin/unanswered/schedule', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const dir = loadDirectory();
+      const testEmail = String(process.env.UNANSWERED_TEST_EMAIL || '').trim() || null;
+      const num = (v, d) => { const n = parseInt(v || '', 10); return Number.isFinite(n) && n >= 0 ? n : d; };
+      const hours = testEmail ? num(process.env.UNANSWERED_TEST_HOURS, 0) : num(process.env.UNANSWERED_HOURS, 3);
+      // The real slots, from config/digest-schedule.json via the scheduler, so
+      // this page cannot describe a timetable the scheduler is not running.
+      let slots = [];
+      try { slots = require('../lib/scheduler').digestSlots(); } catch (_) { slots = []; }
+      const times = slots.map((x) => x.at);
+      const describe = (x) => x.at + ' → ' + (x.to === 'everyone'
+        ? ('כל מי שיש לו משהו ממתין' + (x.except && x.except.length ? ' חוץ מ-' + x.except.join(', ') : ''))
+        : x.to.join(', '));
+
+      // Build the digest exactly as the 08:00 run would, so the preview cannot
+      // drift from what actually gets sent.
+      const digest = await buildDigest({ hours });
+      const owner = (dir.staff || []).find((s) => s.email === dir.defaultOwnerEmail);
+      const partner = (dir.staff || []).find((s) => s.inAllGroups) || null;
+      const fullList = new Set([dir.defaultOwnerEmail].concat(partner ? [partner.email] : []));
+
+      const recipients = [];
+      for (const [email, entry] of Object.entries(digest.byPerson)) {
+        if (fullList.has(email)) continue;
+        recipients.push({ email, name: entry.name, count: entry.items.length, list: 'their own' });
+      }
+      for (const email of fullList) {
+        const person = (dir.staff || []).find((s) => s.email === email);
+        recipients.push({
+          email,
+          name: person ? person.name : (owner ? owner.name : ''),
+          count: digest.all.length,
+          list: 'the whole firm',
+        });
+      }
+      const willSend = recipients.filter((r) => r.count > 0);
+
+      res.json({
+        mode: testEmail ? 'TEST' : 'LIVE',
+        // The one sentence that matters, in plain language, so nobody has to
+        // interpret the fields below.
+        summary: testEmail
+          ? `TEST MODE — the ${times.join(', ')} run emails ONLY ${testEmail}, with a "[בדיקה]" subject. No member of staff receives anything. Remove UNANSWERED_TEST_EMAIL on Render to go live.`
+          : `LIVE — ${slots.map(describe).join('  |  ')} (Asia/Jerusalem). Each person gets their own list; ${[...fullList].join(' and ')} get the whole firm's. The 08:00 run would send ${willSend.length} email(s) right now.`,
+        timesLocal: times,
+        // Said in words, because "08:00, 13:15" does not tell you that the
+        // second one goes to one person only.
+        schedule: slots.map(describe),
+        timezone: 'Asia/Jerusalem',
+        thresholdHours: hours,
+        thresholdMeaning: 'a chat appears once the client has waited this many REAL hours (not working hours) — so an overnight message is still in the 08:00 list',
+        testEmail,
+        recipients: recipients.sort((a, b) => b.count - a.count),
+        wouldSendNow: willSend.length,
+        skippedBecauseEmpty: recipients.length - willSend.length,
+        note: 'Sending goes through the Gmail API — check /api/admin/mail-health if a run reports failures.',
+      });
+    } catch (e) {
+      console.error('[unanswered/schedule] failed:', e.message);
+      res.status(500).json({ error: 'could not read the schedule', detail: e.message });
+    }
+  });
+
+  // -------------------------------------------------------------------------
   // WHY DOES THIS CHAT SAY THAT? — read-only, admin only.
   //
   //   GET /api/admin/unanswered/why?chat=weinstein

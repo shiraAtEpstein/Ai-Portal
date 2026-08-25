@@ -280,13 +280,61 @@ module.exports = function createUnansweredRouter() {
   });
 
   // Manual trigger: build + send the digests right now.
+  // Send the digest now. THREE different things, and the difference matters
+  // because two of them put real mail in a colleague's inbox:
+  //
+  //   ?to=addr        DRY RUN. Everything collapses to that one address, with
+  //                   the whole firm's list and a "[בדיקה]" subject. Nobody
+  //                   else hears about it. Use this to look at the design.
+  //
+  //   ?slot=13:15     RUN THAT SCHEDULED SLOT, NOW, FOR REAL. Recipients come
+  //                   from config/digest-schedule.json, so what goes out is
+  //                   exactly what fires daily — it cannot drift from the
+  //                   schedule, because it IS the schedule.
+  //
+  //   ?only=a@b,c@d   REAL send to exactly these people, each with their own
+  //                   list. For "nudge Shayna now" when no slot fits.
+  //
+  //   (nothing)       REAL send to everyone the routing reaches. Careful.
+  //
+  // ?slot and ?only ignore UNANSWERED_TEST_EMAIL on purpose: you named the
+  // recipients, and silently redirecting a deliberate send to the test address
+  // would be the wrong kind of safe. The response says which mode ran.
   router.post('/api/admin/unanswered/send-digest', authenticate, requireAdmin, async (req, res) => {
     try {
+      const q = (k) => (req.query && req.query[k]) || (req.body && req.body[k]) || null;
       const hours = hoursFrom(req);
-      // ?to=someone@epsteinlaw.co.il -> TEST MODE: send only there (no staff).
-      const testEmail = (req.query && req.query.to) || (req.body && req.body.to) || null;
-      const result = await sendDigests({ hours, testEmail });
-      res.json({ ok: true, ...result });
+      const slotAt = q('slot');
+      const onlyRaw = q('only');
+
+      let onlyEmails = null;
+      let exceptEmails = null;
+      let mode = 'everyone';
+
+      if (slotAt) {
+        let slots = [];
+        try { slots = require('../lib/scheduler').digestSlots(); } catch (_) { slots = []; }
+        const slot = slots.find((s) => s.at === String(slotAt).trim());
+        if (!slot) {
+          return res.status(400).json({
+            error: `No slot at ${slotAt} in config/digest-schedule.json.`,
+            slotsConfigured: slots.map((s) => s.at),
+          });
+        }
+        onlyEmails = slot.to === 'everyone' ? null : slot.to;
+        exceptEmails = slot.except;
+        mode = `slot ${slot.at}`;
+      } else if (onlyRaw) {
+        onlyEmails = String(onlyRaw).split(',').map((x) => x.trim()).filter(Boolean);
+        mode = 'only ' + onlyEmails.join(', ');
+      }
+
+      // The dry run is the ONLY path that uses the test address.
+      const testEmail = (slotAt || onlyRaw) ? null : q('to');
+      if (testEmail) mode = `dry run -> ${testEmail}`;
+
+      const result = await sendDigests({ hours, testEmail, onlyEmails, exceptEmails });
+      res.json({ ok: true, mode, hours, ...result });
     } catch (e) {
       res.status(500).json({ error: 'Failed to send digests.', detail: e.message });
     }

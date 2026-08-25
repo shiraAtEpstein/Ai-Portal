@@ -951,7 +951,7 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
             ba.payloads,
             ba.is_group,
             ba.last_client_phone,
-            ROUND(EXTRACT(EPOCH FROM (now() - COALESCE(ba.first_needing_reply_at, ba.first_unanswered_at))) / 3600.0, 1) AS hours_waiting,
+            ROUND(EXTRACT(EPOCH FROM (now() - ba.first_needing_reply_at)) / 3600.0, 1) AS hours_waiting,
             g.name AS group_name,
             g.participant_phones,
             c.monday_client_name,
@@ -974,6 +974,21 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
     // No unanswered block => the firm's last message came after every client
     // message (or there are none) => nothing awaiting a reply.
     const hasBlock = row.first_unanswered_at != null;
+    // IS ANYBODY ACTUALLY WAITING?
+    //
+    // A block can exist and still be nothing to answer: the firm replied, and
+    // since then the client has only sent closers — a 👍, a "תודה", a "מעולה".
+    // The conversation is finished, and putting it on the board tells somebody
+    // to answer a thumbs-up.
+    //
+    // This is the rule lib/staff-metrics.js has always used (needs_reply =
+    // bool_or(client_category <> 'none')). The board was the lenient one and
+    // the two disagreed: a chat the medians had already written off still sat
+    // on the list marked 🔴. Now they agree.
+    //
+    // NULL is not 'none' — a message nobody has classified yet still counts, so
+    // the fail-safe keeps running toward flagging rather than hiding.
+    const needsReply = row.first_needing_reply_at != null;
     // Measured from the OLDEST unanswered message in the block. TWO NUMBERS,
     // because there are two questions:
     //   hoursWaiting         — WORKING hours (08:00-22:00, no Saturday). Feeds
@@ -984,9 +999,9 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
     // The instant the clock really starts — see first_needing_reply_at above.
     // Falls back to the oldest message when every one of them is a closer, in
     // which case the chat-level triage will almost certainly drop it anyway.
-    const waitFrom = row.first_needing_reply_at || row.first_unanswered_at;
-    const waited = hasBlock ? businessHours.businessHoursBetween(waitFrom, Date.now()) : null;
-    const calendarWaited = hasBlock && row.hours_waiting != null ? Number(row.hours_waiting) : null;
+    const waitFrom = row.first_needing_reply_at;
+    const waited = needsReply ? businessHours.businessHoursBetween(waitFrom, Date.now()) : null;
+    const calendarWaited = needsReply && row.hours_waiting != null ? Number(row.hours_waiting) : null;
     // ── WHY THE THRESHOLD STAYS ON THE WALL CLOCK ──────────────────────────
     // The `hours` threshold answers "is this old enough to bother somebody
     // about", and that is a question about real elapsed time. Measuring it in
@@ -1009,12 +1024,13 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
     // Classify + LOG the reason for every chat that has a client message.
     let decision;
     if (!hasBlock) decision = `SKIP (firm replied after — firm last wrote ${row.last_firm_at || 'n/a'})`;
+    else if (!needsReply) decision = `SKIP (${msgCount} message(s) since the firm replied, every one a closer — 👍 / תודה / FYI. Nothing to answer.)`;
     else if (dismissed) decision = `SKIP (marked handled at ${row.dismissed_at}, no newer client msg)`;
     else if (tooRecent) decision = `SKIP (too recent — oldest unanswered waited ${calendarWaited}h wall-clock < threshold ${h}h)`;
     else decision = `TAKE (${msgCount} unanswered client msg(s), oldest waited ${waited} working h, no firm reply after)`;
     console.log(`[unanswered/why] "${label}" | oldestUnanswered=${row.first_unanswered_at || 'none'} (${row.last_client_phone || 'lid/unknown'}) | lastClient=${row.last_client_at} | lastFirm=${row.last_firm_at || 'never'} | block=${msgCount} | waited=${waited} working h (${calendarWaited}h wall-clock) -> ${decision}`);
 
-    if (!hasBlock || tooRecent || dismissed) continue;
+    if (!hasBlock || !needsReply || tooRecent || dismissed) continue;
 
     // Decrypt the block's messages (oldest first) so the AI needs-reply step can
     // read the WHOLE conversation since the last firm reply — not just the last

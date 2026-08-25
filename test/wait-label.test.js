@@ -72,3 +72,24 @@ test('workLabel speaks in WORKING hours and working days', () => {
   assert.strictEqual(workLabel(28), 'יומיים');
   assert.strictEqual(workLabel(null), '—');
 });
+
+// ---------------------------------------------------------------- messageKind
+// A group message carries the key-exchange record beside its content. Reading
+// the first key labelled ordinary group traffic — the firm's own replies
+// included — as a system record, and the unanswered detector drops those. Every
+// group chat then read as unanswered from the beginning of time.
+const { messageKind } = require('../whatsapp/ingest/phone');
+
+test('messageKind names the CONTENT of a group message, not the key exchange', () => {
+  assert.strictEqual(messageKind({ message: { senderKeyDistributionMessage: {}, conversation: 'hi' } }), 'conversation');
+  assert.strictEqual(messageKind({ message: { senderKeyDistributionMessage: {}, audioMessage: { ptt: true } } }), 'audioMessage');
+  assert.strictEqual(messageKind({ message: { messageContextInfo: {}, senderKeyDistributionMessage: {}, imageMessage: {} } }), 'imageMessage');
+  // A reaction inside a group must still read as a reaction.
+  assert.strictEqual(messageKind({ message: { senderKeyDistributionMessage: {}, reactionMessage: { text: '👍' } } }), 'reactionMessage');
+});
+
+test('messageKind still names a row that really is nothing but key exchange', () => {
+  assert.strictEqual(messageKind({ message: { senderKeyDistributionMessage: {} } }), 'system');
+  assert.strictEqual(messageKind({ message: { protocolMessage: { type: 0 } } }), 'protocolMessage');
+  assert.strictEqual(messageKind({ message: {} }), 'unknown');
+});

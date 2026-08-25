@@ -144,6 +144,52 @@ test('a CLIENT thumbs-up on the same question does NOT answer it', { skip: !URL_
   }
 });
 
+test('the firm answered and the client only said thanks — off the board', { skip: !URL_ }, async () => {
+  process.env.DATABASE_URL = URL_;
+  const { Pool } = require('pg');
+  const pool = new Pool({ connectionString: URL_ });
+  const ingest = require('../whatsapp/ingest/db');
+  try {
+    // The exchange is FINISHED. The firm answered, and everything since is a
+    // closer — here a "תודה" that is not a reaction, so msg_kind cannot help
+    // and only client_category can. The board used to keep it, marked 🔴,
+    // telling somebody to answer a thank-you. lib/staff-metrics has always
+    // dropped it; the two must agree.
+    await seed(pool, [
+      ['x', 'in', '718757311', null, '2026-08-22 06:00:00+00', 'required', null],
+      ['y', 'in', '546422750', '546422750', '2026-08-22 07:00:00+00', null, null],   // the firm answers
+      ['z', 'in', '718757311', null, '2026-08-22 07:05:00+00', 'none', null],        // "תודה!"
+      ['w', 'in', '718757311', null, '2026-08-22 07:06:00+00', 'none', 'reactionMessage'],
+    ]);
+    const chats = await ingest.listUnansweredChats({ hours: 0, staffPhones: STAFF });
+    assert.strictEqual(chats.length, 0, 'nobody is waiting for an answer to "תודה"');
+  } finally {
+    await pool.end().catch(() => {});
+  }
+});
+
+test('but one unclassified message among the closers keeps it on the board', { skip: !URL_ }, async () => {
+  process.env.DATABASE_URL = URL_;
+  const { Pool } = require('pg');
+  const pool = new Pool({ connectionString: URL_ });
+  const ingest = require('../whatsapp/ingest/db');
+  try {
+    // The fail-safe. "Not looked at yet" is not "needs no answer", so a single
+    // NULL among the closers is enough to keep the chat visible.
+    await seed(pool, [
+      ['x', 'in', '718757311', null, '2026-08-22 06:00:00+00', 'required', null],
+      ['y', 'in', '546422750', '546422750', '2026-08-22 07:00:00+00', null, null],
+      ['z', 'in', '718757311', null, '2026-08-22 07:05:00+00', 'none', null],
+      ['w', 'in', '718757311', null, '2026-08-22 07:06:00+00', null, null],   // not classified yet
+    ]);
+    const [chat] = await ingest.listUnansweredChats({ hours: 0, staffPhones: STAFF });
+    assert.ok(chat, 'an unclassified message must still be flagged');
+    assert.strictEqual(new Date(chat.firstUnansweredAt).toISOString(), '2026-08-22T07:06:00.000Z');
+  } finally {
+    await pool.end().catch(() => {});
+  }
+});
+
 test('a chat whose only new arrivals are reactions leaves the board', { skip: !URL_ }, async () => {
   process.env.DATABASE_URL = URL_;
   const { Pool } = require('pg');

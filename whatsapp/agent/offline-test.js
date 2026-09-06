@@ -4,7 +4,7 @@
 // and the red-team set. Nothing is sent, nothing is queued. Every run is stored
 // in wa_drafts with mode='offline' (unless --dry-run), and a report is printed.
 //
-//   node whatsapp/agent/offline-test.js --pairs path/to/pairs_test.json [--redteam whatsapp/agent/redteam.json] [--limit N] [--dry-run] [--include-drafts] [--out report.json]
+//   node whatsapp/agent/offline-test.js --pairs db|path/to/pairs_test.json [--redteam whatsapp/agent/redteam.json] [--limit N] [--dry-run] [--include-drafts] [--out report.json]
 //
 //   --include-drafts  lets the run use Answer Bank rows still in 'draft' status. Offline only —
 //                     the live pipeline never does this. Useful before Yaacov has approved the bank.
@@ -44,7 +44,9 @@ async function main() {
 
   const results = [];
   if (PAIRS) {
-    const pairs = JSON.parse(fs.readFileSync(PAIRS, 'utf8')).slice(0, LIMIT);
+    // --pairs db  → read the held-back set from the wa_test_pairs table (loaded once via SQL);
+    // --pairs <file> → a local pairs_test.json
+    const pairs = (PAIRS === 'db' ? await db.listTestPairs() : JSON.parse(fs.readFileSync(PAIRS, 'utf8'))).slice(0, LIMIT);
     for (const p of pairs) {
       const r = await runMessage({ text: p.q, turns: [], direction: 'in', dealId: 'offline-deal', chatJid: p.chat, referenceText: p.a }, { mode: 'offline', skills, bank, stubFacts, dryRun: DRY });
       results.push({ set: 'pairs', q: p.q, ref: p.a, ...r });

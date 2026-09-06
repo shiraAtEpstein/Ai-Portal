@@ -1,0 +1,116 @@
+{
+  "_comment": "The ONLY monday columns the WhatsApp responder may read, per board. The resolver (whatsapp/agent/facts.js) requests exactly these ids and nothing else; a column not listed here can never reach the model. Slot names match config in whatsapp/agent/classify page (wa_skills 'classify'). Board ids: קבלן 1603266152, יד 2 1772652154, תשלומים 1727614456, צוואות 5096606714, לקוחות 1603266147. Boards not listed are never read (לקוחות צוואה 5088365068, שאלון 1603266157, קמפיין צוואות 5099077728).",
+  "boards": {
+    "1603266152": {
+      "name": "קבלן",
+      "kind": "deal",
+      "columns": {
+        "stage": "deal_stage",
+        "paralegal": "deal_owner",
+        "taxPerson": "people_mkmc9m3v",
+        "paymentsLink": "link_to________1__1",
+        "indexLinked": "status_mkm0x7dj",
+        "paymentCount": "numeric_mknsnjhc",
+        "deliveryDate": "date_mkv7gn8f",
+        "signingPlanned": "date_mkr33k4v",
+        "signingActual": "date58__1",
+        "aptNumber": "text_mkm085q3",
+        "building": "text_mkm0tje8",
+        "floor": "text_mkm0wajw",
+        "address": "location_mkm0p62b",
+        "projectNameEn": "lookup_mkv8bbnd",
+        "docNotary": "status_mkn958s0",
+        "docSigningSet": "status_mkma7wkt",
+        "docSignedContractSent": "status_mkmbh1xw",
+        "docKyc": "status_1__1",
+        "docFeeAgreement": "status_mkmpd1tz",
+        "handover": "color_mkxwkw9",
+        "vouchersReceivedDate": "date_mkmd89nw",
+        "taxReported": "status_mkmc3ksy",
+        "taxPaid": "color_mkswph0p",
+        "taxVoucherSent": "color50__1",
+        "taxVoucherSentDate": "date_mkxwebx6",
+        "taxOutstanding": "numeric_mkxzbpf7",
+        "taxAssessment": "color_mkvmtwgz",
+        "taxAssessmentClosed": "date_mm4b73xb",
+        "companyServiceContact": "lookup950__1",
+        "companyAccountContact": "lookup_mkz9a6cv",
+        "companyLawyer": "lookup_mkqrcdk1"
+      }
+    },
+    "1772652154": {
+      "name": "יד 2",
+      "kind": "deal",
+      "columns": {
+        "stage": "status",
+        "paralegal": "person",
+        "taxPerson": "people_mkmfnaj0",
+        "paymentsLink": "connect_boards_mkn2gdhg",
+        "paymentCount": "numeric_mknwxkhn",
+        "deliveryDate": "date_mkmx9hcs",
+        "signingPlanned": "date_mkr36pp7",
+        "signingActual": "date_mkmceehf",
+        "aptNumber": "text_mkmjgp2d",
+        "floor": "text_mknqf79t",
+        "aptDescriptionEn": "text_mm0gcj1t",
+        "docSigningSet": "status_mkmkskr5",
+        "docFeeAgreement": "status_mkn24v1",
+        "docPostSigningMail": "color_mknsya4k",
+        "registrationProgress": "columns_battery_mm6kg7b8",
+        "registeredInTabu": "color_mm0cak5",
+        "municipalCert": "status_mkmfvak0",
+        "municipalCertExpiry": "date_mkmf4dc2",
+        "registeredDate": "date_mkmfzkb1",
+        "taxPaid": "color_mksw5b8c",
+        "taxVoucherSentDate": "date_mkxws9ex",
+        "taxAssessment": "color_mkvmny46",
+        "taxAssessmentClosed": "date_mm4bry58",
+        "taxAdvance": "color_mkqv21mw",
+        "otherSideLawyer": "connect_boards_mkmjd4v2"
+      }
+    },
+    "1727614456": {
+      "name": "תשלומים",
+      "kind": "payments",
+      "columns": {
+        "label": "dropdown_mkm04cr6",
+        "status": "status",
+        "amount": "numbers__1",
+        "dueDate": "date4",
+        "dueText": "text_mktra0z3",
+        "remaining": "numeric_mkxt61s3",
+        "contractorDeal": "connect_boards17__1",
+        "secondHandDeal": "board_relation_mkn24y6j"
+      },
+      "paidStatuses": [
+        "שולם",
+        "הלקוח שילם בעצמו"
+      ],
+      "apartmentPaymentPrefix": "תשלום"
+    },
+    "5096606714": {
+      "name": "צוואות",
+      "kind": "will",
+      "columns": {
+        "stage": "status",
+        "paralegal": "person",
+        "signingPlanned": "date_mm4bgaf9",
+        "signingActual": "date_mm3efdcg",
+        "docDraftSent": "color_mm3edrf0",
+        "docFinalSent": "color_mm4acse8",
+        "docSignedSent": "color_mm3epny9"
+      }
+    },
+    "1603266147": {
+      "name": "לקוחות",
+      "kind": "client",
+      "columns": {
+        "nickname": "text8__1",
+        "firstEn": "text9__1",
+        "firstHe": "text__1",
+        "title": "title__1",
+        "language": "color_mm33bjc1"
+      }
+    }
+  }
+}

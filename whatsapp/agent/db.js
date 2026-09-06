@@ -86,11 +86,13 @@ async function ensureTables() {
     'model_classify TEXT', 'model_compose TEXT', 'reference_text TEXT',
     'draft_text TEXT', 'facts_used JSONB', 'validation JSONB', 'tokens_in INT', 'tokens_out INT', 'deal_id TEXT',
   ]) await p.query(`ALTER TABLE wa_drafts ADD COLUMN IF NOT EXISTS ${col};`);
-  // The 1 Sept columns carry NOT NULL for a queue shape this pipeline does not use
-  // (inbound_id, lane, status, ...). Relax them so an offline/shadow row can be written.
-  for (const col of ['inbound_id', 'deal_id', 'taxonomy_id', 'lane', 'faq_id', 'spec_id', 'slots_filled', 'missing_slot',
-    'escalate_reason', 'blocked', 'skill_version_id', 'model', 'status', 'assignee']) {
-    try { await p.query(`ALTER TABLE wa_drafts ALTER COLUMN ${col} DROP NOT NULL;`); } catch (_) { /* column absent — fine */ }
+  // The 1 Sept columns carry NOT NULL for a queue shape this pipeline does not use.
+  // Relax every column except id / created_at so an offline/shadow row can be written.
+  const nn = await p.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_name = 'wa_drafts' AND is_nullable = 'NO' AND column_name NOT IN ('id', 'created_at')`);
+  for (const r of nn.rows) {
+    try { await p.query(`ALTER TABLE wa_drafts ALTER COLUMN "${r.column_name}" DROP NOT NULL;`); } catch (e) { console.warn('[wa-agent/db] could not relax', r.column_name, e.message); }
   }
   await p.query(`CREATE INDEX IF NOT EXISTS wa_drafts_created_idx ON wa_drafts (created_at DESC);`);
   await p.query(`CREATE INDEX IF NOT EXISTS wa_drafts_deal_idx ON wa_drafts (deal_id);`);
@@ -165,9 +167,10 @@ async function insertDraft(d) {
        answer_bank_code, draft_text, facts_used, validation, skill_versions, model_classify, model_compose, tokens_in, tokens_out, reference_text)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING id`,
     [d.mode, d.job_id ? String(d.job_id) : null, d.chat_jid || null, d.deal_id ? String(d.deal_id) : null, d.message_text, d.outcome, d.outcome_reason || null,
-     d.classification ? JSON.stringify(d.classification) : null, d.slots ? JSON.stringify(d.slots) : null,
-     d.answer_bank_code || null, d.draft_text || null, d.facts_used ? JSON.stringify(d.facts_used) : null,
-     d.validation ? JSON.stringify(d.validation) : null, d.skill_versions ? JSON.stringify(d.skill_versions) : null,
+     // JSON columns are written as empty objects/arrays rather than NULL, so a legacy NOT NULL on any of them can never block a row.
+     JSON.stringify(d.classification || {}), JSON.stringify(d.slots || {}),
+     d.answer_bank_code || null, d.draft_text || null, JSON.stringify(d.facts_used || []),
+     JSON.stringify(d.validation || {}), JSON.stringify(d.skill_versions || {}),
      d.model_classify || null, d.model_compose || null, d.tokens_in || null, d.tokens_out || null, d.reference_text || null]
   );
   return r.rows[0] && r.rows[0].id;

@@ -86,6 +86,12 @@ async function ensureTables() {
     'model_classify TEXT', 'model_compose TEXT', 'reference_text TEXT',
     'draft_text TEXT', 'facts_used JSONB', 'validation JSONB', 'tokens_in INT', 'tokens_out INT', 'deal_id TEXT',
   ]) await p.query(`ALTER TABLE wa_drafts ADD COLUMN IF NOT EXISTS ${col};`);
+  // The 1 Sept columns carry NOT NULL for a queue shape this pipeline does not use
+  // (inbound_id, lane, status, ...). Relax them so an offline/shadow row can be written.
+  for (const col of ['inbound_id', 'deal_id', 'taxonomy_id', 'lane', 'faq_id', 'spec_id', 'slots_filled', 'missing_slot',
+    'escalate_reason', 'blocked', 'skill_version_id', 'model', 'status', 'assignee']) {
+    try { await p.query(`ALTER TABLE wa_drafts ALTER COLUMN ${col} DROP NOT NULL;`); } catch (_) { /* column absent — fine */ }
+  }
   await p.query(`CREATE INDEX IF NOT EXISTS wa_drafts_created_idx ON wa_drafts (created_at DESC);`);
   await p.query(`CREATE INDEX IF NOT EXISTS wa_drafts_deal_idx ON wa_drafts (deal_id);`);
   await p.query(`

@@ -196,4 +196,15 @@ async function outcomeStats({ days = 7 } = {}) {
   return r.rows;
 }
 
-module.exports = { ensureTables, loadActiveSkills, listAnswerBank, insertDraft, recordReview, outcomeStats };
+// The offline test set, when it has been loaded into Neon (wa_test_pairs) so the
+// test can run from the Render shell without a local file.
+async function listTestPairs() {
+  const p = getPool();
+  if (!p) return [];
+  try {
+    const r = await p.query(`SELECT chat, q, a, q_lang, a_by FROM wa_test_pairs ORDER BY seq`);
+    return r.rows;
+  } catch (e) { console.error('[wa-agent/db] wa_test_pairs not available:', e.message); return []; }
+}
+
+module.exports = { ensureTables, loadActiveSkills, listAnswerBank, insertDraft, recordReview, outcomeStats, listTestPairs };

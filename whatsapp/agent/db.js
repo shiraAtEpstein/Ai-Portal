@@ -66,36 +66,32 @@ async function ensureTables() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );`);
+  // wa_drafts may already exist from the 1 Sept learning-log seed (bigint id, text
+  // deal_id, lane/taxonomy columns). We keep that table and ADD the columns this
+  // pipeline writes, so both shapes coexist and nothing is dropped or renamed.
   await p.query(`
     CREATE TABLE IF NOT EXISTS wa_drafts (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      mode TEXT NOT NULL,                      -- 'offline' | 'shadow' | 'review'
-      job_id UUID,                             -- processing_jobs.id when live; null offline
-      chat_jid TEXT,
-      deal_id UUID,
-      message_text TEXT NOT NULL,
-      outcome TEXT NOT NULL,                   -- 'dropped' | 'silence' | 'escalate' | 'draft' | 'blocked' | 'error'
-      outcome_reason TEXT,
-      classification JSONB,
-      slots JSONB,                             -- { slot: { value, source } }
-      answer_bank_code TEXT,
+      id BIGSERIAL PRIMARY KEY,
+      deal_id TEXT,
       draft_text TEXT,
       facts_used JSONB,
       validation JSONB,
-      skill_versions JSONB,                    -- { voice: id, rules: id, classify: id, compose: id }
-      model_classify TEXT,
-      model_compose TEXT,
       tokens_in INT,
       tokens_out INT,
-      reference_text TEXT,                     -- offline: what staff actually sent
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );`);
+  for (const col of [
+    'mode TEXT', 'job_id TEXT', 'chat_jid TEXT', 'message_text TEXT', 'outcome TEXT', 'outcome_reason TEXT',
+    'classification JSONB', 'slots JSONB', 'answer_bank_code TEXT', 'skill_versions JSONB',
+    'model_classify TEXT', 'model_compose TEXT', 'reference_text TEXT',
+    'draft_text TEXT', 'facts_used JSONB', 'validation JSONB', 'tokens_in INT', 'tokens_out INT', 'deal_id TEXT',
+  ]) await p.query(`ALTER TABLE wa_drafts ADD COLUMN IF NOT EXISTS ${col};`);
   await p.query(`CREATE INDEX IF NOT EXISTS wa_drafts_created_idx ON wa_drafts (created_at DESC);`);
   await p.query(`CREATE INDEX IF NOT EXISTS wa_drafts_deal_idx ON wa_drafts (deal_id);`);
   await p.query(`
     CREATE TABLE IF NOT EXISTS wa_review_actions (
       id BIGSERIAL PRIMARY KEY,
-      draft_id UUID NOT NULL REFERENCES wa_drafts(id),
+      draft_id BIGINT NOT NULL REFERENCES wa_drafts(id),
       reviewer TEXT NOT NULL,
       action TEXT NOT NULL,                    -- 'approve' | 'edit' | 'reject'
       final_text TEXT,
@@ -162,7 +158,7 @@ async function insertDraft(d) {
     `INSERT INTO wa_drafts (mode, job_id, chat_jid, deal_id, message_text, outcome, outcome_reason, classification, slots,
        answer_bank_code, draft_text, facts_used, validation, skill_versions, model_classify, model_compose, tokens_in, tokens_out, reference_text)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING id`,
-    [d.mode, uuidOrNull(d.job_id), d.chat_jid || null, uuidOrNull(d.deal_id), d.message_text, d.outcome, d.outcome_reason || null,
+    [d.mode, d.job_id ? String(d.job_id) : null, d.chat_jid || null, d.deal_id ? String(d.deal_id) : null, d.message_text, d.outcome, d.outcome_reason || null,
      d.classification ? JSON.stringify(d.classification) : null, d.slots ? JSON.stringify(d.slots) : null,
      d.answer_bank_code || null, d.draft_text || null, d.facts_used ? JSON.stringify(d.facts_used) : null,
      d.validation ? JSON.stringify(d.validation) : null, d.skill_versions ? JSON.stringify(d.skill_versions) : null,

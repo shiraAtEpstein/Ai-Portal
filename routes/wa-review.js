@@ -114,5 +114,27 @@ module.exports = function createWaReviewRouter() {
     }
   });
 
+  // One-off diagnostic: which database is THIS RUNNING APP actually talking
+  // to, and what does wa_drafts really hold from its own connection right now.
+  // Added because a replay run reported rows as "already exists" that a
+  // Neon SQL-editor query couldn't find — the fastest way to tell "wrong
+  // database" apart from "real bug" is to ask the app itself, not to keep
+  // guessing. Never exposes the connection string, only its host.
+  router.get('/api/admin/wa-review/debug', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const { getPool } = require('../db');
+      const p = getPool();
+      if (!p) return res.json({ ok: false, error: 'getPool() returned nothing — DATABASE_URL not set for this app.' });
+      let dbHost = null, dbName = null;
+      try { const u = new URL(process.env.DATABASE_URL || ''); dbHost = u.host; dbName = (u.pathname || '').replace(/^\//, ''); } catch (e) { /* leave null */ }
+      const totals = await p.query(`SELECT mode, count(*)::int AS n FROM wa_drafts GROUP BY mode ORDER BY mode`);
+      const withJob = await p.query(`SELECT count(*)::int AS n FROM wa_drafts WHERE job_id IS NOT NULL`);
+      const recent = await p.query(`SELECT id, mode, outcome, job_id, chat_jid, created_at FROM wa_drafts ORDER BY created_at DESC LIMIT 5`);
+      res.json({ ok: true, dbHost, dbName, wa_drafts_by_mode: totals.rows, wa_drafts_with_job_id: withJob.rows[0].n, mostRecent: recent.rows });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   return router;
 };

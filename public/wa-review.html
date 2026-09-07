@@ -120,7 +120,6 @@
 <div class="wrap">
   <div class="toolRow" id="toolRow" style="display:none">
     <button type="button" id="reconcileBtn">בדוק מה נשלח בפועל</button>
-    <button type="button" id="historyRunBtn">הרצה על היסטוריה (לבדיקות)</button>
     <button type="button" id="refreshBtn">רענון ↻</button>
   </div>
   <div class="toolRow" id="toolRowStaff" style="display:none">
@@ -135,7 +134,6 @@
     <div class="tabRow" id="tabRow" style="display:none">
       <button class="tab on" data-t="ready" type="button">לאישור<span class="n" id="cntReady"></span></button>
       <button class="tab" data-t="waiting" type="button">ממתין<span class="n" id="cntWaiting"></span></button>
-      <button class="tab" data-t="history" type="button">היסטוריה<span class="n" id="cntHistory"></span></button>
     </div>
   </div>
 
@@ -171,7 +169,7 @@ function relativeWhen(iso){
   }catch(e){ return ''; }
 }
 
-var activeTab='ready'; // 'ready' | 'waiting' | 'history'
+var activeTab='ready'; // 'ready' | 'waiting'
 var lastData=null;
 
 /* ------------------------------------------------------------ sign-in --- */
@@ -352,14 +350,14 @@ function renderCard(d){
 
 // ready = has a draft to review (clean OR blocked OR escalate-with-suggestion)
 // waiting = queued, genuinely nothing to copy yet
-// history = not on the live board anymore
+// The API only ever returns queued (isQueued) rows now — this screen is
+// "what needs a reply", full stop. Filtering here too is just cheap defense
+// if that ever changes.
 function splitByTab(drafts){
   var queued=(drafts||[]).filter(function(d){ return !!d.isQueued; });
-  var history=(drafts||[]).filter(function(d){ return !d.isQueued; });
   return {
     ready: queued.filter(function(d){ return !!d.draftText; }),
     waiting: queued.filter(function(d){ return !d.draftText; }),
-    history: history,
   };
 }
 
@@ -378,7 +376,6 @@ function render(data){
   var groups=splitByTab(data.drafts||[]);
   document.getElementById('cntReady').textContent=' ('+groups.ready.length+')';
   document.getElementById('cntWaiting').textContent=' ('+groups.waiting.length+')';
-  document.getElementById('cntHistory').textContent=' ('+groups.history.length+')';
 
   var list=groups[activeTab]||[];
   var cards=document.getElementById('cards');
@@ -387,10 +384,8 @@ function render(data){
     var msg;
     if(activeTab==='ready'){
       msg = admin ? 'אין כרגע טיוטות מוכנות. לחצו על "הכן טיוטות לשיחות ממתינות".' : 'אין כרגע תשובות מוכנות לכם.';
-    } else if(activeTab==='waiting'){
-      msg = 'אין כרגע שיחות שממתינות בלי טיוטה — 👍';
     } else {
-      msg = 'אין עדיין היסטוריה.';
+      msg = 'אין כרגע שיחות שממתינות בלי טיוטה — 👍';
     }
     cards.appendChild(el('div','state',msg));
     return;
@@ -435,15 +430,6 @@ document.getElementById('queueBtn').addEventListener('click',function(){
     if(r.alreadyDrafted) extra.push(r.alreadyDrafted+' כבר היו עם טיוטה');
     if(r.noText) extra.push(r.noText+' ללא טקסט לקריאה (וידאו/סטיקר/שגיאת פענוח)');
     return r.queued+' שיחות ממתינות כרגע · נוצרו '+r.ran+' טיוטות חדשות'+(extra.length?' ('+extra.join(', ')+')':'')+'.';
-  });
-});
-document.getElementById('historyRunBtn').addEventListener('click',function(){
-  runAdmin(this,'/api/admin/wa-review/replay?days=14&limit=50',function(r){
-    if(!r) return 'הסתיים.';
-    var extra=[];
-    if(r.alreadyDrafted) extra.push(r.alreadyDrafted+' כבר היו קיימות');
-    if(r.noText) extra.push(r.noText+' ללא טקסט לקריאה (וידאו/סטיקר/שגיאת פענוח)');
-    return '[היסטוריה] נבדקו '+r.candidates+', נוצרו '+r.ran+' טיוטות חדשות'+(extra.length?' ('+extra.join(', ')+')':'')+'.';
   });
 });
 document.getElementById('reconcileBtn').addEventListener('click',function(){

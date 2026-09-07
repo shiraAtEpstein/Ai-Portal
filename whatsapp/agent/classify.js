@@ -24,8 +24,11 @@ const SLOTS = new Set(['waiting_on', 'last_firm_action', 'responsible_staff', 'n
   'payment_schedule', 'balance', 'delivery_date', 'signing_date', 'meeting_time', 'meeting_link', 'office_address',
   'apartment_id', 'document_status', 'registration_status', 'tax_status', 'contact_person', 'client_display']);
 
-// Types that never get a draft in v1, whatever the model says about escalation.
-const ROUTE_ONLY_TYPES = new Set(['status_nudge', 'legal_opinion', 'complaint', 'meta', 'unknown']);
+// Types that never get a draft, whatever the model says about escalation.
+// status_nudge was removed from this set on 7 Sept (Shira): "any update?" has a
+// real answer whenever waiting_on/last_firm_action is known, so it now runs the
+// normal facts -> compose path like any other type instead of always escalating.
+const ROUTE_ONLY_TYPES = new Set(['legal_opinion', 'complaint', 'meta', 'unknown']);
 
 // Deterministic injection / third-party tripwires. These run BEFORE the model and
 // force escalation; the model's own judgement is added on top, never instead.

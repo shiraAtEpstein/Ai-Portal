@@ -212,4 +212,56 @@ async function listTestPairs() {
   } catch (e) { console.error('[wa-agent/db] wa_test_pairs not available:', e.message); return []; }
 }
 
-module.exports = { ensureTables, loadActiveSkills, listAnswerBank, insertDraft, recordReview, outcomeStats, listTestPairs };
+
+// ---- review screen ---------------------------------------------------------
+// Recent drafts for the "generated answers" review screen (public/wa-review.html).
+// Read-only. mode 'shadow'/'review' only — offline test runs never show up here.
+// reference_text, when present, is the real message that followed in that chat
+// (the actual reply a staff member sent, or — for a replayed archive pair — what
+// was sent historically). This is the whole "did the agent get it right" signal;
+// see whatsapp/agent/replay-history.js for how it gets filled in.
+async function listRecentDrafts({ limit = 300, sinceHours = null } = {}) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return [];
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 300, 1), 1000);
+  const params = [lim];
+  let since = '';
+  if (sinceHours) { params.push(Math.max(1, parseInt(sinceHours, 10))); since = `AND created_at > now() - make_interval(hours => $${params.length})`; }
+  const r = await p.query(
+    `SELECT id, mode, chat_jid, deal_id, message_text, outcome, outcome_reason, classification,
+            answer_bank_code, draft_text, facts_used, validation, reference_text, created_at
+     FROM wa_drafts
+     WHERE mode IN ('shadow', 'review') ${since}
+     ORDER BY created_at DESC
+     LIMIT $1`,
+    params
+  );
+  return r.rows;
+}
+
+// Fill reference_text after the fact, once the real reply exists (or the archive
+// pair supplies it). Never overwrites a value that is already there.
+async function setReferenceText(id, referenceText) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !id || !referenceText) return false;
+  const r = await p.query(`UPDATE wa_drafts SET reference_text = $2 WHERE id = $1 AND reference_text IS NULL`, [id, referenceText]);
+  return r.rowCount > 0;
+}
+
+// Has this source message already been run through the pipeline? Keyed on
+// job_id (the processing_jobs.id we pass in as jobId), so replay-history.js can
+// re-run safely without ever double-drafting the same message.
+async function hasDraftForJob(jobId) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !jobId) return false;
+  const r = await p.query(`SELECT 1 FROM wa_drafts WHERE job_id = $1 LIMIT 1`, [String(jobId)]);
+  return r.rows.length > 0;
+}
+
+module.exports = {
+  ensureTables, loadActiveSkills, listAnswerBank, insertDraft, recordReview, outcomeStats, listTestPairs,
+  listRecentDrafts, setReferenceText, hasDraftForJob,
+};

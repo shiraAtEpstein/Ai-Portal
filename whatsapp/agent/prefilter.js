@@ -42,7 +42,11 @@ function prefilter(m) {
   if (m.kind && ['reaction', 'reactionMessage', 'protocolMessage', 'system', 'stub'].includes(m.kind)) return { keep: false, reason: 'system_or_reaction' };
   if (!text || MEDIA_ONLY_RE.test(text)) return { keep: false, reason: 'media_no_text' };
   if (isEmojiOnly(text)) return { keep: false, reason: 'emoji_only' };
-  if (!m.dealId) return { keep: false, reason: 'unlinked_chat' };
+  // NOT dropped for having no linked deal (removed 2026-09-07, Shira). A chat
+  // with no deal yet is still a real client who might need a real reply — it
+  // goes on to classify(), which already knows dealLinked=false and escalates
+  // it (classify.js's 'unlinked' reason) rather than silently vanishing here
+  // before the agent — or a human — ever saw it.
   if (m.addressedToOther) return { keep: false, reason: 'addressed_to_other' };
   if (m.lastFirmReplyAfter) return { keep: false, reason: 'already_answered' };
   if (isAck(text)) return { keep: false, reason: 'ack' };

@@ -34,9 +34,18 @@ const { runMessage } = require('./pipeline');
 const db = require('./db');
 const { NON_MESSAGE_KINDS } = require('../ingest/db');
 
+// textPreview() wants the INNER Baileys `.message` object (the same way
+// whatsapp/ingest/phone.js's own senderFromMessage() calls it: textPreview(msg
+// && msg.message)) — NOT the raw envelope ({key, message, messageTimestamp}).
+// Passing the whole envelope silently returns '' for every real message: this
+// was the actual cause of an earlier run reporting 50 "already exists" when
+// none had ever been created — they were being skipped as textless, and that
+// reason was wrongly folded into the same counter as "already drafted".
 async function decryptedText(payloadEncrypted) {
-  try { return textPreview(JSON.parse(enc.decrypt(payloadEncrypted || ''))); }
-  catch (e) { return ''; }
+  try {
+    const obj = JSON.parse(enc.decrypt(payloadEncrypted || ''));
+    return textPreview(obj && obj.message ? obj.message : obj);
+  } catch (e) { return ''; }
 }
 
 // Last few messages in the chat before `before`, oldest first — the same
@@ -115,11 +124,11 @@ async function runReplay({ days = 14, limit = 50, dryRun = false } = {}) {
 
   const counts = {};
   const rows = [];
-  let ran = 0, skipped = 0;
+  let ran = 0, alreadyDrafted = 0, noText = 0;
   for (const row of cand.rows) {
-    if (await db.hasDraftForJob(row.id)) { skipped++; continue; }
+    if (await db.hasDraftForJob(row.id)) { alreadyDrafted++; continue; }
     const text = await decryptedText(row.payload_encrypted);
-    if (!text) { skipped++; continue; }
+    if (!text) { noText++; continue; }
     const turns = await turnsBefore(p, row.chat_jid, row.at);
     const referenceText = await nextReplyAfter(p, row.chat_jid, row.at);
 
@@ -135,7 +144,8 @@ async function runReplay({ days = 14, limit = 50, dryRun = false } = {}) {
     counts[result.outcome] = (counts[result.outcome] || 0) + 1;
     rows.push({ chatJid: row.chat_jid, text: text.slice(0, 120), outcome: result.outcome });
   }
-  return { candidates: cand.rows.length, ran, skipped, counts, rows };
+  const skipped = alreadyDrafted + noText; // kept for backward compatibility with old callers
+  return { candidates: cand.rows.length, ran, skipped, alreadyDrafted, noText, counts, rows };
 }
 
 module.exports = { runReplay, runReconcile };

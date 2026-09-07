@@ -1,31 +1,45 @@
 #!/usr/bin/env node
 // ============================================================
 // whatsapp/agent/replay-history.js — run the responder pipeline against REAL
-// recently-ingested chats, in mode='shadow'. Nothing is sent, nothing is shown
-// to a client — every run just becomes a wa_drafts row, same as offline-test.js,
-// except the facts come from the real deal (monday + deal_items), not a stub,
-// and the conversation context (`turns`) is the chat's real recent history.
+// chats, in mode='shadow'. Nothing is sent, nothing is shown to a client —
+// every run just becomes a wa_drafts row, same as offline-test.js, except the
+// facts come from the real deal (monday + deal_items), not a stub, and the
+// conversation context (`turns`) is the chat's real recent history.
 //
-// This is what feeds public/wa-review.html: instead of (or before) reading a
-// synthetic report in the terminal, real generated answers for real recent
-// client messages show up on the actual review screen.
+// This is what feeds public/wa-review.html. Three entry points:
 //
-// Exports runReplay()/runReconcile() so routes/wa-review.js can trigger the
-// same logic from the browser (same idiom as whatsapp/ingest/processor.js).
-// Run directly for the CLI form:
+//   runQueueDrafts()  — the everyday one. Drafts ONLY for chats that are
+//                        currently on the live "needs a reply" board
+//                        (lib/unanswered-digest's buildBoard() — the exact
+//                        same definition the unanswered board / staff
+//                        dashboard use), one draft for each chat's current
+//                        open message. This is what the review screen's main
+//                        button runs — it never drafts for something that's
+//                        already been answered.
+//   runReplay()       — the backtest/QA one. Drafts for the last N days of
+//                        ALL real client messages, answered or not, so the
+//                        agent's output can be compared against what staff
+//                        actually sent (the learning loop). Not the everyday
+//                        tool — kept for review/tuning, not for "what needs
+//                        a reply right now".
+//   runReconcile()    — generates nothing. Re-checks existing wa_drafts rows
+//                        with no reference_text yet and fills it in once a
+//                        real staff reply exists — the "what was actually
+//                        sent" half of the learning loop, for drafts from
+//                        EITHER of the above. Safe to run repeatedly.
 //
+// Exported so routes/wa-review.js can trigger the same logic from the browser
+// (same idiom as whatsapp/ingest/processor.js). Run directly for the CLI form:
+//
+//   node whatsapp/agent/replay-history.js --queue [--limit 200] [--dry-run]
 //   node whatsapp/agent/replay-history.js --days 14 --limit 50 [--dry-run]
 //   node whatsapp/agent/replay-history.js --reconcile [--limit 500] [--dry-run]
 //
-// --reconcile does NOT generate anything. It re-checks existing wa_drafts rows
-// that have no reference_text yet, and fills it in if the chat now has a real
-// staff reply after the draft's message — the "what was actually sent" half
-// of the learning loop. Safe to run repeatedly (e.g. daily): it only ever
-// fills a currently-empty reference_text, never overwrites one.
-//
-// Both modes are read-only against WhatsApp/monday and additive against Neon.
+// All modes are read-only against WhatsApp/monday and additive against Neon.
 // Idempotent: a message that already has a wa_drafts row (matched by job_id,
-// the processing_jobs.id) is never re-run.
+// the processing_jobs.id) is never re-run — so a chat with a NEW message since
+// its last draft gets a fresh one automatically (new job_id), while an
+// unchanged chat is a no-op to re-run.
 // ============================================================
 const { getPool } = require('../../db');
 const enc = require('../../lib/crypto');
@@ -33,6 +47,7 @@ const { textPreview } = require('../ingest/phone');
 const { runMessage } = require('./pipeline');
 const db = require('./db');
 const { NON_MESSAGE_KINDS } = require('../ingest/db');
+const { buildBoard } = require('../../lib/unanswered-digest');
 
 // textPreview() wants the INNER Baileys `.message` object (the same way
 // whatsapp/ingest/phone.js's own senderFromMessage() calls it: textPreview(msg
@@ -96,6 +111,61 @@ async function runReconcile({ limit = 500, dryRun = false } = {}) {
   return { checked, filled, dryRun };
 }
 
+// Draft only for chats ACTUALLY on the live "needs a reply" board right now —
+// not an arbitrary lookback window. One candidate per open chat: its single
+// most recent real inbound message. A chat with no linked deal yet is still
+// included (LEFT JOIN) — the pipeline's own 'unlinked' escalate handling
+// decides what, if anything, it can safely draft for it.
+async function runQueueDrafts({ limit = 200, dryRun = false } = {}) {
+  const p = getPool();
+  if (!p) throw new Error('No DATABASE_URL — cannot reach Neon.');
+  const skills = await db.loadActiveSkills();
+  if (!skills) throw new Error('Skills not loaded (voice/rules/classify/compose must be active in wa_skills).');
+  const bank = (await db.listAnswerBank({ activeOnly: true })).filter((e) => e.status !== 'retired');
+
+  const board = await buildBoard({ fresh: true });
+  const items = (board.items || []).slice(0, limit);
+  const jids = items.map((i) => i.chatJid).filter(Boolean);
+  if (!jids.length) return { queued: 0, candidates: 0, ran: 0, alreadyDrafted: 0, noText: 0, counts: {}, rows: [] };
+
+  const cand = await p.query(
+    `SELECT DISTINCT ON (pj.chat_jid)
+            pj.id, pj.chat_jid, pj.deal_id, pj.payload_encrypted, pj.is_group,
+            COALESCE(pj.sent_at, pj.created_at) AS at,
+            d.monday_board_id, d.monday_item_id
+     FROM processing_jobs pj
+     LEFT JOIN deals d ON d.id = pj.deal_id
+     WHERE pj.source = 'whatsapp' AND pj.direction = 'in' AND pj.deleted_at IS NULL
+       AND pj.chat_jid = ANY($1)
+       AND (pj.msg_kind IS NULL OR pj.msg_kind <> ALL($2::text[]))
+     ORDER BY pj.chat_jid, COALESCE(pj.sent_at, pj.created_at) DESC`,
+    [jids, NON_MESSAGE_KINDS]
+  );
+
+  const counts = {};
+  const rows = [];
+  let ran = 0, alreadyDrafted = 0, noText = 0;
+  for (const row of cand.rows) {
+    if (await db.hasDraftForJob(row.id)) { alreadyDrafted++; continue; }
+    const text = await decryptedText(row.payload_encrypted);
+    if (!text) { noText++; continue; }
+    const turns = await turnsBefore(p, row.chat_jid, row.at);
+
+    const result = await runMessage(
+      {
+        text, turns, direction: 'in', isGroup: row.is_group, dealId: row.deal_id,
+        mondayBoardId: row.monday_board_id, mondayItemId: row.monday_item_id,
+        chatJid: row.chat_jid, jobId: row.id, // referenceText intentionally omitted — nothing's been sent yet, by definition
+      },
+      { mode: 'shadow', skills, bank, dryRun }
+    );
+    ran++;
+    counts[result.outcome] = (counts[result.outcome] || 0) + 1;
+    rows.push({ chatJid: row.chat_jid, text: text.slice(0, 120), outcome: result.outcome });
+  }
+  return { queued: items.length, candidates: cand.rows.length, ran, alreadyDrafted, noText, counts, rows };
+}
+
 async function runReplay({ days = 14, limit = 50, dryRun = false } = {}) {
   const p = getPool();
   if (!p) throw new Error('No DATABASE_URL — cannot reach Neon.');
@@ -148,7 +218,7 @@ async function runReplay({ days = 14, limit = 50, dryRun = false } = {}) {
   return { candidates: cand.rows.length, ran, skipped, alreadyDrafted, noText, counts, rows };
 }
 
-module.exports = { runReplay, runReconcile };
+module.exports = { runReplay, runReconcile, runQueueDrafts };
 
 // ---- CLI form ---------------------------------------------------------
 if (require.main === module) {
@@ -158,11 +228,21 @@ if (require.main === module) {
   const limit = parseInt(arg('--limit', '50'), 10);
   const dryRun = process.argv.includes('--dry-run');
   const reconcile = process.argv.includes('--reconcile');
+  const queue = process.argv.includes('--queue');
 
-  (reconcile ? runReconcile({ limit: arg('--limit', null) ? limit : 500, dryRun }) : runReplay({ days, limit, dryRun }))
-    .then((r) => {
+  const run = reconcile ? runReconcile({ limit: arg('--limit', null) ? limit : 500, dryRun })
+    : queue ? runQueueDrafts({ limit: arg('--limit', null) ? limit : 200, dryRun })
+    : runReplay({ days, limit, dryRun });
+
+  run.then((r) => {
       if (reconcile) {
         console.log(`Reconcile: ${r.checked} draft(s) checked, ${r.filled} matched to a real reply${dryRun ? ' (dry-run, not saved)' : ''}.`);
+      } else if (queue) {
+        console.log(`${r.queued} chat(s) currently need a reply.`);
+        for (const row of r.rows) console.log(`  [${row.outcome}] ${row.chatJid} :: ${row.text.replace(/\n/g, ' / ')}`);
+        console.log(`\nDone. ${r.ran} drafted, ${r.alreadyDrafted} already had a draft, ${r.noText} had no readable text.`);
+        console.log('OUTCOMES', r.counts);
+        if (r.ran) console.log('\nOpen /wa-review.html to see the drafts.');
       } else {
         console.log(`${r.candidates} candidate client message(s) in the last ${days} day(s).`);
         for (const row of r.rows) console.log(`  [${row.outcome}] ${row.chatJid} :: ${row.text.replace(/\n/g, ' / ')}`);

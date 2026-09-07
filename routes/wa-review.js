@@ -18,6 +18,8 @@ const express = require('express');
 const { authenticate, requireAdmin } = require('../lib/sessions');
 const waDb = require('../whatsapp/agent/db');
 const { buildBoard } = require('../lib/unanswered-digest');
+const { getPool } = require('../db');
+const { jidUser, normalizePhone } = require('../whatsapp/ingest/phone');
 
 function isAdmin(req) {
   const roles = (req.session && req.session.roles) || [];
@@ -29,6 +31,47 @@ const OUTCOME_LABELS = {
   draft: 'טיוטה מוכנה', blocked: 'נחסם — יש בעיה בתשובה', escalate: 'הועבר לאדם (ללא טיוטה)',
   silence: 'אין צורך במענה', dropped: 'סונן מראש', error: 'שגיאה בהרצה',
 };
+
+// Every code the pipeline can hand back as an outcome_reason, in plain Hebrew.
+// Unmapped tokens fall back to themselves rather than disappearing, so a new
+// reason added later in classify.js/validate.js/prefilter.js is still readable
+// (just untranslated) instead of silently blank.
+const REASON_LABELS = {
+  // escalate (classify.js ESCALATE_REASONS + pipeline outcome_reason)
+  frustration: 'לקוח מתוסכל', anger: 'כעס', urgent_consequence: 'השלכה דחופה',
+  dispute: 'מחלוקת בין הצדדים', legal_opinion: 'דורש חוות דעת משפטית',
+  money_trouble: 'סוגיה כספית רגישה', sensitive: 'תוכן רגיש',
+  named_lawyer: 'הלקוח פנה במפורש לעו"ד', litigation_chat: 'שיחה בהליך משפטי',
+  unlinked: 'שיחה לא מקושרת לתיק', unreadable: 'לא ניתן לפענח את ההודעה',
+  injection_suspect: 'ניסיון הטעיה של הסוכן', third_party_data: 'בקשה למידע על צד שלישי',
+  nothing_to_answer_with: 'לסוכן אין מידע לענות איתו', abstained: 'הסוכן נמנע מלענות',
+  classifier_unavailable: 'שגיאה בסיווג ההודעה', model: 'הועבר לפי שיקול הסוכן',
+  // route_only:<type> — types that are ALWAYS routed to a human, never drafted
+  status_nudge: 'תזכורת/בדיקת סטטוס בלבד', complaint: 'תלונה', meta: 'שאלה על הסוכן עצמו', unknown: 'סוג לא מזוהה',
+  // unfillable:<slot,slot,...> — a fact the draft needed but couldn't get
+  waiting_on: 'ממתין ל...', last_firm_action: 'הפעולה האחרונה של המשרד', responsible_staff: 'איש/אשת קשר אחראי/ת',
+  next_payment_amount: 'סכום התשלום הבא', next_payment_due: 'מועד התשלום הבא', payment_schedule: 'לוח תשלומים',
+  balance: 'יתרה', delivery_date: 'מועד מסירה', signing_date: 'מועד חתימה', meeting_time: 'שעת פגישה',
+  meeting_link: 'קישור לפגישה', office_address: 'כתובת המשרד', apartment_id: 'פרטי הדירה',
+  document_status: 'סטטוס מסמך', registration_status: 'סטטוס רישום', tax_status: 'סטטוס מס',
+  contact_person: 'איש קשר', client_display: 'פרטי הלקוח',
+  // blocked (validate.js)
+  unverified_figure: 'מספר/תאריך שלא אומת מול המקור', identifier_leak: 'חשש לחשיפת פרט מזהה',
+  unknown_name: 'שם לא מוכר בטיוטה', language_mismatch: 'שפת התשובה לא תואמת את שפת הלקוח', too_long: 'התשובה ארוכה מדי',
+  // dropped (prefilter.js)
+  firm_sent: 'הודעה שנשלחה ע"י המשרד', media_no_text: 'מדיה ללא טקסט', emoji_only: 'אימוג\'י בלבד',
+  ack: 'אישור/תודה קצרה', unlinked_chat: 'שיחה לא מקושרת לתיק', already_answered: 'כבר נענה', no_message: 'הודעה ריקה',
+};
+function prettyReason(raw) {
+  if (!raw) return '';
+  // "route_only:status_nudge" / "unfillable:document_status,signing_date"
+  return String(raw).split(',').map((part) => {
+    const [prefix, rest] = part.includes(':') ? part.split(':') : [null, part];
+    const prefixLabel = prefix === 'route_only' ? 'תמיד מועבר לאדם — ' : prefix === 'unfillable' ? 'חסר: ' : (prefix ? prefix + ': ' : '');
+    const tokens = String(rest).split(',').map((t) => REASON_LABELS[t.trim()] || t.trim()).join(', ');
+    return prefixLabel + tokens;
+  }).join(' · ');
+}
 
 // chat_jid -> board item, so a wa_drafts row can show a real chat name instead
 // of a jid and be filtered to the right person. A chat with no OPEN unanswered
@@ -42,6 +85,56 @@ async function boardMap() {
   return map;
 }
 
+// Fallback for a chat that ISN'T on the live unanswered board right now (most
+// replayed history: already answered, so it dropped off that board) — looked
+// up directly instead, so it still gets a real name and a responsible person
+// rather than falling back to the raw WhatsApp jid.
+async function chatDirectory(chatJids) {
+  const out = new Map();
+  const p = getPool();
+  const jids = [...new Set((chatJids || []).filter(Boolean))];
+  if (!p || !jids.length) return out;
+
+  const groupJids = jids.filter((j) => j.endsWith('@g.us'));
+  const dmJids = jids.filter((j) => !j.endsWith('@g.us'));
+
+  if (groupJids.length) {
+    try {
+      const r = await p.query(
+        `SELECT provider_group_jid, name, responsible_name, responsible_email
+         FROM whatsapp_groups WHERE provider_group_jid = ANY($1)`,
+        [groupJids]
+      );
+      for (const row of r.rows) {
+        out.set(row.provider_group_jid, {
+          name: row.name || null,
+          responsibleName: row.responsible_name || null,
+          responsibleEmail: row.responsible_email || null,
+        });
+      }
+    } catch (e) { console.error('[wa-review] group directory lookup failed:', e.message); }
+  }
+  if (dmJids.length) {
+    try {
+      const byPhone = new Map(dmJids.map((j) => [normalizePhone(jidUser(j)), j]).filter(([ph]) => ph));
+      const phones = [...byPhone.keys()];
+      if (phones.length) {
+        const r = await p.query(
+          `SELECT phone_normalized, display_name, monday_client_name FROM wa_contacts WHERE phone_normalized = ANY($1)`,
+          [phones]
+        );
+        for (const row of r.rows) {
+          const j = byPhone.get(row.phone_normalized);
+          if (!j) continue;
+          const name = row.display_name || row.monday_client_name || null;
+          out.set(j, { name, clientName: name });
+        }
+      }
+    } catch (e) { console.error('[wa-review] contact directory lookup failed:', e.message); }
+  }
+  return out;
+}
+
 module.exports = function createWaReviewRouter() {
   const router = express.Router();
 
@@ -49,26 +142,29 @@ module.exports = function createWaReviewRouter() {
     try {
       const admin = isAdmin(req);
       const myEmail = req.session && req.session.email;
-      const [rows, board] = await Promise.all([waDb.listRecentDrafts({ limit: 300 }), boardMap()]);
+      const rows = await waDb.listRecentDrafts({ limit: 300 });
+      const [board, dir] = await Promise.all([boardMap(), chatDirectory(rows.map((r) => r.chat_jid))]);
 
       const out = [];
       for (const r of rows) {
         const b = board.get(r.chat_jid) || null;
-        const responsibleEmails = (b && b.responsibleEmails) || [];
+        const d = dir.get(r.chat_jid) || null;
+        const responsibleEmails = (b && b.responsibleEmails) || (d && d.responsibleEmail ? [d.responsibleEmail] : []);
         const mine = responsibleEmails.some((e) => sameEmail(e, myEmail));
         if (!admin && !mine) continue;
         const classification = r.classification || {};
         out.push({
           id: r.id,
           chatJid: r.chat_jid,
-          chatLabel: (b && b.label) || r.chat_jid || '(unlinked chat)',
-          clientName: (b && b.clientName) || null,
-          responsibleName: (b && b.responsibleName) || null,
+          chatLabel: (b && b.label) || (d && d.name) || r.chat_jid || '(unlinked chat)',
+          clientName: (b && b.clientName) || (d && d.clientName) || null,
+          responsibleName: (b && b.responsibleName) || (d && d.responsibleName) || null,
           link: (b && b.link) || null,
           messageText: r.message_text,
           outcome: r.outcome,
           outcomeLabel: OUTCOME_LABELS[r.outcome] || r.outcome,
           outcomeReason: r.outcome_reason,
+          outcomeReasonLabel: prettyReason(r.outcome_reason),
           type: classification.type || null,
           lang: classification.lang || null,
           answerBankCode: r.answer_bank_code,

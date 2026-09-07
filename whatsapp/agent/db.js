@@ -261,7 +261,19 @@ async function hasDraftForJob(jobId) {
   return r.rows.length > 0;
 }
 
+// Regenerating ("נסח מחדש" / "כתוב טיוטה בכל זאת", force=true) must REPLACE the
+// earlier draft for this exact source message, not add a second row next to
+// it — otherwise the review screen ends up showing two cards for the same
+// message. Called right before recording the fresh draft.
+async function deleteDraftsForJob(jobId) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !jobId) return 0;
+  const r = await p.query(`DELETE FROM wa_drafts WHERE job_id = $1`, [String(jobId)]);
+  return r.rowCount || 0;
+}
+
 module.exports = {
   ensureTables, loadActiveSkills, listAnswerBank, insertDraft, recordReview, outcomeStats, listTestPairs,
-  listRecentDrafts, setReferenceText, hasDraftForJob,
+  listRecentDrafts, setReferenceText, hasDraftForJob, deleteDraftsForJob,
 };

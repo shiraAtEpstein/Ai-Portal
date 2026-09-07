@@ -49,6 +49,7 @@ const db = require('./db');
 const { NON_MESSAGE_KINDS } = require('../ingest/db');
 const { buildBoard } = require('../../lib/unanswered-digest');
 const { loadDirectory } = require('../../lib/routing');
+const { relinkOne } = require('../../lib/relink');
 
 // textPreview() wants the INNER Baileys `.message` object (the same way
 // whatsapp/ingest/phone.js's own senderFromMessage() calls it: textPreview(msg
@@ -189,9 +190,10 @@ async function runQueueDrafts({ limit = 200, dryRun = false, onlyChatJid = null,
     `SELECT DISTINCT ON (pj.chat_jid)
             pj.id, pj.chat_jid, pj.deal_id, pj.payload_encrypted, pj.is_group,
             COALESCE(pj.sent_at, pj.created_at) AS at,
-            d.monday_board_id, d.monday_item_id
+            d.monday_board_id, d.monday_item_id, wg.name AS group_name
      FROM processing_jobs pj
      LEFT JOIN deals d ON d.id = pj.deal_id
+     LEFT JOIN whatsapp_groups wg ON wg.provider_group_jid = pj.chat_jid
      WHERE pj.source = 'whatsapp' AND pj.direction = 'in' AND pj.deleted_at IS NULL
        AND pj.chat_jid = ANY($1)
        AND (pj.msg_kind IS NULL OR pj.msg_kind <> ALL($2::text[]))
@@ -205,7 +207,13 @@ async function runQueueDrafts({ limit = 200, dryRun = false, onlyChatJid = null,
   const rows = [];
   let ran = 0, alreadyDrafted = 0, noText = 0;
   for (const row of cand.rows) {
-    if (!force && await db.hasDraftForJob(row.id)) { alreadyDrafted++; continue; }
+    if (!force) {
+      if (await db.hasDraftForJob(row.id)) { alreadyDrafted++; continue; }
+    } else {
+      // Regenerating: replace the old draft for this exact message instead of
+      // piling a second one on top of it (the "duplicate card" bug).
+      await db.deleteDraftsForJob(row.id);
+    }
     // The WHOLE unanswered block, not just this one (latest) message — see
     // unansweredBlockText() above. row.id / row.deal_id / row.at (the dedup key,
     // deal link and "turns before" cutoff) still come from the single latest
@@ -215,10 +223,32 @@ async function runQueueDrafts({ limit = 200, dryRun = false, onlyChatJid = null,
     if (!text) { noText++; continue; }
     const turns = await turnsBefore(p, row.chat_jid, row.at);
 
+    // A group chat with no cached deal link yet gets ONE live re-check against
+    // monday before it's drafted as unlinked — cheap, and exactly what turns
+    // "still not connected" into a real link the moment the group-id column in
+    // monday is fixed, without waiting for a brand-new message to trigger the
+    // normal ingest-time resolution. Never overwrites an existing link, only
+    // fills in a missing one; failures here just fall back to unlinked, same
+    // as before this existed.
+    let dealId = row.deal_id, mondayBoardId = row.monday_board_id, mondayItemId = row.monday_item_id;
+    if (!dealId && row.chat_jid && row.chat_jid.endsWith('@g.us')) {
+      try {
+        await relinkOne({ provider_group_jid: row.chat_jid, name: row.group_name || null }, dir);
+        const fresh = await p.query(
+          `SELECT wg.deal_id, d.monday_board_id, d.monday_item_id
+           FROM whatsapp_groups wg LEFT JOIN deals d ON d.id = wg.deal_id
+           WHERE wg.provider_group_jid = $1`,
+          [row.chat_jid]
+        );
+        const f = fresh.rows[0];
+        if (f && f.deal_id) { dealId = f.deal_id; mondayBoardId = f.monday_board_id; mondayItemId = f.monday_item_id; }
+      } catch (e) { console.error('[wa-review] live relink failed for', row.chat_jid, e.message); }
+    }
+
     const result = await runMessage(
       {
-        text, turns, direction: 'in', isGroup: row.is_group, dealId: row.deal_id,
-        mondayBoardId: row.monday_board_id, mondayItemId: row.monday_item_id,
+        text, turns, direction: 'in', isGroup: row.is_group, dealId,
+        mondayBoardId, mondayItemId,
         chatJid: row.chat_jid, jobId: row.id, // referenceText intentionally omitted — nothing's been sent yet, by definition
       },
       { mode: 'shadow', skills, bank, dryRun }

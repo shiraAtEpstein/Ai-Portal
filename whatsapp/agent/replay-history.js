@@ -32,6 +32,7 @@ const enc = require('../../lib/crypto');
 const { textPreview } = require('../ingest/phone');
 const { runMessage } = require('./pipeline');
 const db = require('./db');
+const { NON_MESSAGE_KINDS } = require('../ingest/db');
 
 async function decryptedText(payloadEncrypted) {
   try { return textPreview(JSON.parse(enc.decrypt(payloadEncrypted || ''))); }
@@ -44,9 +45,9 @@ async function turnsBefore(p, chatJid, before) {
   const r = await p.query(
     `SELECT direction, payload_encrypted FROM processing_jobs
      WHERE chat_jid = $1 AND deleted_at IS NULL AND COALESCE(sent_at, created_at) < $2
-       AND (msg_kind IS NULL OR msg_kind = 'conversation')
+       AND (msg_kind IS NULL OR msg_kind <> ALL($3::text[]))
      ORDER BY COALESCE(sent_at, created_at) DESC LIMIT 6`,
-    [chatJid, before]
+    [chatJid, before, NON_MESSAGE_KINDS]
   );
   const out = [];
   for (const row of r.rows.reverse()) {
@@ -93,6 +94,11 @@ async function runReplay({ days = 14, limit = 50, dryRun = false } = {}) {
   if (!skills) throw new Error('Skills not loaded (voice/rules/classify/compose must be active in wa_skills).');
   const bank = (await db.listAnswerBank({ activeOnly: true })).filter((e) => e.status !== 'retired');
 
+  // "A real message" = not a reaction, not a system/stub event — the SAME
+  // definition responseStats()/listUnansweredChats() use elsewhere (NON_MESSAGE_KINDS),
+  // not a narrow allowlist. A first version of this filtered msg_kind = 'conversation'
+  // only, which silently dropped extendedTextMessage/imageMessage/etc. — most real
+  // client text — and is why an early run came back with 0 candidates.
   const cand = await p.query(
     `SELECT pj.id, pj.chat_jid, pj.deal_id, pj.payload_encrypted, pj.is_group,
             COALESCE(pj.sent_at, pj.created_at) AS at,
@@ -100,11 +106,11 @@ async function runReplay({ days = 14, limit = 50, dryRun = false } = {}) {
      FROM processing_jobs pj
      JOIN deals d ON d.id = pj.deal_id
      WHERE pj.source = 'whatsapp' AND pj.direction = 'in' AND pj.deleted_at IS NULL
-       AND (pj.msg_kind IS NULL OR pj.msg_kind = 'conversation')
+       AND (pj.msg_kind IS NULL OR pj.msg_kind <> ALL($3::text[]))
        AND COALESCE(pj.sent_at, pj.created_at) > now() - make_interval(days => $1)
      ORDER BY COALESCE(pj.sent_at, pj.created_at) DESC
      LIMIT $2`,
-    [days, limit]
+    [days, limit, NON_MESSAGE_KINDS]
   );
 
   const counts = {};

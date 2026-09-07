@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>תשובות הסוכן — WhatsApp</title>
+<!--
+  wa-review.html — the WhatsApp responder's review screen.
+
+  Shows what the agent (whatsapp/agent/pipeline.js) generated for real recent
+  client messages: the chat, the client's message, the draft, and — once it
+  exists — the reply a staff member actually sent, side by side. A copy button
+  puts the (possibly hand-edited) draft on the clipboard; nothing here sends
+  anything or writes back to WhatsApp. Editing the text box only changes what
+  gets copied — it is not saved.
+
+  PERMISSIONS: admin sees every chat's drafts; everyone else sees only chats
+  routed to them (routes/wa-review.js, reusing the same buildBoard() the
+  unanswered board and staff-response dashboard use for "who is this assigned to").
+
+  Same visual language as staff-response.html (same tokens), so this reads as
+  part of the same portal rather than a bolted-on tool.
+-->
+<style>
+  :root{
+    --bg:#f2f3f5; --card:#fff; --ink:#1f2430; --muted:#8a9099; --line:#eceef1;
+    --dark:#2b2f38; --darksub:#9aa1ac; --teal:#6e8b7c;
+    --ok:#2e7d46; --warn:#bf8100; --bad:#cf3a26; --none:#d8dbe0;
+    --okBg:#e7f4ec; --warnBg:#fdf6e7; --badBg:#fdeeeb; --infoBg:#eef0fb; --info:#3f4bbd;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:Arial,Helvetica,"Segoe UI",sans-serif;direction:rtl;}
+  .wrap{max-width:920px;margin:0 auto;padding:22px 18px 60px;}
+
+  .topbar{background:var(--dark);border-radius:14px;padding:20px 22px;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;}
+  .t1{color:#fff;font-size:13px;opacity:.75;letter-spacing:.2px;}
+  .t2{color:#fff;font-size:19px;font-weight:bold;margin-top:3px;}
+  .t3{color:var(--darksub);font-size:12.5px;margin-top:6px;}
+  .topActions{display:flex;flex-direction:column;align-items:flex-end;gap:8px;}
+  .btnRow{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+  .btn{border:0;border-radius:7px;padding:9px 15px;font-size:12.5px;font-weight:bold;cursor:pointer;white-space:nowrap;font-family:inherit;}
+  .btn.primary{background:var(--teal);color:#fff;}
+  .btn.ghost{background:rgba(255,255,255,.1);color:#fff;}
+  .btn:disabled{opacity:.55;cursor:default;}
+  .actionNote{color:var(--darksub);font-size:11.5px;max-width:260px;text-align:left;}
+
+  .filterRow{display:flex;gap:8px;align-items:center;margin-top:16px;flex-wrap:wrap;}
+  .chip{border:1px solid var(--line);background:var(--card);color:var(--muted);border-radius:999px;padding:6px 13px;font-size:12px;cursor:pointer;user-select:none;}
+  .chip.on{background:var(--dark);color:#fff;border-color:var(--dark);}
+
+  .state{padding:34px 18px;text-align:center;color:var(--muted);font-size:13.5px;line-height:1.8;}
+  .state a{color:var(--info);}
+
+  .cards{display:flex;flex-direction:column;gap:12px;margin-top:14px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 17px 15px;}
+  .chead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;}
+  .chatName{font-size:14.5px;font-weight:bold;}
+  .clientName{font-size:12.5px;color:var(--muted);margin-top:2px;}
+  .respName{font-size:11.5px;color:var(--muted);margin-top:2px;}
+  .cmeta{font-size:11.5px;color:var(--muted);white-space:nowrap;text-align:left;}
+
+  .badge{display:inline-block;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:bold;margin-top:8px;}
+  .badge.draft{background:var(--okBg);color:var(--ok);}
+  .badge.blocked{background:var(--badBg);color:var(--bad);}
+  .badge.escalate{background:var(--warnBg);color:var(--warn);}
+  .badge.error{background:var(--badBg);color:var(--bad);}
+  .badge.silence,.badge.dropped{background:#f2f3f5;color:var(--muted);}
+
+  .quote{margin-top:12px;background:#fafbfc;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.6;white-space:pre-wrap;}
+  .quoteLbl{font-size:10.5px;color:var(--muted);margin-bottom:5px;letter-spacing:.2px;}
+
+  .draftBox{margin-top:10px;}
+  textarea.draftText{width:100%;min-height:78px;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13.5px;line-height:1.6;font-family:inherit;color:var(--ink);background:#fff;}
+  .draftHint{font-size:10.5px;color:var(--muted);margin-top:4px;}
+  .draftActions{display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:8px;}
+  .code{font-size:11px;color:var(--muted);}
+
+  .noDraft{margin-top:10px;font-size:12.5px;color:var(--muted);background:var(--warnBg);border-radius:8px;padding:9px 12px;}
+  .noDraft.silent{background:#f2f3f5;}
+
+  .refWrap{margin-top:10px;}
+  .refWrap .quote{background:var(--infoBg);border-color:#dde0f6;}
+
+  .foot{margin-top:22px;text-align:center;font-size:11.5px;color:var(--muted);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div>
+      <div class="t1">Lawly · אפשטיין ושות׳</div>
+      <div class="t2">תשובות שנוצרו על ידי הסוכן — WhatsApp</div>
+      <div class="t3" id="meta">טוען…</div>
+    </div>
+    <div class="topActions" id="adminActions" style="display:none">
+      <div class="btnRow">
+        <button class="btn primary" id="replayBtn" type="button">הרץ על היסטוריה אחרונה</button>
+        <button class="btn ghost" id="reconcileBtn" type="button">בדוק מה נשלח בפועל</button>
+        <button class="btn ghost" id="refreshBtn" type="button">רענון ↻</button>
+      </div>
+      <div class="actionNote" id="actionNote">הרצה על 14 הימים האחרונים, עד 50 הודעות. שום דבר לא נשלח ולא מוצג ללקוח.</div>
+    </div>
+    <div class="topActions" id="staffActions" style="display:none">
+      <button class="btn ghost" id="refreshBtn2" type="button">רענון ↻</button>
+    </div>
+  </div>
+
+  <div class="filterRow" id="filterRow" style="display:none">
+    <span class="chip on" data-f="useful">טיוטות ובעיות</span>
+    <span class="chip" data-f="all">הכל</span>
+  </div>
+
+  <div class="cards" id="cards"></div>
+  <div class="foot" id="foot"></div>
+</div>
+
+<script>
+function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e;}
+function esc(s){return String(s==null?'':s);}
+function fmtWhen(iso){
+  if(!iso) return '';
+  try{
+    var d=new Date(iso);
+    return d.toLocaleString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+  }catch(e){ return ''; }
+}
+var USEFUL_OUTCOMES=['draft','blocked','escalate','error'];
+var filter='useful';
+var lastData=null;
+
+/* ------------------------------------------------------------ sign-in --- */
+var TRIED_KEY='waReviewAuthBounce';
+function goSignIn(){
+  var already=false;
+  try{ already=sessionStorage.getItem(TRIED_KEY)==='1'; }catch(e){}
+  if(already) return showSignInLink();
+  try{ sessionStorage.setItem(TRIED_KEY,'1'); }catch(e){}
+  var next=encodeURIComponent(location.pathname+location.search);
+  fetch('/auth/google/status',{cache:'no-store'}).then(function(r){return r.json();})
+    .then(function(j){ location.replace(j&&j.enabled?('/auth/google/start?next='+next):'/'); })
+    .catch(function(){ location.replace('/'); });
+}
+function showSignInLink(){
+  document.getElementById('meta').textContent='נדרשת התחברות';
+  document.getElementById('cards').innerHTML='';
+  document.getElementById('cards').appendChild(
+    (function(){var d=el('div','state');d.innerHTML='יש להתחבר כדי לראות את המסך הזה.<br><a href="/">מעבר לעמוד ההתחברות</a>';return d;})()
+  );
+}
+function clearAuthBounce(){ try{ sessionStorage.removeItem(TRIED_KEY); }catch(e){} }
+
+/* --------------------------------------------------------------- cards --- */
+function badgeClass(o){ return ['draft','blocked','escalate','error'].indexOf(o)!==-1 ? o : (o==='dropped'?'dropped':'silence'); }
+
+function renderCard(d){
+  var c=el('div','card');
+
+  var head=el('div','chead');
+  var left=el('div');
+  left.appendChild(el('div','chatName',d.chatLabel||d.chatJid||'—'));
+  if(d.clientName) left.appendChild(el('div','clientName',d.clientName));
+  if(d.responsibleName) left.appendChild(el('div','respName','אחראי/ת: '+d.responsibleName));
+  head.appendChild(left);
+  head.appendChild(el('div','cmeta',fmtWhen(d.createdAt)));
+  c.appendChild(head);
+
+  var badge=el('span','badge '+badgeClass(d.outcome),d.outcomeLabel||d.outcome);
+  c.appendChild(badge);
+
+  if(d.messageText){
+    var q=el('div','quote');
+    q.appendChild(el('div','quoteLbl','ההודעה מהלקוח'));
+    var qt=el('div');qt.textContent=d.messageText;q.appendChild(qt);
+    c.appendChild(q);
+  }
+
+  if(d.outcome==='draft' || (d.outcome==='blocked' && d.draftText)){
+    var box=el('div','draftBox');
+    var ta=document.createElement('textarea');
+    ta.className='draftText';
+    ta.value=d.draftText||'';
+    box.appendChild(ta);
+    box.appendChild(el('div','draftHint','עריכה כאן משפיעה רק על מה שיועתק — לא נשמר.'));
+    var actions=el('div','draftActions');
+    var copyBtn=el('button','btn primary','העתק תשובה');
+    copyBtn.type='button';
+    copyBtn.addEventListener('click',function(){
+      var text=ta.value;
+      var done=function(){ copyBtn.textContent='הועתק ✓'; setTimeout(function(){copyBtn.textContent='העתק תשובה';},1600); };
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(text).then(done).catch(function(){ ta.select(); document.execCommand('copy'); done(); });
+      } else { ta.select(); document.execCommand('copy'); done(); }
+    });
+    actions.appendChild(copyBtn);
+    if(d.answerBankCode) actions.appendChild(el('span','code',d.answerBankCode));
+    box.appendChild(actions);
+    c.appendChild(box);
+    if(d.outcome==='blocked') c.appendChild(el('div','noDraft','נחסם אוטומטית: '+(d.outcomeReason||'')+' — יש לבדוק ידנית לפני שליחה.'));
+  } else {
+    var reasonMap={
+      escalate:'הועבר לאדם — '+(d.outcomeReason||'ללא סיבה מפורטת'),
+      error:'שגיאה בהרצה — '+(d.outcomeReason||''),
+      silence:'לא נדרש מענה מהסוכן.',
+      dropped:'סונן אוטומטית (תודה / אימוג׳י / הודעה לא רלוונטית).',
+    };
+    var note=el('div','noDraft'+(d.outcome==='silence'||d.outcome==='dropped'?' silent':''), reasonMap[d.outcome] || (d.outcomeReason||''));
+    c.appendChild(note);
+  }
+
+  if(d.referenceText){
+    var rw=el('div','refWrap');
+    var rq=el('div','quote');
+    rq.appendChild(el('div','quoteLbl','מה שנשלח בפועל בשיחה'));
+    var rt=el('div');rt.textContent=d.referenceText;rq.appendChild(rt);
+    rw.appendChild(rq);
+    c.appendChild(rw);
+  }
+
+  return c;
+}
+
+function render(data){
+  lastData=data;
+  var admin=data.scope==='firm';
+  document.getElementById('meta').textContent=(admin?'כל המשרד':'שלי')+' · '+data.count+' תוצאות';
+  document.getElementById('adminActions').style.display=admin?'flex':'none';
+  document.getElementById('staffActions').style.display=admin?'none':'flex';
+  document.getElementById('filterRow').style.display='flex';
+
+  var list=(data.drafts||[]).filter(function(d){ return filter==='all' || USEFUL_OUTCOMES.indexOf(d.outcome)!==-1; });
+  var cards=document.getElementById('cards');
+  cards.innerHTML='';
+  if(!list.length){
+    var msg = (data.drafts||[]).length ? 'אין תוצאות בתצוגה הזו — נסו "הכל".' :
+      (admin ? 'אין עדיין נתונים. לחצו על "הרץ על היסטוריה אחרונה" כדי ליצור טיוטות אמיתיות משיחות אחרונות.' : 'אין כרגע תשובות שממתינות לכם.');
+    cards.appendChild((function(){var d=el('div','state',msg);return d;})());
+    return;
+  }
+  list.forEach(function(d){ cards.appendChild(renderCard(d)); });
+}
+
+function load(){
+  document.getElementById('meta').textContent='טוען…';
+  fetch('/api/wa-review',{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}})
+    .then(function(r){
+      if(r.status===401){ goSignIn(); return null; }
+      if(!r.ok) throw new Error('bad status '+r.status);
+      clearAuthBounce();
+      return r.json();
+    })
+    .then(function(data){ if(data) render(data); })
+    .catch(function(e){
+      document.getElementById('meta').textContent='שגיאה בטעינה';
+      document.getElementById('cards').innerHTML='';
+      document.getElementById('cards').appendChild(el('div','state','לא ניתן לטעון את הרשימה. נסו רענון.'));
+    });
+}
+
+function runAdmin(btn, path, note){
+  btn.disabled=true; var orig=btn.textContent; btn.textContent='מריץ…';
+  fetch(path,{method:'POST',credentials:'same-origin'})
+    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+    .then(function(res){
+      btn.disabled=false; btn.textContent=orig;
+      var n=document.getElementById('actionNote');
+      if(!res.ok){ n.textContent='נכשל: '+((res.j&&res.j.error)||'שגיאה'); return; }
+      n.textContent=note(res.j.result);
+      load();
+    })
+    .catch(function(){ btn.disabled=false; btn.textContent=orig; document.getElementById('actionNote').textContent='נכשל להריץ.'; });
+}
+
+document.getElementById('replayBtn').addEventListener('click',function(){
+  runAdmin(this,'/api/admin/wa-review/replay?days=14&limit=50',function(r){
+    return r ? ('נבדקו '+r.candidates+', נוצרו '+r.ran+' טיוטות חדשות ('+r.skipped+' כבר היו קיימות).') : 'הסתיים.';
+  });
+});
+document.getElementById('reconcileBtn').addEventListener('click',function(){
+  runAdmin(this,'/api/admin/wa-review/reconcile?limit=500',function(r){
+    return r ? ('נבדקו '+r.checked+', נמצאה תשובה בפועל עבור '+r.filled+'.') : 'הסתיים.';
+  });
+});
+document.getElementById('refreshBtn').addEventListener('click',load);
+document.getElementById('refreshBtn2').addEventListener('click',load);
+
+document.querySelectorAll('.chip').forEach(function(chip){
+  chip.addEventListener('click',function(){
+    document.querySelectorAll('.chip').forEach(function(c){c.classList.remove('on');});
+    chip.classList.add('on');
+    filter=chip.getAttribute('data-f');
+    if(lastData) render(lastData);
+  });
+});
+
+load();
+</script>
+</body>
+</html>

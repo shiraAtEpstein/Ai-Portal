@@ -170,6 +170,16 @@ module.exports = function createWaReviewRouter() {
           waitedLabel: b ? b.waitedLabel : null,
           waitedSince: b ? b.waitedSince : null,
           waitedTone: b ? b.waitedTone : null,
+          // No monday deal matched to this chat at all -- the review screen uses
+          // this to offer the group's raw WhatsApp id for pasting into monday's
+          // group-id column (the one reliable auto-link path; see lib/monday.js
+          // resolveDealForGroupId / whatsapp/groups/provider.js _resolveDealForMessage).
+          dealLinked: !!r.deal_id,
+          // When this chat is on the live board, its actual last-inbound time
+          // (not when the draft row was generated) — what the message bubble's
+          // timestamp should show. Falls back to the draft's own createdAt for
+          // history rows, where the board no longer has the chat.
+          messageAt: (b && b.lastInboundAt) || r.created_at,
           messageText: r.message_text,
           outcome: r.outcome,
           outcomeLabel: OUTCOME_LABELS[r.outcome] || r.outcome,
@@ -209,8 +219,14 @@ module.exports = function createWaReviewRouter() {
     try {
       const q = Object.assign({}, req.query, req.body);
       const limit = Math.min(500, Math.max(1, parseInt(q.limit || '200', 10)));
+      // chatJid + force: the review screen's "כתוב טיוטה בכל זאת" / "נסח מחדש"
+      // buttons target ONE chat and bypass the "already has a draft" skip so a
+      // person can explicitly ask for a fresh attempt. Omitted for the everyday
+      // bulk button, which behaves exactly as before.
+      const onlyChatJid = q.chatJid ? String(q.chatJid) : null;
+      const force = !!(q.force === true || q.force === 'true' || q.force === '1');
       const { runQueueDrafts } = require('../whatsapp/agent/replay-history');
-      const result = await runQueueDrafts({ limit });
+      const result = await runQueueDrafts({ limit, onlyChatJid, force });
       res.json({ ok: true, result });
     } catch (e) {
       console.error('[wa-review] queue draft run failed:', e.message);

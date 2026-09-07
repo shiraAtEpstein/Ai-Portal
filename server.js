@@ -30,6 +30,7 @@ const createWhatsappGroupsRouter = require('./routes/whatsapp-groups');
 const createUnansweredRouter = require('./routes/unanswered');
 const createStaffResponseRouter = require('./routes/staff-response');
 const createSynopsisRouter = require('./routes/synopsis');
+const createWaReviewRouter = require('./routes/wa-review');
 const whatsappGroups = require('./whatsapp/groups/bootstrap');
 const unansweredScheduler = require('./lib/scheduler');
 
@@ -125,6 +126,7 @@ app.use(createUnansweredRouter());
 app.use(createStaffResponseRouter());
 // Synopsis generator — deal picker, monday facts, missing-field write-back. No model.
 app.use(createSynopsisRouter());
+app.use(createWaReviewRouter());
 // Health check — also reports whether the database is reachable.
 app.get('/healthz', async (req, res) => {
   let database = false;

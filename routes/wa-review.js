@@ -49,6 +49,9 @@ const REASON_LABELS = {
   // route_only:<type> — types that are ALWAYS routed to a human, never drafted
   status_nudge: 'תזכורת/בדיקת סטטוס בלבד', complaint: 'תלונה', meta: 'שאלה על הסוכן עצמו', unknown: 'סוג לא מזוהה',
   // unfillable:<slot,slot,...> — a fact the draft needed but couldn't get
+  // partial:<slot,slot,...> — draft WAS produced (outcome stays 'draft'), but
+  // it contains a placeholder for these because the fact wasn't available —
+  // added 7 Sept alongside pipeline.js's placeholder-drafting change.
   waiting_on: 'ממתין ל...', last_firm_action: 'הפעולה האחרונה של המשרד', responsible_staff: 'איש/אשת קשר אחראי/ת',
   next_payment_amount: 'סכום התשלום הבא', next_payment_due: 'מועד התשלום הבא', payment_schedule: 'לוח תשלומים',
   balance: 'יתרה', delivery_date: 'מועד מסירה', signing_date: 'מועד חתימה', meeting_time: 'שעת פגישה',
@@ -67,7 +70,7 @@ function prettyReason(raw) {
   // "route_only:status_nudge" / "unfillable:document_status,signing_date"
   return String(raw).split(',').map((part) => {
     const [prefix, rest] = part.includes(':') ? part.split(':') : [null, part];
-    const prefixLabel = prefix === 'route_only' ? 'תמיד מועבר לאדם — ' : prefix === 'unfillable' ? 'חסר: ' : (prefix ? prefix + ': ' : '');
+    const prefixLabel = prefix === 'route_only' ? 'תמיד מועבר לאדם — ' : prefix === 'unfillable' ? 'חסר: ' : prefix === 'partial' ? 'טיוטה עם מקום פנוי למילוי — ' : (prefix ? prefix + ': ' : '');
     const tokens = String(rest).split(',').map((t) => REASON_LABELS[t.trim()] || t.trim()).join(', ');
     return prefixLabel + tokens;
   }).join(' · ');

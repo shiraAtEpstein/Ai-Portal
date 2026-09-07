@@ -7,7 +7,7 @@
 //                 rows never appear here; unfillable slots are simply absent.
 // Output        = { text, facts_used: [{ value, source }], abstain_reason }
 //                 text: null means the model abstained — always safe.
-// ============================================================
+// ===========================================================
 const claude = require('../../lib/claude');
 
 function fmtSlots(slots) {

@@ -70,10 +70,15 @@
   .lbl .hint.link{cursor:pointer;text-decoration:underline;}
   .lbl .hint.link:hover{color:var(--muted);}
 
-  .quoteBox{background:var(--quoteBg);border:1px solid var(--border);border-radius:10px;padding:13px 15px;font-size:15px;line-height:1.55;color:var(--ink2);white-space:pre-wrap;}
+  /* Bold border on the boxes that actually hold a message's content (the
+     client's message, the response you'd copy, the "what was really sent"
+     reference) so each one reads as a clearly separate block at a glance —
+     as opposed to structural/decorative boxes (card shell, hint rows) which
+     stay on the thin border. */
+  .quoteBox{background:var(--quoteBg);border:2px solid var(--borderStrong);border-radius:10px;padding:13px 15px;font-size:15px;line-height:1.55;color:var(--ink2);white-space:pre-wrap;}
   .quoteTime{font-size:12px;color:var(--mutedLight);margin-top:8px;}
 
-  textarea.draftBox{width:100%;min-height:88px;resize:vertical;background:#FFFFFF;border:1px solid var(--border);border-radius:10px;padding:13px 15px;font:15px/1.55 var(--sans);color:var(--ink2);}
+  textarea.draftBox{width:100%;min-height:88px;resize:vertical;background:#FFFFFF;border:2px solid var(--borderStrong);border-radius:10px;padding:13px 15px;font:15px/1.55 var(--sans);color:var(--ink2);}
   textarea.draftBox:focus{outline:none;border-color:var(--gold);}
 
   .draftFoot{display:flex;justify-content:space-between;align-items:center;margin-top:10px;flex-wrap:wrap;gap:10px;}
@@ -98,7 +103,7 @@
   .linkHint button{border:1px solid var(--borderStrong);background:#FFFDF8;color:var(--ink);border-radius:6px;padding:6px 12px;font:600 12px var(--sans);cursor:pointer;white-space:nowrap;}
 
   .refWrap{margin-top:4px;}
-  .refWrap .quoteBox{background:#F1F0FA;border-color:#DBDAF0;}
+  .refWrap .quoteBox{background:#F1F0FA;border-color:#C7C5E8;}
 
   .state{padding:60px 18px;text-align:center;color:var(--muted);font-size:14px;line-height:1.9;}
   .state a{color:var(--gold);}

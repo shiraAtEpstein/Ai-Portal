@@ -41,6 +41,7 @@
   .btn{border:0;border-radius:7px;padding:9px 15px;font-size:12.5px;font-weight:bold;cursor:pointer;white-space:nowrap;font-family:inherit;}
   .btn.primary{background:var(--teal);color:#fff;}
   .btn.ghost{background:rgba(255,255,255,.1);color:#fff;}
+  .btn.small{padding:6px 12px;font-size:11px;font-weight:normal;opacity:.75;}
   .btn:disabled{opacity:.55;cursor:default;}
   .actionNote{color:var(--darksub);font-size:11.5px;max-width:260px;text-align:left;}
 
@@ -65,6 +66,16 @@
   .badge.escalate{background:var(--warnBg);color:var(--warn);}
   .badge.error{background:var(--badBg);color:var(--bad);}
   .badge.silence,.badge.dropped{background:#f2f3f5;color:var(--muted);}
+
+  /* Same statuses, same colors, as the unanswered board (board.html) — a chat
+     flagged here should never look different from how it looks there. */
+  .qrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:2px;}
+  .qbadge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:bold;color:#fff;}
+  .qbadge.required{background:#b4462f;}
+  .qbadge.potential{background:#c08a2d;}
+  .qbadge.voice{background:#5b6bd0;}
+  .qbadge.pending{background:#9aa0a8;}
+  .qwait{font-size:11.5px;color:var(--muted);}
 
   .quote{margin-top:12px;background:#fafbfc;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.6;white-space:pre-wrap;}
   .quoteLbl{font-size:10.5px;color:var(--muted);margin-bottom:5px;letter-spacing:.2px;}
@@ -94,11 +105,14 @@
     </div>
     <div class="topActions" id="adminActions" style="display:none">
       <div class="btnRow">
-        <button class="btn primary" id="replayBtn" type="button">הרץ על היסטוריה אחרונה</button>
+        <button class="btn primary" id="queueBtn" type="button">הכן טיוטות לשיחות שממתינות</button>
         <button class="btn ghost" id="reconcileBtn" type="button">בדוק מה נשלח בפועל</button>
         <button class="btn ghost" id="refreshBtn" type="button">רענון ↻</button>
       </div>
-      <div class="actionNote" id="actionNote">הרצה על 14 הימים האחרונים, עד 50 הודעות. שום דבר לא נשלח ולא מוצג ללקוח.</div>
+      <div class="actionNote" id="actionNote">מכין טיוטה רק לשיחות שבאמת ממתינות עכשיו למענה — אותה רשימה כמו לוח הבקרה. שום דבר לא נשלח ולא מוצג ללקוח.</div>
+      <div class="btnRow" style="margin-top:2px">
+        <button class="btn ghost small" id="historyBtn" type="button">הרצה על היסטוריה (לבדיקות)</button>
+      </div>
     </div>
     <div class="topActions" id="staffActions" style="display:none">
       <button class="btn ghost" id="refreshBtn2" type="button">רענון ↻</button>
@@ -106,8 +120,8 @@
   </div>
 
   <div class="filterRow" id="filterRow" style="display:none">
-    <span class="chip" data-f="useful">טיוטות ובעיות</span>
-    <span class="chip on" data-f="all">הכל</span>
+    <span class="chip on" data-f="queue">ממתינות למענה</span>
+    <span class="chip" data-f="all">הכל כולל היסטוריה</span>
   </div>
 
   <div class="cards" id="cards"></div>
@@ -124,8 +138,8 @@ function fmtWhen(iso){
     return d.toLocaleString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
   }catch(e){ return ''; }
 }
-var USEFUL_OUTCOMES=['draft','blocked','escalate','error'];
-var filter='all';
+var QUEUE_STATUS_MAP={ required:['🔴 ממתין למענה','required'], potential:['🟡 אולי דורש מענה','potential'], voice:['🎤 הודעה קולית','voice'], pending:['⏳ בבדיקה','pending'] };
+var filter='queue';
 var lastData=null;
 
 /* ------------------------------------------------------------ sign-in --- */
@@ -164,6 +178,14 @@ function renderCard(d){
   head.appendChild(el('div','cmeta',fmtWhen(d.createdAt)));
   c.appendChild(head);
 
+  if(d.isQueued){
+    var qm=QUEUE_STATUS_MAP[d.status]||['⏳ בבדיקה','pending'];
+    var qrow=el('div','qrow');
+    qrow.appendChild(el('span','qbadge '+qm[1],qm[0]));
+    if(d.waitedLabel) qrow.appendChild(el('span','qwait','ממתין '+d.waitedLabel));
+    c.appendChild(qrow);
+  }
+
   var badge=el('span','badge '+badgeClass(d.outcome),d.outcomeLabel||d.outcome);
   c.appendChild(badge);
 
@@ -174,7 +196,15 @@ function renderCard(d){
     c.appendChild(q);
   }
 
-  if(d.outcome==='draft' || (d.outcome==='blocked' && d.draftText)){
+  var reasonTxt=d.outcomeReasonLabel||d.outcomeReason||'';
+  // An 'escalate' row can still carry a draft — the pipeline composes a
+  // suggested starting point for tone/stakes escalations (frustration, dispute,
+  // a chat not yet linked to a deal...) even though a person must still handle
+  // it. Shown same as a normal draft, but with the escalation reason kept front
+  // and center as a caveat instead of quietly disappearing once text exists.
+  if(d.outcome==='escalate' && d.draftText) c.appendChild(el('div','noDraft','הועבר לאדם — '+(reasonTxt||'ללא סיבה מפורטת')+'. הטיוטה הבאה היא הצעה בלבד — יש לבדוק היטב לפני שימוש.'));
+
+  if(d.outcome==='draft' || d.draftText){
     var box=el('div','draftBox');
     var ta=document.createElement('textarea');
     ta.className='draftText';
@@ -195,9 +225,8 @@ function renderCard(d){
     if(d.answerBankCode) actions.appendChild(el('span','code',d.answerBankCode));
     box.appendChild(actions);
     c.appendChild(box);
-    if(d.outcome==='blocked') c.appendChild(el('div','noDraft','נחסם אוטומטית: '+(d.outcomeReasonLabel||d.outcomeReason||'')+' — יש לבדוק ידנית לפני שליחה.'));
+    if(d.outcome==='blocked') c.appendChild(el('div','noDraft','נחסם אוטומטית: '+(reasonTxt||'')+' — יש לבדוק ידנית לפני שליחה.'));
   } else {
-    var reasonTxt=d.outcomeReasonLabel||d.outcomeReason||'';
     var reasonMap={
       escalate:'הועבר לאדם — '+(reasonTxt||'ללא סיבה מפורטת'),
       error:'שגיאה בהרצה — '+reasonTxt,
@@ -223,18 +252,25 @@ function renderCard(d){
 function render(data){
   lastData=data;
   var admin=data.scope==='firm';
-  document.getElementById('meta').textContent=(admin?'כל המשרד':'שלי')+' · '+data.count+' תוצאות';
+  var qc=data.queuedCount||0;
+  document.getElementById('meta').textContent=(admin?'כל המשרד':'שלי')+' · '+qc+' ממתינות למענה · '+data.count+' סה"כ';
   document.getElementById('adminActions').style.display=admin?'flex':'none';
   document.getElementById('staffActions').style.display=admin?'none':'flex';
   document.getElementById('filterRow').style.display='flex';
 
-  var list=(data.drafts||[]).filter(function(d){ return filter==='all' || USEFUL_OUTCOMES.indexOf(d.outcome)!==-1; });
+  var list=(data.drafts||[]).filter(function(d){ return filter==='all' || !!d.isQueued; });
   var cards=document.getElementById('cards');
   cards.innerHTML='';
   if(!list.length){
-    var msg = (data.drafts||[]).length ? 'אין תוצאות בתצוגה הזו — נסו "הכל".' :
-      (admin ? 'אין עדיין נתונים. לחצו על "הרץ על היסטוריה אחרונה" כדי ליצור טיוטות אמיתיות משיחות אחרונות.' : 'אין כרגע תשובות שממתינות לכם.');
-    cards.appendChild((function(){var d=el('div','state',msg);return d;})());
+    var msg;
+    if(filter==='queue' && (data.drafts||[]).length){
+      msg = admin ? 'אין כרגע טיוטות לשיחות שממתינות. לחצו על "הכן טיוטות לשיחות שממתינות", או עברו ל"הכל כולל היסטוריה".' : 'אין כרגע תשובות שממתינות לכם.';
+    } else if(!(data.drafts||[]).length){
+      msg = admin ? 'אין עדיין נתונים. לחצו על "הכן טיוטות לשיחות שממתינות" כדי ליצור טיוטות לשיחות הפתוחות כרגע.' : 'אין כרגע תשובות שממתינות לכם.';
+    } else {
+      msg = 'אין תוצאות בתצוגה הזו.';
+    }
+    cards.appendChild(el('div','state',msg));
     return;
   }
   list.forEach(function(d){ cards.appendChild(renderCard(d)); });
@@ -271,13 +307,22 @@ function runAdmin(btn, path, note){
     .catch(function(){ btn.disabled=false; btn.textContent=orig; document.getElementById('actionNote').textContent='נכשל להריץ.'; });
 }
 
-document.getElementById('replayBtn').addEventListener('click',function(){
+document.getElementById('queueBtn').addEventListener('click',function(){
+  runAdmin(this,'/api/admin/wa-review/queue?limit=200',function(r){
+    if(!r) return 'הסתיים.';
+    var extra=[];
+    if(r.alreadyDrafted) extra.push(r.alreadyDrafted+' כבר היו עם טיוטה');
+    if(r.noText) extra.push(r.noText+' ללא טקסט לקריאה (וידאו/סטיקר/שגיאת פענוח)');
+    return r.queued+' שיחות ממתינות כרגע · נוצרו '+r.ran+' טיוטות חדשות'+(extra.length?' ('+extra.join(', ')+')':'')+'.';
+  });
+});
+document.getElementById('historyBtn').addEventListener('click',function(){
   runAdmin(this,'/api/admin/wa-review/replay?days=14&limit=50',function(r){
     if(!r) return 'הסתיים.';
     var extra=[];
     if(r.alreadyDrafted) extra.push(r.alreadyDrafted+' כבר היו קיימות');
     if(r.noText) extra.push(r.noText+' ללא טקסט לקריאה (וידאו/סטיקר/שגיאת פענוח)');
-    return 'נבדקו '+r.candidates+', נוצרו '+r.ran+' טיוטות חדשות'+(extra.length?' ('+extra.join(', ')+')':'')+'.';
+    return '[היסטוריה] נבדקו '+r.candidates+', נוצרו '+r.ran+' טיוטות חדשות'+(extra.length?' ('+extra.join(', ')+')':'')+'.';
   });
 });
 document.getElementById('reconcileBtn').addEventListener('click',function(){

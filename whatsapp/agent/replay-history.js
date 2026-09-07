@@ -49,6 +49,7 @@ const db = require('./db');
 const { NON_MESSAGE_KINDS } = require('../ingest/db');
 const { buildBoard } = require('../../lib/unanswered-digest');
 const { loadDirectory } = require('../../lib/routing');
+const monday = require('../../lib/monday');
 const { relinkOne } = require('../../lib/relink');
 
 // textPreview() wants the INNER Baileys `.message` object (the same way
@@ -167,6 +168,14 @@ async function runQueueDrafts({ limit = 200, dryRun = false, onlyChatJid = null,
   const skills = await db.loadActiveSkills();
   if (!skills) throw new Error('Skills not loaded (voice/rules/classify/compose must be active in wa_skills).');
   const bank = (await db.listAnswerBank({ activeOnly: true })).filter((e) => e.status !== 'retired');
+
+  // force=true is "כתוב טיוטה בכל זאת" / "נסח מחדש" on ONE chat — a person
+  // sitting there watching, most likely because they just fixed something
+  // (e.g. pasted the group id into monday). The deal<-group index below is
+  // cached up to 30 minutes; without this it could silently ignore an edit
+  // made seconds ago. Not done on every routine run — only worth the extra
+  // monday round-trip when someone is actively forcing a re-check.
+  if (force) monday.invalidateDealGroupIndex();
 
   const board = await buildBoard({ fresh: true });
   let items = (board.items || []).slice(0, limit);

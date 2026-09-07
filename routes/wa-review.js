@@ -196,15 +196,15 @@ module.exports = function createWaReviewRouter() {
           createdAt: r.created_at,
         });
       }
-      // Queued (still needs a reply) first, oldest wait first — same order as
-      // the unanswered board itself; everything else (already answered / not on
-      // the live board) after, most recent first, as before.
-      out.sort((a, b2) => {
-        if (a.isQueued !== b2.isQueued) return a.isQueued ? -1 : 1;
-        if (a.isQueued) return new Date(a.waitedSince || 0) - new Date(b2.waitedSince || 0);
-        return new Date(b2.createdAt || 0) - new Date(a.createdAt || 0);
-      });
-      res.json({ scope: admin ? 'firm' : 'mine', me: myEmail, count: out.length, queuedCount: out.filter((x) => x.isQueued).length, drafts: out });
+      // Only chats that still need a reply — Shira's call (7 Sept): drop
+      // "history" (already-answered / backtest rows) from this screen
+      // entirely instead of showing it as a third tab. The /replay endpoint
+      // below is untouched and still there for QA — it just has no button on
+      // this screen anymore. Oldest wait first, same order the unanswered
+      // board itself uses.
+      const queued = out.filter((x) => x.isQueued);
+      queued.sort((a, b2) => new Date(a.waitedSince || 0) - new Date(b2.waitedSince || 0));
+      res.json({ scope: admin ? 'firm' : 'mine', me: myEmail, count: queued.length, queuedCount: queued.length, drafts: queued });
     } catch (e) {
       console.error('[wa-review] failed:', e.message);
       res.status(500).json({ error: 'Failed to load the review list.' });

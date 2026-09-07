@@ -82,6 +82,44 @@ async function turnsBefore(p, chatJid, before) {
   return out;
 }
 
+// The FULL unanswered block for a chat: every real client message since the
+// firm's last reply, oldest first -- not just the newest one. Mirrors the
+// block/block_agg CTEs in whatsapp/ingest/db.js's listUnansweredChats(), the
+// same computation that decides a chat belongs on the board in the first
+// place. Using only the single latest message was a real bug: a chat with a
+// real unanswered question followed by a later, unrelated "Ty" (itself a pure
+// closer, needing nothing) had the agent draft against "Ty" alone -- reading
+// as "nothing to answer" when a genuine question was sitting right above it.
+async function unansweredBlockText(p, chatJid, staffPhones) {
+  const r = await p.query(
+    `WITH staff AS (SELECT unnest($2::text[]) AS phone9),
+     base AS (
+       SELECT direction, sender_phone, sender_staff_phone9, payload_encrypted,
+              COALESCE(sent_at, created_at) AS eff_at
+       FROM processing_jobs
+       WHERE chat_jid = $1 AND deleted_at IS NULL
+         AND (msg_kind IS NULL OR msg_kind <> ALL($3::text[]))
+     ),
+     last_firm AS (
+       SELECT MAX(eff_at) AS at FROM base
+       WHERE direction = 'out' OR sender_staff_phone9 IS NOT NULL OR sender_phone IN (SELECT phone9 FROM staff)
+     )
+     SELECT b.payload_encrypted FROM base b, last_firm
+     WHERE b.direction = 'in' AND b.sender_staff_phone9 IS NULL
+       AND (b.sender_phone IS NULL OR b.sender_phone NOT IN (SELECT phone9 FROM staff))
+       AND (last_firm.at IS NULL OR b.eff_at > last_firm.at)
+     ORDER BY b.eff_at ASC
+     LIMIT 25`,
+    [chatJid, staffPhones, NON_MESSAGE_KINDS]
+  );
+  const parts = [];
+  for (const row of r.rows) {
+    const t = await decryptedText(row.payload_encrypted);
+    if (t) parts.push(t);
+  }
+  return parts.join('\n');
+}
+
 // The real firm reply that followed, if one exists yet. This is `referenceText`
 // on the way in (offline-test.js's --pairs does the same thing with archive
 // data) and what reconcile backfills later once the reply actually happens.
@@ -117,7 +155,12 @@ async function runReconcile({ limit = 500, dryRun = false } = {}) {
 // most recent real inbound message. A chat with no linked deal yet is still
 // included (LEFT JOIN) — the pipeline's own 'unlinked' escalate handling
 // decides what, if anything, it can safely draft for it.
-async function runQueueDrafts({ limit = 200, dryRun = false } = {}) {
+// onlyChatJid + force: the review screen's "כתוב טיוטה בכל זאת" / "נסח מחדש"
+// buttons — draft (or redraft) exactly ONE chat on demand, bypassing the
+// "already has a draft" skip (force) so a person can explicitly ask for a
+// fresh attempt (e.g. after linking the deal in monday, or just to retry).
+// Everyday bulk calls never pass these, so default behavior is unchanged.
+async function runQueueDrafts({ limit = 200, dryRun = false, onlyChatJid = null, force = false } = {}) {
   const p = getPool();
   if (!p) throw new Error('No DATABASE_URL — cannot reach Neon.');
   const skills = await db.loadActiveSkills();
@@ -125,7 +168,8 @@ async function runQueueDrafts({ limit = 200, dryRun = false } = {}) {
   const bank = (await db.listAnswerBank({ activeOnly: true })).filter((e) => e.status !== 'retired');
 
   const board = await buildBoard({ fresh: true });
-  const items = (board.items || []).slice(0, limit);
+  let items = (board.items || []).slice(0, limit);
+  if (onlyChatJid) items = (board.items || []).filter((i) => i.chatJid === onlyChatJid);
   const jids = items.map((i) => i.chatJid).filter(Boolean);
   if (!jids.length) return { queued: 0, candidates: 0, ran: 0, alreadyDrafted: 0, noText: 0, counts: {}, rows: [] };
 
@@ -161,8 +205,13 @@ async function runQueueDrafts({ limit = 200, dryRun = false } = {}) {
   const rows = [];
   let ran = 0, alreadyDrafted = 0, noText = 0;
   for (const row of cand.rows) {
-    if (await db.hasDraftForJob(row.id)) { alreadyDrafted++; continue; }
-    const text = await decryptedText(row.payload_encrypted);
+    if (!force && await db.hasDraftForJob(row.id)) { alreadyDrafted++; continue; }
+    // The WHOLE unanswered block, not just this one (latest) message — see
+    // unansweredBlockText() above. row.id / row.deal_id / row.at (the dedup key,
+    // deal link and "turns before" cutoff) still come from the single latest
+    // real client message, which is exactly right: a NEW message changes which
+    // row is latest, so it naturally redrafts when the block actually changes.
+    const text = await unansweredBlockText(p, row.chat_jid, staffPhones);
     if (!text) { noText++; continue; }
     const turns = await turnsBefore(p, row.chat_jid, row.at);
 

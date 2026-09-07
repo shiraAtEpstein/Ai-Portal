@@ -19,7 +19,7 @@ function fmtTurns(turns) {
   return turns.slice(-6).map((t) => `${t.who === 'firm' ? 'Firm' : 'Client'}: ${String(t.text || '').slice(0, 300)}`).join('\n');
 }
 
-async function compose({ text, turns, classification, slots, context, entry, skills, model } = {}) {
+async function compose({ text, turns, classification, slots, context, entry, skills, missing, model } = {}) {
   const rules = skills && skills.rules, voice = skills && skills.voice, page = skills && skills.compose;
   if (!rules || !voice || !page || rules.expired || voice.expired || page.expired) {
     return { text: null, abstain_reason: 'skill page missing or expired', facts_used: [] };
@@ -30,14 +30,19 @@ async function compose({ text, turns, classification, slots, context, entry, ski
     '# Compose\n' + page.body,
     'OUTPUT: JSON only — {"text": string|null, "facts_used": [{"value": string, "source": string}], "abstain_reason": string|null}. ' +
     'Every number, date, amount, link, address and name in "text" must come from SLOTS or the ANSWER ENTRY and be listed in facts_used with its source. ' +
-    'If the client asks for something that is not in SLOTS or the ANSWER ENTRY, do not answer that part: say who will confirm it. ' +
-    'If you cannot write a correct reply, return text null with abstain_reason.'
+    'For anything listed under MISSING, do not guess a value and do not add it to facts_used — write a short bracketed placeholder instead ("[will confirm the exact amount]" / "[לבדוק ולחזור]") naming what still needs checking, and say who will confirm it (RESPONSIBLE STAFF) if that helps. ' +
+    'If the client asks for something that is not in SLOTS, the ANSWER ENTRY, or MISSING at all, do not answer that part either: say who will confirm it. ' +
+    'Only return text null with abstain_reason if there is truly nothing to say — no slot, no entry, no MISSING to acknowledge, and no conversation to draw on.'
   ].join('\n\n');
 
   const stageLine = context && context.stage ? `CONTEXT (for your understanding only — never state it): stage = ${context.stage}\n` : '';
+  const missingLine = (missing && missing.length)
+    ? `MISSING (not available — never invent a value for these; placeholder instead): ${missing.join(', ')}\n`
+    : '';
   const user =
     `CLIENT LANGUAGE: ${classification.lang}   TONE: ${classification.tone}   TYPE: ${classification.type}\n` +
     stageLine +
+    missingLine +
     `RESPONSIBLE STAFF (for "I'll check with…"): ${(slots && slots.responsible_staff && slots.responsible_staff.value) || 'the office'}\n\n` +
     `SLOTS (the only facts you may use):\n${fmtSlots(slots)}\n\n` +
     `ANSWER ENTRY (approved wording to draw on; adapt, never paste):\n${entry ? `[${entry.code}] ${entry.topic}\n${entry.answer_md}` : '(none)'}\n\n` +

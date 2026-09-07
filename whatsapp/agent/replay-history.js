@@ -48,6 +48,7 @@ const { runMessage } = require('./pipeline');
 const db = require('./db');
 const { NON_MESSAGE_KINDS } = require('../ingest/db');
 const { buildBoard } = require('../../lib/unanswered-digest');
+const { loadDirectory } = require('../../lib/routing');
 
 // textPreview() wants the INNER Baileys `.message` object (the same way
 // whatsapp/ingest/phone.js's own senderFromMessage() calls it: textPreview(msg
@@ -128,6 +129,18 @@ async function runQueueDrafts({ limit = 200, dryRun = false } = {}) {
   const jids = items.map((i) => i.chatJid).filter(Boolean);
   if (!jids.length) return { queued: 0, candidates: 0, ran: 0, alreadyDrafted: 0, noText: 0, counts: {}, rows: [] };
 
+  // "The message to draft a reply to" must use the EXACT same "is this the
+  // firm talking" test as lib/unanswered-digest's listUnansweredChats() /
+  // buildBoard() (direction='out' OR a resolved staff sender OR a raw staff
+  // phone) — otherwise a chat can end up on the board because of a genuine
+  // unanswered client message, while THIS query's plain "most recent
+  // direction='in' row" instead grabs a later message that was actually a
+  // staffer replying from their own phone (not through the connected Lawly
+  // line, so it still landed as direction='in'). Without this filter that
+  // reads as the agent trying to draft a reply to a colleague's own message.
+  const dir = loadDirectory();
+  const staffPhones = (dir.staff || []).map((s) => s.phone9).filter(Boolean);
+
   const cand = await p.query(
     `SELECT DISTINCT ON (pj.chat_jid)
             pj.id, pj.chat_jid, pj.deal_id, pj.payload_encrypted, pj.is_group,
@@ -138,8 +151,10 @@ async function runQueueDrafts({ limit = 200, dryRun = false } = {}) {
      WHERE pj.source = 'whatsapp' AND pj.direction = 'in' AND pj.deleted_at IS NULL
        AND pj.chat_jid = ANY($1)
        AND (pj.msg_kind IS NULL OR pj.msg_kind <> ALL($2::text[]))
+       AND pj.sender_staff_phone9 IS NULL
+       AND (pj.sender_phone IS NULL OR pj.sender_phone <> ALL($3::text[]))
      ORDER BY pj.chat_jid, COALESCE(pj.sent_at, pj.created_at) DESC`,
-    [jids, NON_MESSAGE_KINDS]
+    [jids, NON_MESSAGE_KINDS, staffPhones]
   );
 
   const counts = {};

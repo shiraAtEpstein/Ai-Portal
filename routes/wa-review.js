@@ -160,6 +160,16 @@ module.exports = function createWaReviewRouter() {
           clientName: (b && b.clientName) || (d && d.clientName) || null,
           responsibleName: (b && b.responsibleName) || (d && d.responsibleName) || null,
           link: (b && b.link) || null,
+          // isQueued: this chat is on the LIVE unanswered board right now — i.e.
+          // it genuinely still needs a reply, not just "was drafted at some
+          // point". status/waitedLabel/waitedTone come straight from buildBoard(),
+          // the one place "does this chat need a reply" is decided anywhere in
+          // the app, so this can never disagree with the unanswered board itself.
+          isQueued: !!b,
+          status: b ? b.status : null,
+          waitedLabel: b ? b.waitedLabel : null,
+          waitedSince: b ? b.waitedSince : null,
+          waitedTone: b ? b.waitedTone : null,
           messageText: r.message_text,
           outcome: r.outcome,
           outcomeLabel: OUTCOME_LABELS[r.outcome] || r.outcome,
@@ -173,7 +183,15 @@ module.exports = function createWaReviewRouter() {
           createdAt: r.created_at,
         });
       }
-      res.json({ scope: admin ? 'firm' : 'mine', me: myEmail, count: out.length, drafts: out });
+      // Queued (still needs a reply) first, oldest wait first — same order as
+      // the unanswered board itself; everything else (already answered / not on
+      // the live board) after, most recent first, as before.
+      out.sort((a, b2) => {
+        if (a.isQueued !== b2.isQueued) return a.isQueued ? -1 : 1;
+        if (a.isQueued) return new Date(a.waitedSince || 0) - new Date(b2.waitedSince || 0);
+        return new Date(b2.createdAt || 0) - new Date(a.createdAt || 0);
+      });
+      res.json({ scope: admin ? 'firm' : 'mine', me: myEmail, count: out.length, queuedCount: out.filter((x) => x.isQueued).length, drafts: out });
     } catch (e) {
       console.error('[wa-review] failed:', e.message);
       res.status(500).json({ error: 'Failed to load the review list.' });
@@ -183,6 +201,26 @@ module.exports = function createWaReviewRouter() {
   // Manual trigger — same idiom as GET/POST /api/admin/whatsapp-groups/process:
   // runs exactly what the CLI (whatsapp/agent/replay-history.js) runs, from the
   // browser, so testing this doesn't require terminal access.
+  // Primary trigger — the everyday one. Drafts ONLY for chats currently on the
+  // live unanswered board, one per open chat. This is what "it should only
+  // answer unanswered ones" means in practice: nothing here ever drafts for a
+  // message that's already been handled.
+  router.post('/api/admin/wa-review/queue', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const q = Object.assign({}, req.query, req.body);
+      const limit = Math.min(500, Math.max(1, parseInt(q.limit || '200', 10)));
+      const { runQueueDrafts } = require('../whatsapp/agent/replay-history');
+      const result = await runQueueDrafts({ limit });
+      res.json({ ok: true, result });
+    } catch (e) {
+      console.error('[wa-review] queue draft run failed:', e.message);
+      res.status(500).json({ error: 'Queue draft run failed.', detail: e.message });
+    }
+  });
+
+  // Backtest/QA trigger — drafts against recent HISTORY (answered or not), so
+  // the agent's output can be compared against what staff actually sent. Not
+  // the everyday tool; kept for review and tuning the skills/answer bank.
   router.post('/api/admin/wa-review/replay', authenticate, requireAdmin, async (req, res) => {
     try {
       const q = Object.assign({}, req.query, req.body);

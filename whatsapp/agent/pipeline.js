@@ -50,6 +50,10 @@ const NO_DRAFT_ROUTE_ONLY_TYPES = new Set(['complaint', 'meta', 'unknown']);
 const SLOTS_BY_TYPE = {
   deal_fact: null,          // any
   what_is_this: null,
+  // "any update?" / "מה קורה" — added 7 Sept alongside removing status_nudge
+  // from classify.js's ROUTE_ONLY_TYPES. waiting_on/last_firm_action come from
+  // LAWLY's own deals/deal_items (facts.js lawlyFacts), not monday.
+  status_nudge: ['waiting_on', 'last_firm_action', 'responsible_staff', 'next_payment_due', 'signing_date', 'delivery_date', 'client_display'],
   scheduling: ['meeting_time', 'meeting_link', 'office_address', 'signing_date', 'responsible_staff', 'client_display'],
   procedure: ['responsible_staff', 'client_display', 'next_payment_due', 'signing_date', 'delivery_date'],
   confusion: ['responsible_staff', 'client_display'],
@@ -129,20 +133,23 @@ async function runSteps(input, { skills, bank, opts, finish }) {
   const missingCore = facts.unfillable.filter((s) => s !== 'responsible_staff' && s !== 'client_display' && !['meeting_link', 'office_address'].includes(s));
   const entry = c.faq_pick ? (bank.find((e) => e.code === c.faq_pick) || null) : null;
 
-  // A deal-fact question with a hole gets no draft. So does a scheduling question
-  // with a hole (a missing signing date / meeting time goes to a person — v1 has no
-  // calendar). A procedure question with an entry can go on without deal facts:
-  // the unfillable slot is simply absent and compose says who will confirm it.
-  const strictTypes = c.type === 'deal_fact' || c.type === 'what_is_this' || c.type === 'scheduling';
-  if (missingCore.length && (strictTypes || !entry)) {
-    return finish({ outcome: 'escalate', outcome_reason: 'unfillable:' + missingCore.join(','), classification: c, slots: facts.slots, answer_bank_code: entry && entry.code, model_classify: cl.model });
-  }
-  if (!entry && !Object.keys(facts.slots).some((s) => s !== 'responsible_staff')) {
+  // Until 7 Sept, a hole in a deal-fact / what_is_this / scheduling question
+  // meant NO draft at all — escalate, blank screen. Shira's call: every draft is
+  // reviewed by a person anyway, so a hole should produce a starting point, not
+  // nothing. compose() is now always attempted and told exactly which slots it
+  // doesn't have, so it can write a placeholder ("[will confirm the exact
+  // amount]") instead of guessing or staying silent. `partial` rides on the
+  // outcome (outcome stays 'draft') purely so the review screen can flag it —
+  // validate() still blocks any actual invented number/date/name, unchanged.
+  const partial = missingCore.length ? missingCore.join(',') : null;
+  if (!entry && !partial && !(input.turns && input.turns.length) && !Object.keys(facts.slots).some((s) => s !== 'responsible_staff')) {
+    // Truly nothing to go on — no bank entry, no facts, no conversation to draw
+    // on either. compose() would only abstain here anyway; skip the model call.
     return finish({ outcome: 'escalate', outcome_reason: 'nothing_to_answer_with', classification: c, slots: facts.slots, model_classify: cl.model });
   }
 
   // 5. compose
-  const draft = await compose({ text: input.text, turns: input.turns, classification: c, slots: facts.slots, context: facts.context, entry, skills });
+  const draft = await compose({ text: input.text, turns: input.turns, classification: c, slots: facts.slots, context: facts.context, entry, missing: missingCore, skills });
   if (!draft.text) {
     const reason = forceEscalate ? forceEscalate + ',abstained:' + (draft.abstain_reason || '') : 'abstained:' + (draft.abstain_reason || '');
     return finish({ outcome: 'escalate', outcome_reason: reason, classification: c, slots: facts.slots, answer_bank_code: entry && entry.code, model_classify: cl.model, model_compose: draft.model });
@@ -162,7 +169,8 @@ async function runSteps(input, { skills, bank, opts, finish }) {
     });
   }
   return finish({
-    outcome: v.ok ? 'draft' : 'blocked', outcome_reason: v.ok ? null : v.reasons.join(','),
+    outcome: v.ok ? 'draft' : 'blocked',
+    outcome_reason: v.ok ? (partial ? 'partial:' + partial : null) : v.reasons.join(','),
     classification: c, slots: facts.slots, answer_bank_code: entry && entry.code,
     draft_text: draft.text, facts_used: draft.facts_used, validation: v,
     model_classify: cl.model, model_compose: draft.model,

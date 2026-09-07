@@ -1,302 +1,236 @@
-<!DOCTYPE html>
-<html dir="rtl" lang="he">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>תשובות הסוכן — WhatsApp</title>
-<!--
-  wa-review.html — the WhatsApp responder's review screen.
+// ============================================================
+// routes/wa-review.js — the "generated answers" review screen (public/wa-review.html).
+//
+//   GET  /api/wa-review                    -> drafts for the signed-in user
+//        (admin sees everyone's; everyone else sees only chats routed to them)
+//   POST /api/admin/wa-review/replay       -> run replay-history.js's replay now
+//   POST /api/admin/wa-review/reconcile    -> re-check for real replies now
+//
+// Read-only apart from the two admin triggers, which only ever ADD wa_drafts
+// rows or fill in a missing reference_text — never send, never touch a client,
+// same ops posture as the rest of whatsapp/agent (no send path anywhere).
+//
+// "Who is this chat routed to" reuses buildBoard() from lib/unanswered-digest —
+// the SAME function the unanswered board and staff-response dashboard use — so
+// a chat can never be assigned to one person here and someone else there.
+// ============================================================
+const express = require('express');
+const { authenticate, requireAdmin } = require('../lib/sessions');
+const waDb = require('../whatsapp/agent/db');
+const { buildBoard } = require('../lib/unanswered-digest');
+const { getPool } = require('../db');
+const { jidUser, normalizePhone } = require('../whatsapp/ingest/phone');
 
-  Shows what the agent (whatsapp/agent/pipeline.js) generated for real recent
-  client messages: the chat, the client's message, the draft, and — once it
-  exists — the reply a staff member actually sent, side by side. A copy button
-  puts the (possibly hand-edited) draft on the clipboard; nothing here sends
-  anything or writes back to WhatsApp. Editing the text box only changes what
-  gets copied — it is not saved.
+function isAdmin(req) {
+  const roles = (req.session && req.session.roles) || [];
+  return roles.some((r) => String(r).toLowerCase() === 'admin');
+}
+function sameEmail(a, b) { return !!a && !!b && String(a).trim().toLowerCase() === String(b).trim().toLowerCase(); }
 
-  PERMISSIONS: admin sees every chat's drafts; everyone else sees only chats
-  routed to them (routes/wa-review.js, reusing the same buildBoard() the
-  unanswered board and staff-response dashboard use for "who is this assigned to").
+const OUTCOME_LABELS = {
+  draft: 'טיוטה מוכנה', blocked: 'נחסם — יש בעיה בתשובה', escalate: 'הועבר לאדם (ללא טיוטה)',
+  silence: 'אין צורך במענה', dropped: 'סונן מראש', error: 'שגיאה בהרצה',
+};
 
-  Same visual language as staff-response.html (same tokens), so this reads as
-  part of the same portal rather than a bolted-on tool.
--->
-<style>
-  :root{
-    --bg:#f2f3f5; --card:#fff; --ink:#1f2430; --muted:#8a9099; --line:#eceef1;
-    --dark:#2b2f38; --darksub:#9aa1ac; --teal:#6e8b7c;
-    --ok:#2e7d46; --warn:#bf8100; --bad:#cf3a26; --none:#d8dbe0;
-    --okBg:#e7f4ec; --warnBg:#fdf6e7; --badBg:#fdeeeb; --infoBg:#eef0fb; --info:#3f4bbd;
+// Every code the pipeline can hand back as an outcome_reason, in plain Hebrew.
+// Unmapped tokens fall back to themselves rather than disappearing, so a new
+// reason added later in classify.js/validate.js/prefilter.js is still readable
+// (just untranslated) instead of silently blank.
+const REASON_LABELS = {
+  // escalate (classify.js ESCALATE_REASONS + pipeline outcome_reason)
+  frustration: 'לקוח מתוסכל', anger: 'כעס', urgent_consequence: 'השלכה דחופה',
+  dispute: 'מחלוקת בין הצדדים', legal_opinion: 'דורש חוות דעת משפטית',
+  money_trouble: 'סוגיה כספית רגישה', sensitive: 'תוכן רגיש',
+  named_lawyer: 'הלקוח פנה במפורש לעו"ד', litigation_chat: 'שיחה בהליך משפטי',
+  unlinked: 'שיחה לא מקושרת לתיק', unreadable: 'לא ניתן לפענח את ההודעה',
+  injection_suspect: 'ניסיון הטעיה של הסוכן', third_party_data: 'בקשה למידע על צד שלישי',
+  nothing_to_answer_with: 'לסוכן אין מידע לענות איתו', abstained: 'הסוכן נמנע מלענות',
+  classifier_unavailable: 'שגיאה בסיווג ההודעה', model: 'הועבר לפי שיקול הסוכן',
+  // route_only:<type> — types that are ALWAYS routed to a human, never drafted
+  status_nudge: 'תזכורת/בדיקת סטטוס בלבד', complaint: 'תלונה', meta: 'שאלה על הסוכן עצמו', unknown: 'סוג לא מזוהה',
+  // unfillable:<slot,slot,...> — a fact the draft needed but couldn't get
+  waiting_on: 'ממתין ל...', last_firm_action: 'הפעולה האחרונה של המשרד', responsible_staff: 'איש/אשת קשר אחראי/ת',
+  next_payment_amount: 'סכום התשלום הבא', next_payment_due: 'מועד התשלום הבא', payment_schedule: 'לוח תשלומים',
+  balance: 'יתרה', delivery_date: 'מועד מסירה', signing_date: 'מועד חתימה', meeting_time: 'שעת פגישה',
+  meeting_link: 'קישור לפגישה', office_address: 'כתובת המשרד', apartment_id: 'פרטי הדירה',
+  document_status: 'סטטוס מסמך', registration_status: 'סטטוס רישום', tax_status: 'סטטוס מס',
+  contact_person: 'איש קשר', client_display: 'פרטי הלקוח',
+  // blocked (validate.js)
+  unverified_figure: 'מספר/תאריך שלא אומת מול המקור', identifier_leak: 'חשש לחשיפת פרט מזהה',
+  unknown_name: 'שם לא מוכר בטיוטה', language_mismatch: 'שפת התשובה לא תואמת את שפת הלקוח', too_long: 'התשובה ארוכה מדי',
+  // dropped (prefilter.js)
+  firm_sent: 'הודעה שנשלחה ע"י המשרד', media_no_text: 'מדיה ללא טקסט', emoji_only: 'אימוג\'י בלבד',
+  ack: 'אישור/תודה קצרה', unlinked_chat: 'שיחה לא מקושרת לתיק', already_answered: 'כבר נענה', no_message: 'הודעה ריקה',
+};
+function prettyReason(raw) {
+  if (!raw) return '';
+  // "route_only:status_nudge" / "unfillable:document_status,signing_date"
+  return String(raw).split(',').map((part) => {
+    const [prefix, rest] = part.includes(':') ? part.split(':') : [null, part];
+    const prefixLabel = prefix === 'route_only' ? 'תמיד מועבר לאדם — ' : prefix === 'unfillable' ? 'חסר: ' : (prefix ? prefix + ': ' : '');
+    const tokens = String(rest).split(',').map((t) => REASON_LABELS[t.trim()] || t.trim()).join(', ');
+    return prefixLabel + tokens;
+  }).join(' · ');
+}
+
+// chat_jid -> board item, so a wa_drafts row can show a real chat name instead
+// of a jid and be filtered to the right person. A chat with no OPEN unanswered
+// item right now (already handled, or simply not on the board) has no board
+// entry — it still appears here (never hidden), just without a name or a
+// responsible person to match, so only an admin sees that particular row.
+async function boardMap() {
+  const board = await buildBoard();
+  const map = new Map();
+  for (const item of board.items || []) map.set(item.chatJid, item);
+  return map;
+}
+
+// Fallback for a chat that ISN'T on the live unanswered board right now (most
+// replayed history: already answered, so it dropped off that board) — looked
+// up directly instead, so it still gets a real name and a responsible person
+// rather than falling back to the raw WhatsApp jid.
+async function chatDirectory(chatJids) {
+  const out = new Map();
+  const p = getPool();
+  const jids = [...new Set((chatJids || []).filter(Boolean))];
+  if (!p || !jids.length) return out;
+
+  const groupJids = jids.filter((j) => j.endsWith('@g.us'));
+  const dmJids = jids.filter((j) => !j.endsWith('@g.us'));
+
+  if (groupJids.length) {
+    try {
+      const r = await p.query(
+        `SELECT provider_group_jid, name, responsible_name, responsible_email
+         FROM whatsapp_groups WHERE provider_group_jid = ANY($1)`,
+        [groupJids]
+      );
+      for (const row of r.rows) {
+        out.set(row.provider_group_jid, {
+          name: row.name || null,
+          responsibleName: row.responsible_name || null,
+          responsibleEmail: row.responsible_email || null,
+        });
+      }
+    } catch (e) { console.error('[wa-review] group directory lookup failed:', e.message); }
   }
-  *{box-sizing:border-box;}
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:Arial,Helvetica,"Segoe UI",sans-serif;direction:rtl;}
-  .wrap{max-width:920px;margin:0 auto;padding:22px 18px 60px;}
-
-  .topbar{background:var(--dark);border-radius:14px;padding:20px 22px;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;}
-  .t1{color:#fff;font-size:13px;opacity:.75;letter-spacing:.2px;}
-  .t2{color:#fff;font-size:19px;font-weight:bold;margin-top:3px;}
-  .t3{color:var(--darksub);font-size:12.5px;margin-top:6px;}
-  .topActions{display:flex;flex-direction:column;align-items:flex-end;gap:8px;}
-  .btnRow{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
-  .btn{border:0;border-radius:7px;padding:9px 15px;font-size:12.5px;font-weight:bold;cursor:pointer;white-space:nowrap;font-family:inherit;}
-  .btn.primary{background:var(--teal);color:#fff;}
-  .btn.ghost{background:rgba(255,255,255,.1);color:#fff;}
-  .btn:disabled{opacity:.55;cursor:default;}
-  .actionNote{color:var(--darksub);font-size:11.5px;max-width:260px;text-align:left;}
-
-  .filterRow{display:flex;gap:8px;align-items:center;margin-top:16px;flex-wrap:wrap;}
-  .chip{border:1px solid var(--line);background:var(--card);color:var(--muted);border-radius:999px;padding:6px 13px;font-size:12px;cursor:pointer;user-select:none;}
-  .chip.on{background:var(--dark);color:#fff;border-color:var(--dark);}
-
-  .state{padding:34px 18px;text-align:center;color:var(--muted);font-size:13.5px;line-height:1.8;}
-  .state a{color:var(--info);}
-
-  .cards{display:flex;flex-direction:column;gap:12px;margin-top:14px;}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 17px 15px;}
-  .chead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;}
-  .chatName{font-size:14.5px;font-weight:bold;}
-  .clientName{font-size:12.5px;color:var(--muted);margin-top:2px;}
-  .respName{font-size:11.5px;color:var(--muted);margin-top:2px;}
-  .cmeta{font-size:11.5px;color:var(--muted);white-space:nowrap;text-align:left;}
-
-  .badge{display:inline-block;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:bold;margin-top:8px;}
-  .badge.draft{background:var(--okBg);color:var(--ok);}
-  .badge.blocked{background:var(--badBg);color:var(--bad);}
-  .badge.escalate{background:var(--warnBg);color:var(--warn);}
-  .badge.error{background:var(--badBg);color:var(--bad);}
-  .badge.silence,.badge.dropped{background:#f2f3f5;color:var(--muted);}
-
-  .quote{margin-top:12px;background:#fafbfc;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.6;white-space:pre-wrap;}
-  .quoteLbl{font-size:10.5px;color:var(--muted);margin-bottom:5px;letter-spacing:.2px;}
-
-  .draftBox{margin-top:10px;}
-  textarea.draftText{width:100%;min-height:78px;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13.5px;line-height:1.6;font-family:inherit;color:var(--ink);background:#fff;}
-  .draftHint{font-size:10.5px;color:var(--muted);margin-top:4px;}
-  .draftActions{display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:8px;}
-  .code{font-size:11px;color:var(--muted);}
-
-  .noDraft{margin-top:10px;font-size:12.5px;color:var(--muted);background:var(--warnBg);border-radius:8px;padding:9px 12px;}
-  .noDraft.silent{background:#f2f3f5;}
-
-  .refWrap{margin-top:10px;}
-  .refWrap .quote{background:var(--infoBg);border-color:#dde0f6;}
-
-  .foot{margin-top:22px;text-align:center;font-size:11.5px;color:var(--muted);}
-</style>
-</head>
-<body>
-<div class="wrap">
-  <div class="topbar">
-    <div>
-      <div class="t1">Lawly · אפשטיין ושות׳</div>
-      <div class="t2">תשובות שנוצרו על ידי הסוכן — WhatsApp</div>
-      <div class="t3" id="meta">טוען…</div>
-    </div>
-    <div class="topActions" id="adminActions" style="display:none">
-      <div class="btnRow">
-        <button class="btn primary" id="replayBtn" type="button">הרץ על היסטוריה אחרונה</button>
-        <button class="btn ghost" id="reconcileBtn" type="button">בדוק מה נשלח בפועל</button>
-        <button class="btn ghost" id="refreshBtn" type="button">רענון ↻</button>
-      </div>
-      <div class="actionNote" id="actionNote">הרצה על 14 הימים האחרונים, עד 50 הודעות. שום דבר לא נשלח ולא מוצג ללקוח.</div>
-    </div>
-    <div class="topActions" id="staffActions" style="display:none">
-      <button class="btn ghost" id="refreshBtn2" type="button">רענון ↻</button>
-    </div>
-  </div>
-
-  <div class="filterRow" id="filterRow" style="display:none">
-    <span class="chip on" data-f="useful">טיוטות ובעיות</span>
-    <span class="chip" data-f="all">הכל</span>
-  </div>
-
-  <div class="cards" id="cards"></div>
-  <div class="foot" id="foot"></div>
-</div>
-
-<script>
-function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e;}
-function esc(s){return String(s==null?'':s);}
-function fmtWhen(iso){
-  if(!iso) return '';
-  try{
-    var d=new Date(iso);
-    return d.toLocaleString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-  }catch(e){ return ''; }
-}
-var USEFUL_OUTCOMES=['draft','blocked','escalate','error'];
-var filter='useful';
-var lastData=null;
-
-/* ------------------------------------------------------------ sign-in --- */
-var TRIED_KEY='waReviewAuthBounce';
-function goSignIn(){
-  var already=false;
-  try{ already=sessionStorage.getItem(TRIED_KEY)==='1'; }catch(e){}
-  if(already) return showSignInLink();
-  try{ sessionStorage.setItem(TRIED_KEY,'1'); }catch(e){}
-  var next=encodeURIComponent(location.pathname+location.search);
-  fetch('/auth/google/status',{cache:'no-store'}).then(function(r){return r.json();})
-    .then(function(j){ location.replace(j&&j.enabled?('/auth/google/start?next='+next):'/'); })
-    .catch(function(){ location.replace('/'); });
-}
-function showSignInLink(){
-  document.getElementById('meta').textContent='נדרשת התחברות';
-  document.getElementById('cards').innerHTML='';
-  document.getElementById('cards').appendChild(
-    (function(){var d=el('div','state');d.innerHTML='יש להתחבר כדי לראות את המסך הזה.<br><a href="/">מעבר לעמוד ההתחברות</a>';return d;})()
-  );
-}
-function clearAuthBounce(){ try{ sessionStorage.removeItem(TRIED_KEY); }catch(e){} }
-
-/* --------------------------------------------------------------- cards --- */
-function badgeClass(o){ return ['draft','blocked','escalate','error'].indexOf(o)!==-1 ? o : (o==='dropped'?'dropped':'silence'); }
-
-function renderCard(d){
-  var c=el('div','card');
-
-  var head=el('div','chead');
-  var left=el('div');
-  left.appendChild(el('div','chatName',d.chatLabel||d.chatJid||'—'));
-  if(d.clientName) left.appendChild(el('div','clientName',d.clientName));
-  if(d.responsibleName) left.appendChild(el('div','respName','אחראי/ת: '+d.responsibleName));
-  head.appendChild(left);
-  head.appendChild(el('div','cmeta',fmtWhen(d.createdAt)));
-  c.appendChild(head);
-
-  var badge=el('span','badge '+badgeClass(d.outcome),d.outcomeLabel||d.outcome);
-  c.appendChild(badge);
-
-  if(d.messageText){
-    var q=el('div','quote');
-    q.appendChild(el('div','quoteLbl','ההודעה מהלקוח'));
-    var qt=el('div');qt.textContent=d.messageText;q.appendChild(qt);
-    c.appendChild(q);
+  if (dmJids.length) {
+    try {
+      const byPhone = new Map(dmJids.map((j) => [normalizePhone(jidUser(j)), j]).filter(([ph]) => ph));
+      const phones = [...byPhone.keys()];
+      if (phones.length) {
+        const r = await p.query(
+          `SELECT phone_normalized, display_name, monday_client_name FROM wa_contacts WHERE phone_normalized = ANY($1)`,
+          [phones]
+        );
+        for (const row of r.rows) {
+          const j = byPhone.get(row.phone_normalized);
+          if (!j) continue;
+          const name = row.display_name || row.monday_client_name || null;
+          out.set(j, { name, clientName: name });
+        }
+      }
+    } catch (e) { console.error('[wa-review] contact directory lookup failed:', e.message); }
   }
-
-  if(d.outcome==='draft' || (d.outcome==='blocked' && d.draftText)){
-    var box=el('div','draftBox');
-    var ta=document.createElement('textarea');
-    ta.className='draftText';
-    ta.value=d.draftText||'';
-    box.appendChild(ta);
-    box.appendChild(el('div','draftHint','עריכה כאן משפיעה רק על מה שיועתק — לא נשמר.'));
-    var actions=el('div','draftActions');
-    var copyBtn=el('button','btn primary','העתק תשובה');
-    copyBtn.type='button';
-    copyBtn.addEventListener('click',function(){
-      var text=ta.value;
-      var done=function(){ copyBtn.textContent='הועתק ✓'; setTimeout(function(){copyBtn.textContent='העתק תשובה';},1600); };
-      if(navigator.clipboard && navigator.clipboard.writeText){
-        navigator.clipboard.writeText(text).then(done).catch(function(){ ta.select(); document.execCommand('copy'); done(); });
-      } else { ta.select(); document.execCommand('copy'); done(); }
-    });
-    actions.appendChild(copyBtn);
-    if(d.answerBankCode) actions.appendChild(el('span','code',d.answerBankCode));
-    box.appendChild(actions);
-    c.appendChild(box);
-    if(d.outcome==='blocked') c.appendChild(el('div','noDraft','נחסם אוטומטית: '+(d.outcomeReason||'')+' — יש לבדוק ידנית לפני שליחה.'));
-  } else {
-    var reasonMap={
-      escalate:'הועבר לאדם — '+(d.outcomeReason||'ללא סיבה מפורטת'),
-      error:'שגיאה בהרצה — '+(d.outcomeReason||''),
-      silence:'לא נדרש מענה מהסוכן.',
-      dropped:'סונן אוטומטית (תודה / אימוג׳י / הודעה לא רלוונטית).',
-    };
-    var note=el('div','noDraft'+(d.outcome==='silence'||d.outcome==='dropped'?' silent':''), reasonMap[d.outcome] || (d.outcomeReason||''));
-    c.appendChild(note);
-  }
-
-  if(d.referenceText){
-    var rw=el('div','refWrap');
-    var rq=el('div','quote');
-    rq.appendChild(el('div','quoteLbl','מה שנשלח בפועל בשיחה'));
-    var rt=el('div');rt.textContent=d.referenceText;rq.appendChild(rt);
-    rw.appendChild(rq);
-    c.appendChild(rw);
-  }
-
-  return c;
+  return out;
 }
 
-function render(data){
-  lastData=data;
-  var admin=data.scope==='firm';
-  document.getElementById('meta').textContent=(admin?'כל המשרד':'שלי')+' · '+data.count+' תוצאות';
-  document.getElementById('adminActions').style.display=admin?'flex':'none';
-  document.getElementById('staffActions').style.display=admin?'none':'flex';
-  document.getElementById('filterRow').style.display='flex';
+module.exports = function createWaReviewRouter() {
+  const router = express.Router();
 
-  var list=(data.drafts||[]).filter(function(d){ return filter==='all' || USEFUL_OUTCOMES.indexOf(d.outcome)!==-1; });
-  var cards=document.getElementById('cards');
-  cards.innerHTML='';
-  if(!list.length){
-    var msg = (data.drafts||[]).length ? 'אין תוצאות בתצוגה הזו — נסו "הכל".' :
-      (admin ? 'אין עדיין נתונים. לחצו על "הרץ על היסטוריה אחרונה" כדי ליצור טיוטות אמיתיות משיחות אחרונות.' : 'אין כרגע תשובות שממתינות לכם.');
-    cards.appendChild((function(){var d=el('div','state',msg);return d;})());
-    return;
-  }
-  list.forEach(function(d){ cards.appendChild(renderCard(d)); });
-}
+  router.get('/api/wa-review', authenticate, async (req, res) => {
+    try {
+      const admin = isAdmin(req);
+      const myEmail = req.session && req.session.email;
+      const rows = await waDb.listRecentDrafts({ limit: 300 });
+      const [board, dir] = await Promise.all([boardMap(), chatDirectory(rows.map((r) => r.chat_jid))]);
 
-function load(){
-  document.getElementById('meta').textContent='טוען…';
-  fetch('/api/wa-review',{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}})
-    .then(function(r){
-      if(r.status===401){ goSignIn(); return null; }
-      if(!r.ok) throw new Error('bad status '+r.status);
-      clearAuthBounce();
-      return r.json();
-    })
-    .then(function(data){ if(data) render(data); })
-    .catch(function(e){
-      document.getElementById('meta').textContent='שגיאה בטעינה';
-      document.getElementById('cards').innerHTML='';
-      document.getElementById('cards').appendChild(el('div','state','לא ניתן לטעון את הרשימה. נסו רענון.'));
-    });
-}
-
-function runAdmin(btn, path, note){
-  btn.disabled=true; var orig=btn.textContent; btn.textContent='מריץ…';
-  fetch(path,{method:'POST',credentials:'same-origin'})
-    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
-    .then(function(res){
-      btn.disabled=false; btn.textContent=orig;
-      var n=document.getElementById('actionNote');
-      if(!res.ok){ n.textContent='נכשל: '+((res.j&&res.j.error)||'שגיאה'); return; }
-      n.textContent=note(res.j.result);
-      load();
-    })
-    .catch(function(){ btn.disabled=false; btn.textContent=orig; document.getElementById('actionNote').textContent='נכשל להריץ.'; });
-}
-
-document.getElementById('replayBtn').addEventListener('click',function(){
-  runAdmin(this,'/api/admin/wa-review/replay?days=14&limit=50',function(r){
-    if(!r) return 'הסתיים.';
-    var extra=[];
-    if(r.alreadyDrafted) extra.push(r.alreadyDrafted+' כבר היו קיימות');
-    if(r.noText) extra.push(r.noText+' ללא טקסט לקריאה (וידאו/סטיקר/שגיאת פענוח)');
-    return 'נבדקו '+r.candidates+', נוצרו '+r.ran+' טיוטות חדשות'+(extra.length?' ('+extra.join(', ')+')':'')+'.';
+      const out = [];
+      for (const r of rows) {
+        const b = board.get(r.chat_jid) || null;
+        const d = dir.get(r.chat_jid) || null;
+        const responsibleEmails = (b && b.responsibleEmails) || (d && d.responsibleEmail ? [d.responsibleEmail] : []);
+        const mine = responsibleEmails.some((e) => sameEmail(e, myEmail));
+        if (!admin && !mine) continue;
+        const classification = r.classification || {};
+        out.push({
+          id: r.id,
+          chatJid: r.chat_jid,
+          chatLabel: (b && b.label) || (d && d.name) || r.chat_jid || '(unlinked chat)',
+          clientName: (b && b.clientName) || (d && d.clientName) || null,
+          responsibleName: (b && b.responsibleName) || (d && d.responsibleName) || null,
+          link: (b && b.link) || null,
+          messageText: r.message_text,
+          outcome: r.outcome,
+          outcomeLabel: OUTCOME_LABELS[r.outcome] || r.outcome,
+          outcomeReason: r.outcome_reason,
+          outcomeReasonLabel: prettyReason(r.outcome_reason),
+          type: classification.type || null,
+          lang: classification.lang || null,
+          answerBankCode: r.answer_bank_code,
+          draftText: r.draft_text,
+          referenceText: r.reference_text,
+          createdAt: r.created_at,
+        });
+      }
+      res.json({ scope: admin ? 'firm' : 'mine', me: myEmail, count: out.length, drafts: out });
+    } catch (e) {
+      console.error('[wa-review] failed:', e.message);
+      res.status(500).json({ error: 'Failed to load the review list.' });
+    }
   });
-});
-document.getElementById('reconcileBtn').addEventListener('click',function(){
-  runAdmin(this,'/api/admin/wa-review/reconcile?limit=500',function(r){
-    return r ? ('נבדקו '+r.checked+', נמצאה תשובה בפועל עבור '+r.filled+'.') : 'הסתיים.';
-  });
-});
-document.getElementById('refreshBtn').addEventListener('click',load);
-document.getElementById('refreshBtn2').addEventListener('click',load);
 
-document.querySelectorAll('.chip').forEach(function(chip){
-  chip.addEventListener('click',function(){
-    document.querySelectorAll('.chip').forEach(function(c){c.classList.remove('on');});
-    chip.classList.add('on');
-    filter=chip.getAttribute('data-f');
-    if(lastData) render(lastData);
+  // Manual trigger — same idiom as GET/POST /api/admin/whatsapp-groups/process:
+  // runs exactly what the CLI (whatsapp/agent/replay-history.js) runs, from the
+  // browser, so testing this doesn't require terminal access.
+  router.post('/api/admin/wa-review/replay', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const q = Object.assign({}, req.query, req.body);
+      const days = Math.min(60, Math.max(1, parseInt(q.days || '14', 10)));
+      const limit = Math.min(300, Math.max(1, parseInt(q.limit || '50', 10)));
+      const { runReplay } = require('../whatsapp/agent/replay-history');
+      const result = await runReplay({ days, limit });
+      res.json({ ok: true, result });
+    } catch (e) {
+      console.error('[wa-review] replay failed:', e.message);
+      res.status(500).json({ error: 'Replay failed.', detail: e.message });
+    }
   });
-});
 
-load();
-</script>
-</body>
-</html>
+  router.post('/api/admin/wa-review/reconcile', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const q = Object.assign({}, req.query, req.body);
+      const limit = Math.min(1000, Math.max(1, parseInt(q.limit || '500', 10)));
+      const { runReconcile } = require('../whatsapp/agent/replay-history');
+      const result = await runReconcile({ limit });
+      res.json({ ok: true, result });
+    } catch (e) {
+      console.error('[wa-review] reconcile failed:', e.message);
+      res.status(500).json({ error: 'Reconcile failed.', detail: e.message });
+    }
+  });
+
+  // One-off diagnostic: which database is THIS RUNNING APP actually talking
+  // to, and what does wa_drafts really hold from its own connection right now.
+  // Added because a replay run reported rows as "already exists" that a
+  // Neon SQL-editor query couldn't find — the fastest way to tell "wrong
+  // database" apart from "real bug" is to ask the app itself, not to keep
+  // guessing. Never exposes the connection string, only its host.
+  router.get('/api/admin/wa-review/debug', authenticate, requireAdmin, async (req, res) => {
+    try {
+      const { getPool } = require('../db');
+      const p = getPool();
+      if (!p) return res.json({ ok: false, error: 'getPool() returned nothing — DATABASE_URL not set for this app.' });
+      let dbHost = null, dbName = null;
+      try { const u = new URL(process.env.DATABASE_URL || ''); dbHost = u.host; dbName = (u.pathname || '').replace(/^\//, ''); } catch (e) { /* leave null */ }
+      const totals = await p.query(`SELECT mode, count(*)::int AS n FROM wa_drafts GROUP BY mode ORDER BY mode`);
+      const withJob = await p.query(`SELECT count(*)::int AS n FROM wa_drafts WHERE job_id IS NOT NULL`);
+      const recent = await p.query(`SELECT id, mode, outcome, job_id, chat_jid, created_at FROM wa_drafts ORDER BY created_at DESC LIMIT 5`);
+      res.json({ ok: true, dbHost, dbName, wa_drafts_by_mode: totals.rows, wa_drafts_with_job_id: withJob.rows[0].n, mostRecent: recent.rows });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  return router;
+};

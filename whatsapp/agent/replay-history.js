@@ -193,18 +193,26 @@ async function runReplay({ days = 14, limit = 50, dryRun = false } = {}) {
   // not a narrow allowlist. A first version of this filtered msg_kind = 'conversation'
   // only, which silently dropped extendedTextMessage/imageMessage/etc. — most real
   // client text — and is why an early run came back with 0 candidates.
+  const dir = loadDirectory();
+  const staffPhones = (dir.staff || []).map((s) => s.phone9).filter(Boolean);
+
   const cand = await p.query(
     `SELECT pj.id, pj.chat_jid, pj.deal_id, pj.payload_encrypted, pj.is_group,
             COALESCE(pj.sent_at, pj.created_at) AS at,
             d.monday_board_id, d.monday_item_id
      FROM processing_jobs pj
-     JOIN deals d ON d.id = pj.deal_id
+     LEFT JOIN deals d ON d.id = pj.deal_id
      WHERE pj.source = 'whatsapp' AND pj.direction = 'in' AND pj.deleted_at IS NULL
        AND (pj.msg_kind IS NULL OR pj.msg_kind <> ALL($3::text[]))
        AND COALESCE(pj.sent_at, pj.created_at) > now() - make_interval(days => $1)
+       -- Same "is this actually the firm talking" test as runQueueDrafts() and
+       -- buildBoard() -- a staffer replying from their own phone still lands
+       -- with direction='in' here, and must never be read as a client message.
+       AND pj.sender_staff_phone9 IS NULL
+       AND (pj.sender_phone IS NULL OR pj.sender_phone <> ALL($4::text[]))
      ORDER BY COALESCE(pj.sent_at, pj.created_at) DESC
      LIMIT $2`,
-    [days, limit, NON_MESSAGE_KINDS]
+    [days, limit, NON_MESSAGE_KINDS, staffPhones]
   );
 
   const counts = {};

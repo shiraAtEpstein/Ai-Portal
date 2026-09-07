@@ -272,7 +272,11 @@ function runAdmin(btn, path, note){
 
 document.getElementById('replayBtn').addEventListener('click',function(){
   runAdmin(this,'/api/admin/wa-review/replay?days=14&limit=50',function(r){
-    return r ? ('נבדקו '+r.candidates+', נוצרו '+r.ran+' טיוטות חדשות ('+r.skipped+' כבר היו קיימות).') : 'הסתיים.';
+    if(!r) return 'הסתיים.';
+    var extra=[];
+    if(r.alreadyDrafted) extra.push(r.alreadyDrafted+' כבר היו קיימות');
+    if(r.noText) extra.push(r.noText+' ללא טקסט לקריאה (וידאו/סטיקר/שגיאת פענוח)');
+    return 'נבדקו '+r.candidates+', נוצרו '+r.ran+' טיוטות חדשות'+(extra.length?' ('+extra.join(', ')+')':'')+'.';
   });
 });
 document.getElementById('reconcileBtn').addEventListener('click',function(){

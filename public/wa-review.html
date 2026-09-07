@@ -3,150 +3,170 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>תשובות הסוכן — WhatsApp</title>
+<title>תשובות WhatsApp — Lawly</title>
 <!--
   wa-review.html — the WhatsApp responder's review screen.
 
   Shows what the agent (whatsapp/agent/pipeline.js) generated for real recent
-  client messages: the chat, the client's message, the draft, and — once it
-  exists — the reply a staff member actually sent, side by side. A copy button
-  puts the (possibly hand-edited) draft on the clipboard; nothing here sends
+  client messages: the chat, the client's message, the draft (editable), and —
+  once it exists — the reply a staff member actually sent. A copy button puts
+  the (possibly hand-edited) draft on the clipboard; nothing here sends
   anything or writes back to WhatsApp. Editing the text box only changes what
   gets copied — it is not saved.
+
+  Visual language matches the "Lawly WhatsApp Drafts" design Shira supplied:
+  warm cream ground, Frank Ruhl Libre for headings, Assistant for body/UI.
 
   PERMISSIONS: admin sees every chat's drafts; everyone else sees only chats
   routed to them (routes/wa-review.js, reusing the same buildBoard() the
   unanswered board and staff-response dashboard use for "who is this assigned to").
-
-  Same visual language as staff-response.html (same tokens), so this reads as
-  part of the same portal rather than a bolted-on tool.
 -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@400;500;600&family=Assistant:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#f2f3f5; --card:#fff; --ink:#1f2430; --muted:#8a9099; --line:#eceef1;
-    --dark:#2b2f38; --darksub:#9aa1ac; --teal:#6e8b7c;
-    --ok:#2e7d46; --warn:#bf8100; --bad:#cf3a26; --none:#d8dbe0;
-    --okBg:#e7f4ec; --warnBg:#fdf6e7; --badBg:#fdeeeb; --infoBg:#eef0fb; --info:#3f4bbd;
+    --bg:#F6F2EA; --ink:#14120F; --ink2:#2A261F; --muted:#6E6656; --mutedLight:#9A9078;
+    --border:#E4DCCC; --borderStrong:#D5CBB6; --dashedBorder:#DED4BF;
+    --cardHead:#F1EDE3; --cardBody:#FFFDF8; --quoteBg:#F4F0E6;
+    --green:#3B6B4A; --gold:#8A6A2F; --red:#A6432E;
+    --greenBg:#FFFDF8; --goldBg:#FFFDF8; --redBg:#FFFDF8;
+    --serif:"Frank Ruhl Libre",Georgia,serif; --sans:Assistant,"Segoe UI",Arial,sans-serif;
   }
   *{box-sizing:border-box;}
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:Arial,Helvetica,"Segoe UI",sans-serif;direction:rtl;}
-  .wrap{max-width:920px;margin:0 auto;padding:22px 18px 60px;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);direction:rtl;}
+  .wrap{max-width:984px;margin:0 auto;padding:36px 22px 90px;}
 
-  .topbar{background:var(--dark);border-radius:14px;padding:20px 22px;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;}
-  .t1{color:#fff;font-size:13px;opacity:.75;letter-spacing:.2px;}
-  .t2{color:#fff;font-size:19px;font-weight:bold;margin-top:3px;}
-  .t3{color:var(--darksub);font-size:12.5px;margin-top:6px;}
-  .topActions{display:flex;flex-direction:column;align-items:flex-end;gap:8px;}
-  .btnRow{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
-  .btn{border:0;border-radius:7px;padding:9px 15px;font-size:12.5px;font-weight:bold;cursor:pointer;white-space:nowrap;font-family:inherit;}
-  .btn.primary{background:var(--teal);color:#fff;}
-  .btn.ghost{background:rgba(255,255,255,.1);color:#fff;}
-  .btn.small{padding:6px 12px;font-size:11px;font-weight:normal;opacity:.75;}
-  .btn:disabled{opacity:.55;cursor:default;}
-  .actionNote{color:var(--darksub);font-size:11.5px;max-width:260px;text-align:left;}
+  .toolRow{display:flex;justify-content:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:10px;}
+  .toolRow button{border:0;background:none;color:var(--mutedLight);font:12px var(--sans);cursor:pointer;padding:2px 0;}
+  .toolRow button:hover{color:var(--muted);}
+  .toolRow button:disabled{opacity:.5;cursor:default;}
 
-  .tabRow{display:flex;gap:4px;align-items:stretch;margin-top:16px;border-bottom:2px solid var(--line);}
-  .tab{border:0;background:none;color:var(--muted);padding:10px 4px;font-size:13.5px;font-weight:bold;cursor:pointer;font-family:inherit;margin-inline-end:22px;border-bottom:2px solid transparent;margin-bottom:-2px;}
-  .tab .n{font-weight:normal;color:var(--muted);margin-inline-start:4px;}
-  .tab.on{color:var(--ink);border-bottom-color:var(--teal);}
-  .tab.on .n{color:var(--teal);}
+  .header{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:18px;margin-bottom:22px;}
+  .titleBlock{text-align:right;}
+  h1{font-family:var(--serif);font-weight:400;font-size:27px;margin:0;color:var(--ink);}
+  .subtitle{font-size:14px;color:var(--muted);margin-top:6px;}
 
-  .state{padding:34px 18px;text-align:center;color:var(--muted);font-size:13.5px;line-height:1.8;}
-  .state a{color:var(--info);}
+  .tabRow{display:flex;gap:22px;align-items:baseline;}
+  .tab{border:0;background:none;font:600 14.5px var(--sans);color:var(--mutedLight);cursor:pointer;padding-bottom:2px;border-bottom:1px solid transparent;font-weight:400;}
+  .tab.on{color:var(--ink);font-weight:600;border-bottom:1px solid var(--gold);}
 
-  .cards{display:flex;flex-direction:column;gap:12px;margin-top:14px;}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 17px 15px;}
-  .chead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;}
-  .chatName{font-size:14.5px;font-weight:bold;}
-  .clientName{font-size:12.5px;color:var(--muted);margin-top:2px;}
-  .respName{font-size:11.5px;color:var(--muted);margin-top:2px;}
-  .cmeta{font-size:11.5px;color:var(--muted);white-space:nowrap;text-align:left;}
+  .cards{display:flex;flex-direction:column;gap:24px;}
+  .card{background:var(--cardBody);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+  .chead{background:var(--cardHead);padding:14px 20px;display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;}
+  .badge{display:inline-flex;align-items:center;border:1px solid var(--border);background:#FFFDF8;border-radius:20px;padding:4px 12px;font:600 12.5px var(--sans);white-space:nowrap;}
+  .badge.ready{color:var(--green);}
+  .badge.human{color:var(--gold);}
+  .badge.blocked{color:var(--red);}
+  .chead .right{text-align:right;}
+  .dealName{font-family:var(--serif);font-weight:500;font-size:17px;color:var(--ink);}
+  .metaLine{font-size:13px;color:var(--muted);margin-top:3px;}
 
-  .badge{display:inline-block;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:bold;margin-top:8px;}
-  .badge.draft{background:var(--okBg);color:var(--ok);}
-  .badge.blocked{background:var(--badBg);color:var(--bad);}
-  .badge.escalate{background:var(--warnBg);color:var(--warn);}
-  .badge.error{background:var(--badBg);color:var(--bad);}
-  .badge.silence,.badge.dropped{background:#f2f3f5;color:var(--muted);}
+  .cbody{padding:18px 20px 20px;}
+  .section{margin-top:2px;}
+  .section + .section{margin-top:16px;}
+  .lbl{display:flex;justify-content:space-between;align-items:baseline;font:600 12px var(--sans);letter-spacing:1.2px;color:var(--muted);margin-bottom:8px;}
+  .lbl .hint{font:400 12px var(--sans);letter-spacing:normal;color:var(--mutedLight);cursor:default;}
+  .lbl .hint.link{cursor:pointer;text-decoration:underline;}
+  .lbl .hint.link:hover{color:var(--muted);}
 
-  /* Same statuses, same colors, as the unanswered board (board.html) — a chat
-     flagged here should never look different from how it looks there. */
-  .qrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:2px;}
-  .qbadge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:bold;color:#fff;}
-  .qbadge.required{background:#b4462f;}
-  .qbadge.potential{background:#c08a2d;}
-  .qbadge.voice{background:#5b6bd0;}
-  .qbadge.pending{background:#9aa0a8;}
-  .qwait{font-size:11.5px;color:var(--muted);}
+  .quoteBox{background:var(--quoteBg);border:1px solid var(--border);border-radius:10px;padding:13px 15px;font-size:15px;line-height:1.55;color:var(--ink2);white-space:pre-wrap;}
+  .quoteTime{font-size:12px;color:var(--mutedLight);margin-top:8px;}
 
-  .linkHint{margin-top:10px;background:var(--infoBg);border-radius:8px;padding:9px 12px;font-size:12px;color:#3f4bbd;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+  textarea.draftBox{width:100%;min-height:88px;resize:vertical;background:#FFFFFF;border:1px solid var(--border);border-radius:10px;padding:13px 15px;font:15px/1.55 var(--sans);color:var(--ink2);}
+  textarea.draftBox:focus{outline:none;border-color:var(--gold);}
+
+  .draftFoot{display:flex;justify-content:space-between;align-items:center;margin-top:10px;flex-wrap:wrap;gap:10px;}
+  .draftFoot .left{display:flex;align-items:center;gap:14px;}
+  .linkBtn{border:0;background:none;color:var(--mutedLight);font:14px var(--sans);cursor:pointer;padding:0;}
+  .linkBtn:hover{color:var(--muted);}
+  .linkBtn:disabled{opacity:.5;cursor:default;}
+  .btnPrimary{border:0;background:var(--ink);color:#FDFBF6;border-radius:8px;padding:10px 20px;font:600 14px var(--sans);cursor:pointer;white-space:nowrap;}
+  .btnPrimary:disabled{opacity:.55;cursor:default;}
+  .code{font-size:11px;color:var(--mutedLight);}
+
+  .warnNote{margin-top:10px;font-size:12.5px;color:var(--red);background:#FBF2EF;border:1px solid #EAD2CB;border-radius:8px;padding:8px 12px;}
+
+  .noDraftRow{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;
+    background:var(--bg);border:1px dashed var(--dashedBorder);border-radius:10px;padding:14px 16px;}
+  .noDraftReason{font-size:14px;color:var(--muted);text-align:right;flex:1;min-width:220px;}
+  .btnGhost{border:1px solid var(--borderStrong);background:#FFFDF8;color:var(--ink);border-radius:8px;padding:9px 16px;font:600 14px var(--sans);cursor:pointer;white-space:nowrap;}
+  .btnGhost:disabled{opacity:.55;cursor:default;}
+
+  .linkHint{margin-top:12px;background:var(--bg);border:1px dashed var(--dashedBorder);border-radius:10px;padding:11px 15px;font-size:13px;color:var(--muted);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
   .linkHint .txt{line-height:1.6;}
-  .linkHint button{border:1px solid #c7cdf2;background:#fff;color:#3f4bbd;border-radius:6px;padding:5px 11px;font-size:11.5px;font-weight:bold;cursor:pointer;font-family:inherit;white-space:nowrap;}
+  .linkHint button{border:1px solid var(--borderStrong);background:#FFFDF8;color:var(--ink);border-radius:6px;padding:6px 12px;font:600 12px var(--sans);cursor:pointer;white-space:nowrap;}
 
-  .quote{margin-top:12px;background:#fafbfc;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.6;white-space:pre-wrap;}
-  .quoteLbl{font-size:10.5px;color:var(--muted);margin-bottom:5px;letter-spacing:.2px;}
+  .refWrap{margin-top:4px;}
+  .refWrap .quoteBox{background:#F1F0FA;border-color:#DBDAF0;}
 
-  .draftBox{margin-top:10px;}
-  textarea.draftText{width:100%;min-height:78px;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13.5px;line-height:1.6;font-family:inherit;color:var(--ink);background:#fff;}
-  .draftHint{font-size:10.5px;color:var(--muted);margin-top:4px;}
-  .draftActions{display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:8px;}
-  .code{font-size:11px;color:var(--muted);}
+  .state{padding:60px 18px;text-align:center;color:var(--muted);font-size:14px;line-height:1.9;}
+  .state a{color:var(--gold);}
 
-  .noDraft{margin-top:10px;font-size:12.5px;color:var(--muted);background:var(--warnBg);border-radius:8px;padding:9px 12px;}
-  .noDraft.silent{background:#f2f3f5;}
+  .bottomRow{display:flex;justify-content:flex-start;margin-top:8px;}
 
-  .refWrap{margin-top:10px;}
-  .refWrap .quote{background:var(--infoBg);border-color:#dde0f6;}
-
-  .foot{margin-top:22px;text-align:center;font-size:11.5px;color:var(--muted);}
+  @media (max-width: 640px){
+    .header{flex-direction:column;align-items:flex-start;}
+    .titleBlock{text-align:right;width:100%;}
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="topbar">
-    <div>
-      <div class="t1">Lawly · אפשטיין ושות׳</div>
-      <div class="t2">תשובות שנוצרו על ידי הסוכן — WhatsApp</div>
-      <div class="t3" id="meta">טוען…</div>
-    </div>
-    <div class="topActions" id="adminActions" style="display:none">
-      <div class="btnRow">
-        <button class="btn primary" id="queueBtn" type="button">הכן טיוטות לשיחות שממתינות</button>
-        <button class="btn ghost" id="reconcileBtn" type="button">בדוק מה נשלח בפועל</button>
-        <button class="btn ghost" id="refreshBtn" type="button">רענון ↻</button>
-      </div>
-      <div class="actionNote" id="actionNote">מכין טיוטה רק לשיחות שבאמת ממתינות עכשיו למענה — אותה רשימה כמו לוח הבקרה. שום דבר לא נשלח ולא מוצג ללקוח.</div>
-      <div class="btnRow" style="margin-top:2px">
-        <button class="btn ghost small" id="historyBtn" type="button">הרצה על היסטוריה (לבדיקות)</button>
-      </div>
-    </div>
-    <div class="topActions" id="staffActions" style="display:none">
-      <button class="btn ghost" id="refreshBtn2" type="button">רענון ↻</button>
-    </div>
+  <div class="toolRow" id="toolRow" style="display:none">
+    <button type="button" id="reconcileBtn">בדוק מה נשלח בפועל</button>
+    <button type="button" id="historyRunBtn">הרצה על היסטוריה (לבדיקות)</button>
+    <button type="button" id="refreshBtn">רענון ↻</button>
+  </div>
+  <div class="toolRow" id="toolRowStaff" style="display:none">
+    <button type="button" id="refreshBtn2">רענון ↻</button>
   </div>
 
-  <div class="tabRow" id="tabRow" style="display:none">
-    <button class="tab on" data-t="draft" type="button">יש טיוטה<span class="n" id="cntDraft"></span></button>
-    <button class="tab" data-t="nodraft" type="button">ממתינות — אין טיוטה<span class="n" id="cntNoDraft"></span></button>
-    <button class="tab" data-t="history" type="button">היסטוריה<span class="n" id="cntHistory"></span></button>
+  <div class="header">
+    <div class="titleBlock">
+      <h1>WhatsApp תשובות</h1>
+      <div class="subtitle" id="meta">טוען…</div>
+    </div>
+    <div class="tabRow" id="tabRow" style="display:none">
+      <button class="tab on" data-t="ready" type="button">לאישור<span class="n" id="cntReady"></span></button>
+      <button class="tab" data-t="waiting" type="button">ממתין<span class="n" id="cntWaiting"></span></button>
+      <button class="tab" data-t="history" type="button">היסטוריה<span class="n" id="cntHistory"></span></button>
+    </div>
   </div>
 
   <div class="cards" id="cards"></div>
-  <div class="foot" id="foot"></div>
+
+  <div class="bottomRow" id="bottomRow" style="display:none">
+    <button class="btnGhost" id="queueBtn" type="button">הכן טיוטות לשיחות ממתינות</button>
+  </div>
 </div>
 
 <script>
 function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e;}
 function esc(s){return String(s==null?'':s);}
-function fmtWhen(iso){
+
+function fmtMsgTime(iso){
   if(!iso) return '';
   try{
     var d=new Date(iso);
-    return d.toLocaleString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    return d.toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit'})+', '+d.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});
   }catch(e){ return ''; }
 }
-var QUEUE_STATUS_MAP={ required:['🔴 ממתין למענה','required'], potential:['🟡 אולי דורש מענה','potential'], voice:['🎤 הודעה קולית','voice'], pending:['⏳ בבדיקה','pending'] };
-var activeTab='draft'; // 'draft' | 'nodraft' | 'history'
+// Relative "when" for a ready draft's card (mirrors the design's "מאתמול").
+function relativeWhen(iso){
+  if(!iso) return '';
+  try{
+    var d=new Date(iso), now=new Date();
+    var startOfDay=function(x){ return new Date(x.getFullYear(),x.getMonth(),x.getDate()); };
+    var days=Math.round((startOfDay(now)-startOfDay(d))/86400000);
+    if(days<=0) return 'היום';
+    if(days===1) return 'מאתמול';
+    if(days<7) return 'לפני '+days+' ימים';
+    return d.toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit'});
+  }catch(e){ return ''; }
+}
+
+var activeTab='ready'; // 'ready' | 'waiting' | 'history'
 var lastData=null;
 
 /* ------------------------------------------------------------ sign-in --- */
@@ -171,19 +191,52 @@ function showSignInLink(){
 function clearAuthBounce(){ try{ sessionStorage.removeItem(TRIED_KEY); }catch(e){} }
 
 /* --------------------------------------------------------------- cards --- */
-function badgeClass(o){ return ['draft','blocked','escalate','error'].indexOf(o)!==-1 ? o : (o==='dropped'?'dropped':'silence'); }
+// Three states, three badges — matches the design exactly:
+//   ready   -> outcome 'draft' (validated, nothing pending) -> green "טיוטה מוכנה"
+//   review  -> has draft text but needs a human eye first: 'blocked' (failed
+//              validation) or 'escalate' with a suggested draft -> gold badge,
+//              same tab as 'ready' (it has content to review), with a warning.
+//   human   -> queued, genuinely nothing to copy yet -> gold "דורש טיפול אנושי",
+//              dashed reason box + "כתוב טיוטה בכל זאת".
+function badgeFor(d){
+  if(d.outcome==='draft') return {cls:'ready', text:'טיוטה מוכנה'};
+  if(d.outcome==='blocked') return {cls:'blocked', text:'נחסם אוטומטית — לבדיקה'};
+  if(d.draftText) return {cls:'human', text:'טיוטה לבדיקה — הועבר לאדם'};
+  return {cls:'human', text:'דורש טיפול אנושי'};
+}
+
+function regenerate(chatJid, btn, force){
+  var orig=btn.textContent;
+  btn.disabled=true; btn.textContent='מריץ…';
+  var qs='chatJid='+encodeURIComponent(chatJid)+'&limit=1'+(force?'&force=true':'');
+  fetch('/api/admin/wa-review/queue?'+qs,{method:'POST',credentials:'same-origin'})
+    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+    .then(function(res){
+      if(!res.ok){ btn.disabled=false; btn.textContent=orig; alert('נכשל: '+((res.j&&res.j.error)||'שגיאה')); return; }
+      load();
+    })
+    .catch(function(){ btn.disabled=false; btn.textContent=orig; alert('נכשל להריץ.'); });
+}
 
 function renderCard(d){
-  var c=el('div','card');
+  var card=el('div','card');
 
+  /* ---- header band ---- */
   var head=el('div','chead');
-  var left=el('div');
-  left.appendChild(el('div','chatName',d.chatLabel||d.chatJid||'—'));
-  if(d.clientName) left.appendChild(el('div','clientName',d.clientName));
-  if(d.responsibleName) left.appendChild(el('div','respName','אחראי/ת: '+d.responsibleName));
-  head.appendChild(left);
-  head.appendChild(el('div','cmeta',fmtWhen(d.createdAt)));
-  c.appendChild(head);
+  var bf=badgeFor(d);
+  head.appendChild(el('span','badge '+bf.cls,bf.text));
+  var right=el('div','right');
+  right.appendChild(el('div','dealName',d.chatLabel||d.chatJid||'—'));
+  var metaBits=[];
+  if(d.clientName) metaBits.push(d.clientName);
+  if(d.responsibleName) metaBits.push(d.responsibleName);
+  if(d.draftText) metaBits.push(relativeWhen(d.createdAt));
+  else if(d.waitedLabel) metaBits.push('ממתין '+d.waitedLabel);
+  right.appendChild(el('div','metaLine',metaBits.filter(Boolean).join(' · ')));
+  head.appendChild(right);
+  card.appendChild(head);
+
+  var body=el('div','cbody');
 
   if(!d.dealLinked && d.chatJid && d.chatJid.indexOf('@g.us')!==-1){
     var gid=d.chatJid.replace(/\D/g,'');
@@ -193,49 +246,63 @@ function renderCard(d){
     cb.type='button';
     cb.addEventListener('click',function(){
       var done=function(){ cb.textContent='הועתק ✓'; setTimeout(function(){cb.textContent='העתק מזהה קבוצה';},1600); };
-      if(navigator.clipboard && navigator.clipboard.writeText){
-        navigator.clipboard.writeText(gid).then(done).catch(done);
-      } else { done(); }
+      if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(gid).then(done).catch(done); }
+      else { done(); }
     });
     lh.appendChild(cb);
-    c.appendChild(lh);
+    body.appendChild(lh);
   }
 
-  if(d.isQueued){
-    var qm=QUEUE_STATUS_MAP[d.status]||['⏳ בבדיקה','pending'];
-    var qrow=el('div','qrow');
-    qrow.appendChild(el('span','qbadge '+qm[1],qm[0]));
-    if(d.waitedLabel) qrow.appendChild(el('span','qwait','ממתין '+d.waitedLabel));
-    c.appendChild(qrow);
-  }
-
-  var badge=el('span','badge '+badgeClass(d.outcome),d.outcomeLabel||d.outcome);
-  c.appendChild(badge);
-
+  /* ---- client message ---- */
   if(d.messageText){
-    var q=el('div','quote');
-    q.appendChild(el('div','quoteLbl','ההודעה מהלקוח'));
-    var qt=el('div');qt.textContent=d.messageText;q.appendChild(qt);
-    c.appendChild(q);
+    var sec1=el('div','section');
+    sec1.appendChild(el('div','lbl',null));
+    sec1.lastChild.appendChild(document.createTextNode('הודעת הלקוח'));
+    var qbox=el('div','quoteBox');
+    var qt=el('div');qt.setAttribute('dir','auto');qt.textContent=d.messageText;qbox.appendChild(qt);
+    var qtime=fmtMsgTime(d.messageAt||d.createdAt);
+    if(qtime) qbox.appendChild(el('div','quoteTime',qtime));
+    sec1.appendChild(qbox);
+    body.appendChild(sec1);
   }
 
+  /* ---- caveat for an escalate-with-suggestion draft ---- */
   var reasonTxt=d.outcomeReasonLabel||d.outcomeReason||'';
-  // An 'escalate' row can still carry a draft — the pipeline composes a
-  // suggested starting point for tone/stakes escalations (frustration, dispute,
-  // a chat not yet linked to a deal...) even though a person must still handle
-  // it. Shown same as a normal draft, but with the escalation reason kept front
-  // and center as a caveat instead of quietly disappearing once text exists.
-  if(d.outcome==='escalate' && d.draftText) c.appendChild(el('div','noDraft','הועבר לאדם — '+(reasonTxt||'ללא סיבה מפורטת')+'. הטיוטה הבאה היא הצעה בלבד — יש לבדוק היטב לפני שימוש.'));
+  if(d.outcome==='escalate' && d.draftText){
+    body.appendChild(el('div','warnNote','הועבר לאדם — '+(reasonTxt||'ללא סיבה מפורטת')+'. הטיוטה הבאה היא הצעה בלבד — יש לבדוק היטב לפני שימוש.'));
+  } else if(d.outcome==='blocked'){
+    body.appendChild(el('div','warnNote','נחסם אוטומטית: '+(reasonTxt||'')+' — יש לבדוק ידנית לפני שימוש.'));
+  }
 
-  if(d.outcome==='draft' || d.draftText){
-    var box=el('div','draftBox');
+  /* ---- response: editable draft, or dashed "no draft yet" ---- */
+  var sec2=el('div','section');
+  var lbl2=el('div','lbl');
+  if(d.draftText){
+    var hint=el('span','hint','ניתן לעריכה');
+    lbl2.appendChild(hint);
+  } else {
+    lbl2.appendChild(el('span','hint',''));
+  }
+  lbl2.appendChild(document.createTextNode('התשובה שלך'));
+  sec2.appendChild(lbl2);
+
+  if(d.draftText){
     var ta=document.createElement('textarea');
-    ta.className='draftText';
-    ta.value=d.draftText||'';
-    box.appendChild(ta);
-    box.appendChild(el('div','draftHint','עריכה כאן משפיעה רק על מה שיועתק — לא נשמר.'));
-    var actions=el('div','draftActions');
-    var copyBtn=el('button','btn primary','העתק תשובה');
+    ta.className='draftBox';
+    ta.setAttribute('dir','auto');
+    ta.value=d.draftText;
+    sec2.appendChild(ta);
+
+    var foot=el('div','draftFoot');
+    var left=el('div','left');
+    var regenBtn=el('button','linkBtn','נסח מחדש');
+    regenBtn.type='button';
+    regenBtn.addEventListener('click',function(){ regenerate(d.chatJid, regenBtn, true); });
+    left.appendChild(regenBtn);
+    left.appendChild(el('span','hint','העריכה נכנסת לתוקף למה שיועתק'));
+    foot.appendChild(left);
+
+    var copyBtn=el('button','btnPrimary','העתק תשובה');
     copyBtn.type='button';
     copyBtn.addEventListener('click',function(){
       var text=ta.value;
@@ -244,45 +311,49 @@ function renderCard(d){
         navigator.clipboard.writeText(text).then(done).catch(function(){ ta.select(); document.execCommand('copy'); done(); });
       } else { ta.select(); document.execCommand('copy'); done(); }
     });
-    actions.appendChild(copyBtn);
-    if(d.answerBankCode) actions.appendChild(el('span','code',d.answerBankCode));
-    box.appendChild(actions);
-    c.appendChild(box);
-    if(d.outcome==='blocked') c.appendChild(el('div','noDraft','נחסם אוטומטית: '+(reasonTxt||'')+' — יש לבדוק ידנית לפני שליחה.'));
+    foot.appendChild(copyBtn);
+    sec2.appendChild(foot);
+    if(d.answerBankCode) sec2.appendChild(el('div','code',d.answerBankCode));
   } else {
     var reasonMap={
-      escalate:'הועבר לאדם — '+(reasonTxt||'ללא סיבה מפורטת'),
+      escalate:reasonTxt||'ללא סיבה מפורטת',
       error:'שגיאה בהרצה — '+reasonTxt,
       silence:'לא נדרש מענה מהסוכן'+(reasonTxt?' — '+reasonTxt:'.'),
       dropped:'סונן אוטומטית'+(reasonTxt?' — '+reasonTxt:' (תודה / אימוג׳י / הודעה לא רלוונטית).'),
     };
-    var note=el('div','noDraft'+(d.outcome==='silence'||d.outcome==='dropped'?' silent':''), reasonMap[d.outcome] || reasonTxt);
-    c.appendChild(note);
+    var row=el('div','noDraftRow');
+    row.appendChild(el('div','noDraftReason','לא נוצרה טיוטה — '+(reasonMap[d.outcome]||reasonTxt||'—')));
+    var writeBtn=el('button','btnGhost','כתוב טיוטה בכל זאת');
+    writeBtn.type='button';
+    writeBtn.addEventListener('click',function(){ regenerate(d.chatJid, writeBtn, true); });
+    row.appendChild(writeBtn);
+    sec2.appendChild(row);
   }
+  body.appendChild(sec2);
 
   if(d.referenceText){
-    var rw=el('div','refWrap');
-    var rq=el('div','quote');
-    rq.appendChild(el('div','quoteLbl','מה שנשלח בפועל בשיחה'));
-    var rt=el('div');rt.textContent=d.referenceText;rq.appendChild(rt);
+    var rw=el('div','refWrap section');
+    rw.appendChild(el('div','lbl',null));
+    rw.lastChild.appendChild(document.createTextNode('מה שנשלח בפועל בשיחה'));
+    var rq=el('div','quoteBox');
+    var rt=el('div');rt.setAttribute('dir','auto');rt.textContent=d.referenceText;rq.appendChild(rt);
     rw.appendChild(rq);
-    c.appendChild(rw);
+    body.appendChild(rw);
   }
 
-  return c;
+  card.appendChild(body);
+  return card;
 }
 
-// Three real tabs — only ONE group on screen at a time, never all three
-// stacked. 'draft' = ready to copy right now (a queued chat, OR an escalated
-// one that still got a suggested draft). 'nodraft' = queued, genuinely
-// nothing to copy yet, with the reason shown. 'history' = not on the live
-// board anymore (already answered) — reference only.
+// ready = has a draft to review (clean OR blocked OR escalate-with-suggestion)
+// waiting = queued, genuinely nothing to copy yet
+// history = not on the live board anymore
 function splitByTab(drafts){
   var queued=(drafts||[]).filter(function(d){ return !!d.isQueued; });
   var history=(drafts||[]).filter(function(d){ return !d.isQueued; });
   return {
-    draft: queued.filter(function(d){ return !!d.draftText; }),
-    nodraft: queued.filter(function(d){ return !d.draftText; }),
+    ready: queued.filter(function(d){ return !!d.draftText; }),
+    waiting: queued.filter(function(d){ return !d.draftText; }),
     history: history,
   };
 }
@@ -290,14 +361,18 @@ function splitByTab(drafts){
 function render(data){
   lastData=data;
   var admin=data.scope==='firm';
-  document.getElementById('meta').textContent=(admin?'כל המשרד':'שלי')+' · '+data.count+' סה"כ';
-  document.getElementById('adminActions').style.display=admin?'flex':'none';
-  document.getElementById('staffActions').style.display=admin?'none':'flex';
+  document.getElementById('meta').textContent=(function(){
+    var g=splitByTab(data.drafts||[]);
+    return g.ready.length+' טיוטות לאישור · '+g.waiting.length+' ממתינות';
+  })();
+  document.getElementById('toolRow').style.display=admin?'flex':'none';
+  document.getElementById('toolRowStaff').style.display=admin?'none':'flex';
+  document.getElementById('bottomRow').style.display=admin?'flex':'none';
   document.getElementById('tabRow').style.display='flex';
 
   var groups=splitByTab(data.drafts||[]);
-  document.getElementById('cntDraft').textContent=' ('+groups.draft.length+')';
-  document.getElementById('cntNoDraft').textContent=' ('+groups.nodraft.length+')';
+  document.getElementById('cntReady').textContent=' ('+groups.ready.length+')';
+  document.getElementById('cntWaiting').textContent=' ('+groups.waiting.length+')';
   document.getElementById('cntHistory').textContent=' ('+groups.history.length+')';
 
   var list=groups[activeTab]||[];
@@ -305,9 +380,9 @@ function render(data){
   cards.innerHTML='';
   if(!list.length){
     var msg;
-    if(activeTab==='draft'){
-      msg = admin ? 'אין כרגע טיוטות מוכנות. לחצו על "הכן טיוטות לשיחות שממתינות".' : 'אין כרגע תשובות מוכנות לכם.';
-    } else if(activeTab==='nodraft'){
+    if(activeTab==='ready'){
+      msg = admin ? 'אין כרגע טיוטות מוכנות. לחצו על "הכן טיוטות לשיחות ממתינות".' : 'אין כרגע תשובות מוכנות לכם.';
+    } else if(activeTab==='waiting'){
       msg = 'אין כרגע שיחות שממתינות בלי טיוטה — 👍';
     } else {
       msg = 'אין עדיין היסטוריה.';
@@ -341,12 +416,11 @@ function runAdmin(btn, path, note){
     .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
     .then(function(res){
       btn.disabled=false; btn.textContent=orig;
-      var n=document.getElementById('actionNote');
-      if(!res.ok){ n.textContent='נכשל: '+((res.j&&res.j.error)||'שגיאה'); return; }
-      n.textContent=note(res.j.result);
+      if(!res.ok){ alert('נכשל: '+((res.j&&res.j.error)||'שגיאה')); return; }
+      if(note) alert(note(res.j.result));
       load();
     })
-    .catch(function(){ btn.disabled=false; btn.textContent=orig; document.getElementById('actionNote').textContent='נכשל להריץ.'; });
+    .catch(function(){ btn.disabled=false; btn.textContent=orig; alert('נכשל להריץ.'); });
 }
 
 document.getElementById('queueBtn').addEventListener('click',function(){
@@ -358,7 +432,7 @@ document.getElementById('queueBtn').addEventListener('click',function(){
     return r.queued+' שיחות ממתינות כרגע · נוצרו '+r.ran+' טיוטות חדשות'+(extra.length?' ('+extra.join(', ')+')':'')+'.';
   });
 });
-document.getElementById('historyBtn').addEventListener('click',function(){
+document.getElementById('historyRunBtn').addEventListener('click',function(){
   runAdmin(this,'/api/admin/wa-review/replay?days=14&limit=50',function(r){
     if(!r) return 'הסתיים.';
     var extra=[];

@@ -53,6 +53,8 @@
   .state a{color:var(--info);}
 
   .cards{display:flex;flex-direction:column;gap:12px;margin-top:14px;}
+  .sectionHead{font-size:12.5px;font-weight:bold;color:var(--muted);margin:18px 2px 2px;padding-top:10px;border-top:1px solid var(--line);}
+  .sectionHead:first-child{margin-top:4px;padding-top:0;border-top:0;}
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 17px 15px;}
   .chead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;}
   .chatName{font-size:14.5px;font-weight:bold;}
@@ -249,6 +251,14 @@ function renderCard(d){
   return c;
 }
 
+function sectionHeader(text,count){ return el('div','sectionHead',text+' ('+count+')'); }
+
+// Grouped by the one thing that actually matters when you open this page: is
+// there something ready to copy, or not. The outcome enum (draft / blocked /
+// escalate / silence / dropped / error) still shows on each card for detail,
+// but it is no longer what decides where a card sits — an escalated message
+// that DOES have a suggested draft belongs with the other drafts, not buried
+// next to messages that have nothing at all.
 function render(data){
   lastData=data;
   var admin=data.scope==='firm';
@@ -273,7 +283,24 @@ function render(data){
     cards.appendChild(el('div','state',msg));
     return;
   }
-  list.forEach(function(d){ cards.appendChild(renderCard(d)); });
+
+  var queued=list.filter(function(d){ return !!d.isQueued; });
+  var history=list.filter(function(d){ return !d.isQueued; });
+  var withDraft=queued.filter(function(d){ return !!d.draftText; });
+  var noDraft=queued.filter(function(d){ return !d.draftText; });
+
+  if(withDraft.length){
+    cards.appendChild(sectionHeader('יש טיוטה — מוכן להעתקה',withDraft.length));
+    withDraft.forEach(function(d){ cards.appendChild(renderCard(d)); });
+  }
+  if(noDraft.length){
+    cards.appendChild(sectionHeader('ממתינות למענה — עדיין אין טיוטה',noDraft.length));
+    noDraft.forEach(function(d){ cards.appendChild(renderCard(d)); });
+  }
+  if(history.length){
+    cards.appendChild(sectionHeader('היסטוריה — כבר נענו',history.length));
+    history.forEach(function(d){ cards.appendChild(renderCard(d)); });
+  }
 }
 
 function load(){

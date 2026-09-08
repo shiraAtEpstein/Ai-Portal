@@ -35,7 +35,7 @@
   }
   *{box-sizing:border-box;}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);direction:rtl;}
-  .wrap{max-width:984px;margin:0 auto;padding:36px 22px 90px;}
+  .wrap{max-width:1320px;margin:0 auto;padding:36px 22px 90px;}
 
   .toolRow{display:flex;justify-content:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:10px;}
   .toolRow button{border:0;background:none;color:var(--mutedLight);font:12px var(--sans);cursor:pointer;padding:2px 0;}
@@ -47,11 +47,15 @@
   h1{font-family:var(--serif);font-weight:400;font-size:27px;margin:0;color:var(--ink);}
   .subtitle{font-size:14px;color:var(--muted);margin-top:6px;}
 
-  .tabRow{display:flex;gap:22px;align-items:baseline;}
+  .tabRow{display:flex;gap:16px;align-items:center;flex-wrap:wrap;}
   .tab{border:0;background:none;font:600 14.5px var(--sans);color:var(--mutedLight);cursor:pointer;padding-bottom:2px;border-bottom:1px solid transparent;font-weight:400;}
   .tab.on{color:var(--ink);font-weight:600;border-bottom:1px solid var(--gold);}
 
-  .cards{display:flex;flex-direction:column;gap:24px;}
+  .searchBox{border:1px solid var(--border);background:#FFFDF8;border-radius:20px;padding:8px 16px;font:14px var(--sans);color:var(--ink);min-width:220px;direction:rtl;}
+  .searchBox:focus{outline:none;border-color:var(--gold);}
+  .searchBox::placeholder{color:var(--mutedLight);}
+
+  .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:24px;align-items:start;}
   .card{background:var(--cardBody);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
   .chead{background:var(--cardHead);padding:14px 20px;display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;}
   .badge{display:inline-flex;align-items:center;border:1px solid var(--border);background:#FFFDF8;border-radius:20px;padding:4px 12px;font:600 12.5px var(--sans);white-space:nowrap;}
@@ -110,9 +114,13 @@
 
   .bottomRow{display:flex;justify-content:flex-start;margin-top:8px;}
 
+  @media (max-width: 900px){
+    .cards{grid-template-columns:1fr;}
+  }
   @media (max-width: 640px){
     .header{flex-direction:column;align-items:flex-start;}
     .titleBlock{text-align:right;width:100%;}
+    .searchBox{min-width:0;width:100%;}
   }
 </style>
 </head>
@@ -134,6 +142,7 @@
     <div class="tabRow" id="tabRow" style="display:none">
       <button class="tab on" data-t="ready" type="button">לאישור<span class="n" id="cntReady"></span></button>
       <button class="tab" data-t="waiting" type="button">ממתין<span class="n" id="cntWaiting"></span></button>
+      <input type="search" id="searchBox" class="searchBox" placeholder="חיפוש לפי שם שיחה" autocomplete="off">
     </div>
   </div>
 
@@ -171,6 +180,7 @@ function relativeWhen(iso){
 
 var activeTab='ready'; // 'ready' | 'waiting'
 var lastData=null;
+var searchQuery='';
 
 /* ------------------------------------------------------------ sign-in --- */
 var TRIED_KEY='waReviewAuthBounce';
@@ -378,11 +388,19 @@ function render(data){
   document.getElementById('cntWaiting').textContent=' ('+groups.waiting.length+')';
 
   var list=groups[activeTab]||[];
+  if(searchQuery){
+    var q=searchQuery.toLowerCase();
+    list=list.filter(function(d){
+      return ((d.chatLabel||'')+' '+(d.clientName||'')).toLowerCase().indexOf(q)!==-1;
+    });
+  }
   var cards=document.getElementById('cards');
   cards.innerHTML='';
   if(!list.length){
     var msg;
-    if(activeTab==='ready'){
+    if(searchQuery){
+      msg = 'אין תוצאות התואמות לחיפוש.';
+    } else if(activeTab==='ready'){
       msg = admin ? 'אין כרגע טיוטות מוכנות. לחצו על "הכן טיוטות לשיחות ממתינות".' : 'אין כרגע תשובות מוכנות לכם.';
     } else {
       msg = 'אין כרגע שיחות שממתינות בלי טיוטה — 👍';
@@ -448,6 +466,14 @@ document.querySelectorAll('.tab').forEach(function(tab){
     if(lastData) render(lastData);
   });
 });
+
+var searchEl=document.getElementById('searchBox');
+if(searchEl){
+  searchEl.addEventListener('input',function(){
+    searchQuery=searchEl.value.trim();
+    if(lastData) render(lastData);
+  });
+}
 
 load();
 </script>

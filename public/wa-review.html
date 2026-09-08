@@ -35,7 +35,7 @@
   }
   *{box-sizing:border-box;}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);direction:rtl;}
-  .wrap{max-width:1320px;margin:0 auto;padding:36px 22px 90px;}
+  .wrap{max-width:1680px;margin:0 auto;padding:36px 22px 90px;}
 
   .toolRow{display:flex;justify-content:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:10px;}
   .toolRow button{border:0;background:none;color:var(--mutedLight);font:12px var(--sans);cursor:pointer;padding:2px 0;}
@@ -55,7 +55,7 @@
   .searchBox:focus{outline:none;border-color:var(--gold);}
   .searchBox::placeholder{color:var(--mutedLight);}
 
-  .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:24px;align-items:start;}
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;align-items:start;}
   .card{background:var(--cardBody);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
   .chead{background:var(--cardHead);padding:14px 20px;display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;}
   .badge{display:inline-flex;align-items:center;border:1px solid var(--border);background:#FFFDF8;border-radius:20px;padding:4px 12px;font:600 12.5px var(--sans);white-space:nowrap;}
@@ -79,10 +79,10 @@
      reference) so each one reads as a clearly separate block at a glance —
      as opposed to structural/decorative boxes (card shell, hint rows) which
      stay on the thin border. */
-  .quoteBox{background:var(--quoteBg);border:2px solid var(--borderStrong);border-radius:10px;padding:13px 15px;font-size:15px;line-height:1.55;color:var(--ink2);white-space:pre-wrap;}
+  .quoteBox{background:var(--quoteBg);border:2px solid var(--borderStrong);border-radius:10px;padding:13px 15px;font-size:15px;line-height:1.55;color:var(--ink2);white-space:pre-wrap;width:80%;min-height:120px;}
   .quoteTime{font-size:12px;color:var(--mutedLight);margin-top:8px;}
 
-  textarea.draftBox{width:100%;min-height:88px;resize:vertical;background:#FFFFFF;border:2px solid var(--borderStrong);border-radius:10px;padding:13px 15px;font:15px/1.55 var(--sans);color:var(--ink2);}
+  textarea.draftBox{width:80%;min-height:170px;resize:vertical;background:#FFFFFF;border:2px solid var(--borderStrong);border-radius:10px;padding:13px 15px;font:15px/1.55 var(--sans);color:var(--ink2);}
   textarea.draftBox:focus{outline:none;border-color:var(--gold);}
 
   .draftFoot{display:flex;justify-content:space-between;align-items:center;margin-top:10px;flex-wrap:wrap;gap:10px;}
@@ -114,6 +114,9 @@
 
   .bottomRow{display:flex;justify-content:flex-start;margin-top:8px;}
 
+  @media (max-width: 1300px){
+    .cards{grid-template-columns:repeat(2,1fr);}
+  }
   @media (max-width: 900px){
     .cards{grid-template-columns:1fr;}
   }

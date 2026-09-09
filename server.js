@@ -133,7 +133,8 @@ app.get('/healthz', async (req, res) => {
   try { database = await db.ping(); } catch (e) { database = false; }
   res.json({ ok: true, database });
 });
-
+//tasks
+app.use('/api/mytasks', require('./routes/mytasks'));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   let userCount = 0;

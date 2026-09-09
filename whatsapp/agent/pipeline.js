@@ -46,20 +46,22 @@ function staffNames() {
 const NO_DRAFT_ESCALATE_REASONS = new Set(['unreadable', 'injection_suspect', 'third_party_data']);
 const NO_DRAFT_ROUTE_ONLY_TYPES = new Set(['complaint', 'meta', 'unknown']);
 
-// Slots a type is allowed to ask for; anything else the classifier requested is dropped.
-const SLOTS_BY_TYPE = {
-  deal_fact: null,          // any
-  what_is_this: null,
-  // "any update?" / "מה קורה" — added 7 Sept alongside removing status_nudge
-  // from classify.js's ROUTE_ONLY_TYPES. waiting_on/last_firm_action come from
-  // LAWLY's own deals/deal_items (facts.js lawlyFacts), not monday.
-  status_nudge: ['waiting_on', 'last_firm_action', 'responsible_staff', 'next_payment_due', 'signing_date', 'delivery_date', 'client_display'],
-  scheduling: ['meeting_time', 'meeting_link', 'office_address', 'signing_date', 'responsible_staff', 'client_display'],
-  procedure: ['responsible_staff', 'client_display', 'next_payment_due', 'signing_date', 'delivery_date'],
-  confusion: ['responsible_staff', 'client_display'],
-  referral: ['responsible_staff', 'client_display', 'contact_person'],
-  handoff: ['responsible_staff', 'client_display'],
-};
+// Until 9 Sept, each classifier "type" (confusion, procedure, scheduling, ...)
+// could only ever ask for a small hand-picked list of slots (SLOTS_BY_TYPE) --
+// deal_fact and what_is_this were unrestricted, everything else was capped,
+// 'confusion' down to just responsible_staff/client_display. In practice this
+// meant a type label decided not just TONE but whether the agent was even
+// allowed to look at facts that would have answered the question: a real 30-day
+// sample showed 'confusion' escalating 12/12 times with zero successful drafts,
+// and 'status_nudge' 0/8 even after its slots were widened on 7 Sept, because
+// the type gate (or a still-missing fact) blocked it every time. Shira's call
+// (9 Sept): every type can now draw on whatever slots the CLASSIFIER itself
+// flagged as relevant to this specific message -- classify.js already limits
+// that to its own fixed, safe SLOTS vocabulary, and resolveFacts()/validate()
+// still guarantee nothing invented ever reaches a client. The type label still
+// drives escalation (NO_DRAFT_ROUTE_ONLY_TYPES above, classify.js's
+// escalate/route_only) -- this change only widens what facts a draft may be
+// grounded in, never when a human still has to review or handle it by hand.
 
 function versionsOf(skills) {
   const v = {};
@@ -123,8 +125,7 @@ async function runSteps(input, { skills, bank, opts, finish }) {
   }
 
   // 4. facts
-  const allowed = SLOTS_BY_TYPE[c.type];
-  const wanted = [...new Set((allowed ? c.slots.filter((s) => allowed.includes(s)) : c.slots).concat(['responsible_staff']))];
+  const wanted = [...new Set(c.slots.concat(['responsible_staff']))];
   let facts;
   if (opts.stubFacts) facts = opts.stubFacts(input, wanted);
   else facts = await resolveFacts({ dealId: input.dealId, slotsWanted: wanted, mondayBoardId: input.mondayBoardId, mondayItemId: input.mondayItemId, lang: c.lang, documentHint: c.note });
@@ -177,4 +178,4 @@ async function runSteps(input, { skills, bank, opts, finish }) {
   });
 }
 
-module.exports = { runMessage, SLOTS_BY_TYPE };
+module.exports = { runMessage };

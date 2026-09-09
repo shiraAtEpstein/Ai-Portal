@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>מוקד המשימות שלי — LAWLY</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@500;700&family=Assistant:wght@400;500;600;700;800&display=swap');
+
+  :root{
+    --bg:#f6f4ee; --surface:#ffffff; --surface-2:#fbf9f4;
+    --ink:#21232b; --ink-muted:#63667a; --ink-faint:#9497a6;
+    --border:#e6e2d6; --border-soft:#efece2;
+    --accent:#1f3a5f; --accent-ink:#ffffff; --accent-soft:#e7edf3; --accent-soft-ink:#1f3a5f;
+    --urgent:#a7371f; --urgent-soft:#fbeae4; --urgent-ink:#8a2c17;
+    --high:#8a5a12; --high-soft:#faf0dc; --high-ink:#734c0f;
+    --normal:#3d6485; --normal-soft:#e9f0f6; --normal-ink:#2f4f6b;
+    --low:#5f6a5a; --low-soft:#eef1ea; --low-ink:#4c5546;
+    --shadow: 0 1px 2px rgba(33,35,43,.04), 0 8px 24px -12px rgba(33,35,43,.14);
+    --radius: 14px;
+    --font-display:'Frank Ruhl Libre', 'Times New Roman', serif;
+    --font-body:'Assistant','Segoe UI',Arial,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--bg); color:var(--ink); font-family:var(--font-body); -webkit-font-smoothing:antialiased;}
+  @media (prefers-reduced-motion: reduce){ *{animation-duration:.001ms !important; transition-duration:.001ms !important;} }
+  button{font-family:inherit;}
+  button:focus-visible, input:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+
+  .app{max-width:900px;margin:0 auto;padding:22px 22px 60px;}
+  .topbar{display:flex; align-items:center; gap:18px; flex-wrap:wrap; padding-bottom:16px; margin-bottom:18px; border-bottom:1px solid var(--border);}
+  .brand{display:flex; align-items:baseline; gap:10px;}
+  .brand-mark{font-weight:800; font-size:12px; letter-spacing:.14em; color:var(--accent-soft-ink); background:var(--accent-soft); padding:4px 8px; border-radius:6px;}
+  .topbar h1{font-family:var(--font-display); font-weight:700; font-size:24px; margin:0;}
+  .topbar-meta{display:flex; align-items:center; gap:8px; color:var(--ink-muted); font-size:13.5px; margin-inline-end:auto;}
+  .live-dot{width:8px;height:8px;border-radius:50%;background:#3f9a5c;flex:none; box-shadow:0 0 0 3px rgba(63,154,92,.2);}
+  .topbar-actions{display:flex; align-items:center; gap:8px;}
+  .btn{display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border); background:var(--surface); color:var(--ink); border-radius:10px; padding:8px 13px; font-size:14px; font-weight:600; cursor:pointer; transition:background .15s, border-color .15s, transform .1s;}
+  .btn:hover{border-color:var(--accent);}
+  .btn:active{transform:translateY(1px);}
+  .btn-primary{background:var(--accent); color:var(--accent-ink); border-color:var(--accent);}
+  .btn svg{width:15px;height:15px;flex:none;}
+  .btn.is-loading svg{animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .summary-row{display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px;}
+  .stat{background:var(--surface); border:1px solid var(--border-soft); border-radius:var(--radius); padding:14px 16px; box-shadow:var(--shadow);}
+  .stat-num{font-family:var(--font-display); font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1;}
+  .stat-label{color:var(--ink-muted); font-size:12.5px; margin-top:6px; font-weight:600;}
+  .stat.is-urgent .stat-num{color:var(--urgent);}
+  @media (max-width:640px){ .summary-row{grid-template-columns:repeat(2,1fr);} }
+
+  .filters{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px;}
+  .chip{border:1px solid var(--border); background:var(--surface); color:var(--ink-muted); padding:6px 13px; border-radius:999px; font-size:13.5px; font-weight:600; cursor:pointer;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.is-active{background:var(--accent); border-color:var(--accent); color:var(--accent-ink);}
+  .chip .n{opacity:.75; font-variant-numeric:tabular-nums;}
+
+  .group{margin-bottom:22px;}
+  .group-head{display:flex; align-items:center; gap:10px; margin-bottom:10px; padding-inline-start:2px;}
+  .group-head h2{font-family:var(--font-display); font-size:16.5px; font-weight:700; margin:0;}
+  .group-head .count{font-size:12px; font-weight:700; color:var(--ink-muted); background:var(--surface-2); border:1px solid var(--border-soft); padding:1px 8px; border-radius:999px; font-variant-numeric:tabular-nums;}
+  .group-head.is-urgent h2{color:var(--urgent-ink);}
+  .card-stack{display:flex; flex-direction:column; gap:9px;}
+
+  .task{background:var(--surface); border:1px solid var(--border-soft); border-radius:12px; box-shadow:var(--shadow); border-inline-start:4px solid var(--normal); padding:12px 14px; display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:start;}
+  .task[data-eff="urgent"]{border-inline-start-color:var(--urgent);}
+  .task[data-eff="high"]{border-inline-start-color:var(--high);}
+  .task[data-eff="normal"]{border-inline-start-color:var(--normal);}
+  .task[data-eff="low"]{border-inline-start-color:var(--low);}
+  .task.is-done{opacity:.55;}
+  .task.is-done .task-title{text-decoration:line-through; text-decoration-color:var(--ink-faint);}
+  .task-check{width:21px;height:21px; border-radius:6px; border:1.6px solid var(--ink-faint); background:var(--surface); cursor:pointer; margin-top:2px; flex:none; display:flex; align-items:center; justify-content:center; padding:0;}
+  .task-check svg{width:13px;height:13px; opacity:0; stroke:var(--accent-ink);}
+  .task.is-done .task-check{background:var(--accent); border-color:var(--accent);}
+  .task.is-done .task-check svg{opacity:1;}
+  .task-main{min-width:0;}
+  .task-toprow{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:3px;}
+  .src{display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:700; color:var(--ink-muted);}
+  .src svg{width:13px;height:13px;}
+  .src.is-lawly{color:#1f8a5f;}
+  .task-title{font-weight:700; font-size:15px; line-height:1.35; margin:0;}
+  .task-summary{color:var(--ink-muted); font-size:13.5px; line-height:1.5; margin:3px 0 0;}
+  .task-editrow{display:flex; gap:8px; margin-top:7px; flex-wrap:wrap;}
+  .task-editrow input[type=text], .task-editrow input[type=number]{font-family:inherit; font-size:13.5px; border:1px solid var(--border); border-radius:7px; padding:5px 8px; background:var(--surface-2); color:var(--ink);}
+  .task-editrow input[type=text]{flex:1; min-width:160px;}
+  .task-editrow input[type=number]{width:64px;}
+  .task-metarow{display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap;}
+  .est{font-size:12.5px; color:var(--ink-muted); font-weight:600; display:inline-flex; align-items:center; gap:4px; font-variant-numeric:tabular-nums;}
+  .est svg{width:12px;height:12px;}
+  .age{font-size:12.5px; font-weight:600; display:inline-flex; align-items:center; gap:4px;}
+  .age.is-warm{color:var(--high);} .age.is-hot{color:var(--urgent);}
+  .age svg{width:12px;height:12px;}
+  .pill{font-size:11.5px; font-weight:800; letter-spacing:.02em; padding:3px 9px; border-radius:999px; border:1px solid transparent; cursor:pointer; display:inline-flex; align-items:center; gap:5px;}
+  .pill[data-p="urgent"]{background:var(--urgent-soft); color:var(--urgent-ink);}
+  .pill[data-p="high"]{background:var(--high-soft); color:var(--high-ink);}
+  .pill[data-p="normal"]{background:var(--normal-soft); color:var(--normal-ink);}
+  .pill[data-p="low"]{background:var(--low-soft); color:var(--low-ink);}
+  .pill .esc{opacity:.8;}
+  .task-actions{display:flex; flex-direction:column; gap:6px; align-items:center;}
+  .iconbtn{width:28px;height:28px; border-radius:8px; border:1px solid transparent; background:transparent; color:var(--ink-faint); display:flex; align-items:center; justify-content:center; cursor:pointer;}
+  .iconbtn:hover{background:var(--surface-2); color:var(--ink); border-color:var(--border-soft);}
+  .iconbtn svg{width:15px;height:15px;}
+  .pmenu{position:relative;}
+  .pmenu-list{position:absolute; inset-inline-end:0; top:calc(100% + 4px); background:var(--surface); border:1px solid var(--border); border-radius:10px; box-shadow:var(--shadow); padding:5px; z-index:5; display:none; min-width:130px;}
+  .pmenu.is-open .pmenu-list{display:block;}
+  .pmenu-list button{display:flex; width:100%; align-items:center; gap:7px; padding:6px 8px; border-radius:7px; background:none; border:none; font-size:13px; font-weight:600; color:var(--ink); cursor:pointer; text-align:start;}
+  .pmenu-list button:hover{background:var(--surface-2);}
+  .dot{width:8px;height:8px;border-radius:50%;flex:none;}
+  .dot[data-p="urgent"]{background:var(--urgent);} .dot[data-p="high"]{background:var(--high);}
+  .dot[data-p="normal"]{background:var(--normal);} .dot[data-p="low"]{background:var(--low);}
+  .empty{color:var(--ink-faint); font-size:13.5px; padding:16px 4px;}
+  .error{color:var(--urgent-ink); background:var(--urgent-soft); border:1px solid var(--urgent); border-radius:10px; padding:10px 14px; font-size:13.5px; margin-bottom:14px;}
+  .done-toggle{background:none; border:none; color:var(--ink-muted); font-size:13px; font-weight:700; cursor:pointer; padding:6px 2px; display:flex; align-items:center; gap:6px;}
+  .done-toggle svg{width:13px;height:13px; transition:transform .15s;}
+  .done-toggle.is-open svg{transform:rotate(90deg);}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">LAWLY</span>
+      <h1 data-i18n="title">מוקד המשימות שלי</h1>
+    </div>
+    <div class="topbar-meta">
+      <span class="live-dot" aria-hidden="true"></span>
+      <span data-i18n="live">מתעדכן אוטומטית</span>
+      <span>·</span>
+      <span id="updatedAt" data-i18n="updated">—</span>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn" id="langToggle" type="button">EN</button>
+      <button class="btn btn-primary" id="refreshBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 4v6h-6"/></svg>
+        <span data-i18n="refresh">רענן</span>
+      </button>
+    </div>
+  </header>
+
+  <div id="errorBox"></div>
+  <div class="summary-row" id="summaryRow"></div>
+  <div class="filters" id="filters"></div>
+  <section id="taskList" aria-live="polite"></section>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var ICONS = {
+    email:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></svg>',
+    whatsapp:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.39 1.26 4.81L2 22l5.4-1.42a9.87 9.87 0 0 0 4.64 1.18h.01c5.46 0 9.9-4.45 9.9-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2Zm0 1.67c2.2 0 4.26.86 5.82 2.4a8.2 8.2 0 0 1 2.42 5.84c0 4.55-3.7 8.24-8.25 8.24a8.2 8.2 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.18 8.18 0 0 1-1.26-4.38c0-4.55 3.7-8.24 8.25-8.24Z"/></svg>',
+    monday:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 3v18M3 9h18M3 15h18"/></svg>',
+    manual:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.39 1.26 4.81L2 22l5.4-1.42a9.87 9.87 0 0 0 4.64 1.18h.01c5.46 0 9.9-4.45 9.9-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2Z"/></svg>'
+  };
+  var CLOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>';
+  var TIMER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 1.5M9 2h6"/></svg>';
+  var UP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 15 7-7 7 7"/></svg>';
+  var PENCIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+  var LINK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>';
+  var CHEV = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
+
+  var I18N = {
+    he:{
+      title:'מוקד המשימות שלי', live:'מתעדכן אוטומטית', refresh:'רענן', refreshing:'מרענן…',
+      statOpen:'משימות פתוחות', statUrgent:'דחופות', statTime:'זמן משוער היום', statDone:'הושלמו היום',
+      filterAll:'הכול', filterUrgent:'דחוף', filterEmail:'אימייל', filterWhatsapp:'וואטסאפ', filterMonday:'מאנדיי', filterManual:'LAWLY',
+      groupUrgent:'קריטי', groupHigh:'היום', groupLater:'בהמשך',
+      srcEmail:'אימייל', srcWhatsapp:'וואטסאפ — קבוצת עסקה', srcMonday:'מאנדיי', srcManual:'נשלח ל-LAWLY בוואטסאפ',
+      pUrgent:'דחוף', pHigh:'גבוה', pNormal:'רגיל', pLow:'נמוך',
+      escalated:'הועלה בגלל המתנה ארוכה',
+      min:'דק׳', doneList:'הושלמו היום', empty:'אין כאן משימות כרגע — כל הכבוד.',
+      save:'שמור', cancel:'בטל', edit:'ערוך', openSource:'פתח מקור',
+      errLoad:'שגיאה בטעינת המשימות', errRefresh:'הרענון נכשל, נסה שוב עוד רגע',
+      agoJust:'עכשיו', agoMin:'לפני {n} דק׳', agoHour:'לפני שעה', agoHours:'לפני {n} שעות', agoDay:'לפני יום', agoDays:'לפני {n} ימים'
+    },
+    en:{
+      title:"My Task Hub", live:'Live', refresh:'Refresh', refreshing:'Refreshing…',
+      statOpen:'Open tasks', statUrgent:'Urgent', statTime:'Est. time today', statDone:'Done today',
+      filterAll:'All', filterUrgent:'Urgent', filterEmail:'Email', filterWhatsapp:'WhatsApp', filterMonday:'monday', filterManual:'LAWLY',
+      groupUrgent:'Critical', groupHigh:'Today', groupLater:'Later',
+      srcEmail:'Email', srcWhatsapp:'WhatsApp — deal group', srcMonday:'monday.com', srcManual:'Sent to LAWLY on WhatsApp',
+      pUrgent:'Urgent', pHigh:'High', pNormal:'Normal', pLow:'Low',
+      escalated:'Escalated for waiting too long',
+      min:'min', doneList:'Done today', empty:'Nothing here right now — nice work.',
+      save:'Save', cancel:'Cancel', edit:'Edit', openSource:'Open source',
+      errLoad:'Could not load your tasks', errRefresh:'Refresh failed, try again in a bit',
+      agoJust:'just now', agoMin:'{n}m ago', agoHour:'1h ago', agoHours:'{n}h ago', agoDay:'1d ago', agoDays:'{n}d ago'
+    }
+  };
+
+  var state = { lang: 'he', filter: 'all', doneOpen: false, tasks: [], done: [] };
+  try {
+    var savedLang = localStorage.getItem('mytasks-lang');
+    if (savedLang === 'he' || savedLang === 'en') state.lang = savedLang;
+  } catch (e) { /* private mode etc. — default stands */ }
+
+  var PORDER = { urgent:0, high:1, normal:2, low:3 };
+
+  function t(key, vars){
+    var s = I18N[state.lang][key] || key;
+    if (vars) for (var k in vars) s = s.replace('{'+k+'}', vars[k]);
+    return s;
+  }
+  function cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
+  function escapeHtml(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; }
+  function escapeAttr(s){ return escapeHtml(s).replace(/"/g,'&quot;'); }
+
+  function ageLabel(iso){
+    var ms = Date.now() - new Date(iso).getTime();
+    var H = 3600*1000, D = 24*H;
+    if (ms < 5*60*1000) return t('agoJust');
+    if (ms < H) return t('agoMin',{n:Math.max(1,Math.round(ms/60000))});
+    if (ms < 2*H) return t('agoHour');
+    if (ms < D) return t('agoHours',{n:Math.round(ms/H)});
+    if (ms < 2*D) return t('agoDay');
+    return t('agoDays',{n:Math.round(ms/D)});
+  }
+  function ageRatio(task){
+    var THRESH = { whatsapp:24, email:48, monday:48, manual:72 }; // hours
+    var hrs = (Date.now() - new Date(task.first_seen_at).getTime()) / 3600000;
+    return hrs / (THRESH[task.source] || 72);
+  }
+
+  async function api(path, opts){
+    var res = await fetch('/api/mytasks' + path, Object.assign({
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin'
+    }, opts || {}));
+    if (!res.ok) {
+      var body = {}; try { body = await res.json(); } catch (e) {}
+      throw new Error(body.error || ('HTTP ' + res.status));
+    }
+    return res.json();
+  }
+
+  function showError(msg){
+    document.getElementById('errorBox').innerHTML = msg ? '<div class="error">'+escapeHtml(msg)+'</div>' : '';
+  }
+
+  async function loadTasks(){
+    try {
+      var data = await api('');
+      state.tasks = (data.tasks || []).filter(function(x){ return x.status === 'open'; });
+      state.done = (data.tasks || []).filter(function(x){ return x.status === 'done'; });
+      showError(null);
+      document.getElementById('updatedAt').textContent = t('agoJust');
+    } catch (e) {
+      showError(t('errLoad') + ': ' + e.message);
+    }
+    render();
+  }
+
+  function renderSummary(){
+    var open = state.tasks;
+    var urgent = open.filter(function(x){ return x.effective_priority === 'urgent'; });
+    var totalMin = open.reduce(function(a,x){ return a + (x.estimated_minutes||0); }, 0);
+    document.getElementById('summaryRow').innerHTML =
+      stat(open.length, t('statOpen')) +
+      stat(urgent.length, t('statUrgent'), true) +
+      stat(totalMin + ' ' + t('min'), t('statTime')) +
+      stat(state.done.length, t('statDone'));
+    function stat(n,label,isUrgent){
+      return '<div class="stat'+(isUrgent?' is-urgent':'')+'"><div class="stat-num">'+n+'</div><div class="stat-label">'+label+'</div></div>';
+    }
+  }
+
+  function renderFilters(){
+    var counts = { all:0, urgent:0, email:0, whatsapp:0, monday:0, manual:0 };
+    state.tasks.forEach(function(x){
+      counts.all++; counts[x.source] = (counts[x.source]||0)+1;
+      if (x.effective_priority === 'urgent') counts.urgent++;
+    });
+    var defs = [['all',t('filterAll')],['urgent',t('filterUrgent')],['email',t('filterEmail')],
+      ['whatsapp',t('filterWhatsapp')],['monday',t('filterMonday')],['manual',t('filterManual')]];
+    var el = document.getElementById('filters');
+    el.innerHTML = defs.map(function(d){
+      return '<button class="chip'+(state.filter===d[0]?' is-active':'')+'" data-filter="'+d[0]+'" type="button">'+
+        d[1]+' <span class="n">'+(counts[d[0]]||0)+'</span></button>';
+    }).join('');
+    Array.prototype.forEach.call(el.querySelectorAll('.chip'), function(btn){
+      btn.addEventListener('click', function(){ state.filter = btn.getAttribute('data-filter'); render(); });
+    });
+  }
+
+  function matchesFilter(task){
+    if (state.filter === 'all') return true;
+    if (state.filter === 'urgent') return task.effective_priority === 'urgent';
+    return task.source === state.filter;
+  }
+
+  function taskCard(task){
+    var eff = task.effective_priority;
+    var ratio = ageRatio(task);
+    var ageCls = ratio >= 1 ? 'is-hot' : (ratio >= 0.6 ? 'is-warm' : '');
+    var pillMenu = ['urgent','high','normal','low'].map(function(p){
+      return '<button data-set-priority="'+p+'" data-id="'+task.id+'"><span class="dot" data-p="'+p+'"></span>'+t('p'+cap(p))+'</button>';
+    }).join('');
+    var srcLabel = t('src'+cap(task.source));
+    var linkBtn = task.source_ref && task.source !== 'manual'
+      ? '<button class="iconbtn" data-open="'+task.id+'" title="'+t('openSource')+'">'+LINK+'</button>' : '';
+
+    return (
+      '<article class="task" data-id="'+task.id+'" data-eff="'+eff+'">'+
+        '<button class="task-check" data-toggle="'+task.id+'" aria-label="toggle"></button>'+
+        '<div class="task-main">'+
+          '<div class="task-toprow"><span class="src'+(task.source==='manual'?' is-lawly':'')+'">'+ICONS[task.source]+srcLabel+'</span></div>'+
+          '<div class="task-view" data-view="'+task.id+'">'+
+            '<p class="task-title">'+escapeHtml(task.title)+'</p>'+
+            (task.summary ? '<p class="task-summary">'+escapeHtml(task.summary)+'</p>' : '')+
+          '</div>'+
+          '<div class="task-editrow" data-edit="'+task.id+'" hidden>'+
+            '<input type="text" data-field="title" value="'+escapeAttr(task.title)+'"/>'+
+            '<input type="number" data-field="est" value="'+(task.estimated_minutes||15)+'" min="1" max="240"/>'+
+            '<button class="btn" data-save="'+task.id+'" type="button">'+t('save')+'</button>'+
+            '<button class="btn" data-cancel="'+task.id+'" type="button">'+t('cancel')+'</button>'+
+          '</div>'+
+          '<div class="task-metarow">'+
+            '<div class="pmenu" data-menu="'+task.id+'">'+
+              '<button class="pill" data-p="'+eff+'" data-open-menu="'+task.id+'" type="button">'+
+                (task.escalated ? '<span class="esc" title="'+t('escalated')+'">'+UP+'</span>' : '')+
+                t('p'+cap(eff))+
+              '</button>'+
+              '<div class="pmenu-list">'+pillMenu+'</div>'+
+            '</div>'+
+            '<span class="est">'+TIMER+' '+(task.estimated_minutes||'—')+' '+t('min')+'</span>'+
+            '<span class="age '+ageCls+'">'+CLOCK+' '+ageLabel(task.first_seen_at)+'</span>'+
+          '</div>'+
+        '</div>'+
+        '<div class="task-actions">'+
+          '<button class="iconbtn" data-editbtn="'+task.id+'" title="'+t('edit')+'">'+PENCIL+'</button>'+
+          linkBtn+
+        '</div>'+
+      '</article>'
+    );
+  }
+
+  function render(){
+    document.documentElement.lang = state.lang === 'he' ? 'he' : 'en';
+    document.documentElement.dir = state.lang === 'he' ? 'rtl' : 'ltr';
+    document.getElementById('langToggle').textContent = state.lang === 'he' ? 'EN' : 'עב';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-i18n]'), function(el){
+      el.textContent = t(el.getAttribute('data-i18n'));
+    });
+
+    renderSummary();
+    renderFilters();
+
+    var visible = state.tasks.filter(matchesFilter);
+    var groups = { urgent:[], high:[], later:[] };
+    visible.forEach(function(x){
+      if (x.effective_priority === 'urgent') groups.urgent.push(x);
+      else if (x.effective_priority === 'high') groups.high.push(x);
+      else groups.later.push(x);
+    });
+
+    var html = '';
+    if (!visible.length) {
+      html = '<p class="empty">'+t('empty')+'</p>';
+    } else {
+      if (groups.urgent.length) html += groupHtml('urgent', t('groupUrgent'), groups.urgent);
+      if (groups.high.length) html += groupHtml('high', t('groupHigh'), groups.high);
+      if (groups.later.length) html += groupHtml('later', t('groupLater'), groups.later);
+    }
+    if (state.done.length) {
+      html += '<button class="done-toggle'+(state.doneOpen?' is-open':'')+'" id="doneToggle" type="button">'+CHEV+' '+t('doneList')+' ('+state.done.length+')</button>';
+      if (state.doneOpen) {
+        html += '<div class="card-stack" style="margin-top:9px;">' + state.done.map(function(x){
+          return '<article class="task is-done" data-eff="'+x.priority+'"><button class="task-check" disabled></button>'+
+            '<div class="task-main"><div class="task-toprow"><span class="src">'+ICONS[x.source]+t('src'+cap(x.source))+'</span></div>'+
+            '<p class="task-title">'+escapeHtml(x.title)+'</p></div></article>';
+        }).join('') + '</div>';
+      }
+    }
+
+    document.getElementById('taskList').innerHTML = html;
+    wireList();
+
+    function groupHtml(key, label, items){
+      return '<div class="group"><div class="group-head'+(key==='urgent'?' is-urgent':'')+'"><h2>'+label+'</h2><span class="count">'+items.length+'</span></div>'+
+        '<div class="card-stack">'+items.map(taskCard).join('')+'</div></div>';
+    }
+  }
+
+  function wireList(){
+    var list = document.getElementById('taskList');
+    Array.prototype.forEach.call(list.querySelectorAll('[data-toggle]'), function(btn){
+      btn.addEventListener('click', async function(){
+        var id = btn.getAttribute('data-toggle');
+        try { await api('/'+id+'/toggle', { method:'POST' }); await loadTasks(); }
+        catch (e) { showError(e.message); }
+      });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-editbtn]'), function(btn){
+      btn.addEventListener('click', function(){
+        var id = btn.getAttribute('data-editbtn');
+        list.querySelector('[data-view="'+id+'"]').hidden = true;
+        list.querySelector('[data-edit="'+id+'"]').hidden = false;
+      });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-cancel]'), function(btn){
+      btn.addEventListener('click', function(){ render(); });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-save]'), function(btn){
+      btn.addEventListener('click', async function(){
+        var id = btn.getAttribute('data-save');
+        var row = list.querySelector('[data-edit="'+id+'"]');
+        var title = row.querySelector('[data-field="title"]').value.trim();
+        var est = parseInt(row.querySelector('[data-field="est"]').value, 10);
+        try {
+          await api('/'+id, { method:'PATCH', body: JSON.stringify({ title: title, estimated_minutes: est }) });
+          await loadTasks();
+        } catch (e) { showError(e.message); }
+      });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-open-menu]'), function(btn){
+      btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        var wrap = btn.closest('.pmenu');
+        var wasOpen = wrap.classList.contains('is-open');
+        Array.prototype.forEach.call(list.querySelectorAll('.pmenu.is-open'), function(m){ m.classList.remove('is-open'); });
+        if (!wasOpen) wrap.classList.add('is-open');
+      });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-set-priority]'), function(btn){
+      btn.addEventListener('click', async function(){
+        var id = btn.getAttribute('data-id');
+        var p = btn.getAttribute('data-set-priority');
+        try { await api('/'+id, { method:'PATCH', body: JSON.stringify({ priority: p }) }); await loadTasks(); }
+        catch (e) { showError(e.message); }
+      });
+    });
+    var doneToggle = document.getElementById('doneToggle');
+    if (doneToggle) doneToggle.addEventListener('click', function(){ state.doneOpen = !state.doneOpen; render(); });
+  }
+
+  document.addEventListener('click', function(){
+    Array.prototype.forEach.call(document.querySelectorAll('.pmenu.is-open'), function(m){ m.classList.remove('is-open'); });
+  });
+
+  document.getElementById('langToggle').addEventListener('click', function(){
+    state.lang = state.lang === 'he' ? 'en' : 'he';
+    try { localStorage.setItem('mytasks-lang', state.lang); } catch (e) {}
+    render();
+  });
+
+  document.getElementById('refreshBtn').addEventListener('click', async function(){
+    var btn = this;
+    btn.classList.add('is-loading');
+    btn.querySelector('span').textContent = t('refreshing');
+    try {
+      await api('/refresh', { method:'POST' });
+      await loadTasks();
+    } catch (e) {
+      showError(t('errRefresh') + ': ' + e.message);
+    } finally {
+      btn.classList.remove('is-loading');
+      btn.querySelector('span').textContent = t('refresh');
+    }
+  });
+
+  loadTasks();
+  setInterval(loadTasks, 45000);
+})();
+</script>
+</body>
+</html>

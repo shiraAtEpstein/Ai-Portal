@@ -82,7 +82,10 @@ function prettyReason(raw) {
 // entry — it still appears here (never hidden), just without a name or a
 // responsible person to match, so only an admin sees that particular row.
 async function boardMap() {
-  const board = await buildBoard();
+  // fresh:true — buildBoard() caches for ~45s; without this, the review
+  // screen's isQueued/status/waitedLabel/messageAt fields could be stale on
+  // top of the page's own refresh interval, compounding it.
+  const board = await buildBoard({ fresh: true });
   const map = new Map();
   for (const item of board.items || []) map.set(item.chatJid, item);
   return map;

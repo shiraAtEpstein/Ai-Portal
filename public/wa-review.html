@@ -479,6 +479,14 @@ if(searchEl){
 }
 
 load();
+
+// Auto-refresh: the screen used to only update on page load or a manual
+// button click, so a new client message (or a draft the live-trigger
+// generated in the background) could sit unseen until someone remembered to
+// refresh. Poll quietly in the background instead — render() already
+// rebuilds the cards from lastData using the current activeTab/searchQuery,
+// so this just keeps that data current without disturbing what's on screen.
+setInterval(load, 25000);
 </script>
 </body>
 </html>

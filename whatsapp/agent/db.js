@@ -85,13 +85,6 @@ async function ensureTables() {
     'classification JSONB', 'slots JSONB', 'answer_bank_code TEXT', 'skill_versions JSONB',
     'model_classify TEXT', 'model_compose TEXT', 'reference_text TEXT',
     'draft_text TEXT', 'facts_used JSONB', 'validation JSONB', 'tokens_in INT', 'tokens_out INT', 'deal_id TEXT',
-    // The conversation (incl. any prior staff reply) the pipeline actually saw
-    // when composing this draft -- so the review screen can show it. Added 9
-    // Sept alongside the client_category fix to unansweredBlockText(): a
-    // reviewer had no way to tell whether a draft already accounted for an
-    // earlier staff response, since only the client's own message was ever
-    // persisted.
-    'turns JSONB',
   ]) await p.query(`ALTER TABLE wa_drafts ADD COLUMN IF NOT EXISTS ${col};`);
   // The 1 Sept columns carry NOT NULL for a queue shape this pipeline does not use.
   // Relax every column except id / created_at so an offline/shadow row can be written.
@@ -171,15 +164,14 @@ async function insertDraft(d) {
   if (!p) return null;
   const r = await p.query(
     `INSERT INTO wa_drafts (mode, job_id, chat_jid, deal_id, message_text, outcome, outcome_reason, classification, slots,
-       answer_bank_code, draft_text, facts_used, validation, skill_versions, model_classify, model_compose, tokens_in, tokens_out, reference_text, turns)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id`,
+       answer_bank_code, draft_text, facts_used, validation, skill_versions, model_classify, model_compose, tokens_in, tokens_out, reference_text)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING id`,
     [d.mode, d.job_id ? String(d.job_id) : null, d.chat_jid || null, d.deal_id ? String(d.deal_id) : null, d.message_text, d.outcome, d.outcome_reason || null,
      // JSON columns are written as empty objects/arrays rather than NULL, so a legacy NOT NULL on any of them can never block a row.
      JSON.stringify(d.classification || {}), JSON.stringify(d.slots || {}),
      d.answer_bank_code || null, d.draft_text || null, JSON.stringify(d.facts_used || []),
      JSON.stringify(d.validation || {}), JSON.stringify(d.skill_versions || {}),
-     d.model_classify || null, d.model_compose || null, d.tokens_in || null, d.tokens_out || null, d.reference_text || null,
-     JSON.stringify(d.turns || [])]
+     d.model_classify || null, d.model_compose || null, d.tokens_in || null, d.tokens_out || null, d.reference_text || null]
   );
   return r.rows[0] && r.rows[0].id;
 }
@@ -238,7 +230,7 @@ async function listRecentDrafts({ limit = 300, sinceHours = null } = {}) {
   if (sinceHours) { params.push(Math.max(1, parseInt(sinceHours, 10))); since = `AND created_at > now() - make_interval(hours => $${params.length})`; }
   const r = await p.query(
     `SELECT id, mode, chat_jid, deal_id, message_text, outcome, outcome_reason, classification,
-            answer_bank_code, draft_text, facts_used, validation, reference_text, turns, created_at
+            answer_bank_code, draft_text, facts_used, validation, reference_text, created_at
      FROM wa_drafts
      WHERE mode IN ('shadow', 'review') ${since}
      ORDER BY created_at DESC

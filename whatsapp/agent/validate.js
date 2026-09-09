@@ -162,8 +162,17 @@ function validate({ text, factsUsed = [], slots = {}, entry = null, lang, turns 
   if (unknown.length) { reasons.push('unknown_name'); details.unknown_names = unknown; }
 
   // 5. language
+  // dl !== 'mixed' (9 Sept): langOf() calls a draft "mixed" once enough Latin
+  // characters show up, which a single embedded English proper noun (a staff
+  // name like "Shayna Kovan", "Zoom", a document term) can trip on its own in
+  // an otherwise all-Hebrew draft. The check already forgave a 'mixed' CLIENT
+  // language; it never forgave a 'mixed' DRAFT, so a correctly-Hebrew reply
+  // that happened to name a staff member in Latin script was blocked as a
+  // false-positive language_mismatch (found reviewing real blocked drafts). A
+  // genuine language swap (Hebrew client, an all-English draft) still has
+  // dl = 'he'/'en', not 'mixed', so it's still caught exactly as before.
   const dl = langOf(t);
-  if (lang && dl !== 'none' && lang !== 'mixed' && dl !== lang) { reasons.push('language_mismatch'); details.draft_lang = dl; }
+  if (lang && dl !== 'none' && dl !== 'mixed' && lang !== 'mixed' && dl !== lang) { reasons.push('language_mismatch'); details.draft_lang = dl; }
 
   // 6. length
   const words = t.split(/\s+/).filter(Boolean).length;

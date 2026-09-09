@@ -92,11 +92,23 @@ async function turnsBefore(p, chatJid, before) {
 // real unanswered question followed by a later, unrelated "Ty" (itself a pure
 // closer, needing nothing) had the agent draft against "Ty" alone -- reading
 // as "nothing to answer" when a genuine question was sitting right above it.
+//
+// client_category <> 'none' (9 Sept, Shira): the board (listUnansweredChats)
+// and the staff-response medians (lib/staff-metrics.js) both already exclude
+// messages the per-message triage (lib/message-classifier.js, backed by
+// lib/needs-reply.js) tagged 'none' -- a closer/acknowledgement/FYI that
+// doesn't need a reply, even a longer one ("No problem, we already have the
+// email drafted, we'll send it to them"). This function never applied that
+// filter, so a message the rest of the app already knows is settled still
+// got pulled into the block the agent drafts against, sitting right next to
+// a genuinely new question. Same fail-safe as everywhere else this triage is
+// used: NULL/not-yet-classified still counts as needing a reply -- only an
+// explicit 'none' is dropped.
 async function unansweredBlockText(p, chatJid, staffPhones) {
   const r = await p.query(
     `WITH staff AS (SELECT unnest($2::text[]) AS phone9),
      base AS (
-       SELECT direction, sender_phone, sender_staff_phone9, payload_encrypted,
+       SELECT direction, sender_phone, sender_staff_phone9, payload_encrypted, client_category,
               COALESCE(sent_at, created_at) AS eff_at
        FROM processing_jobs
        WHERE chat_jid = $1 AND deleted_at IS NULL
@@ -110,6 +122,7 @@ async function unansweredBlockText(p, chatJid, staffPhones) {
      WHERE b.direction = 'in' AND b.sender_staff_phone9 IS NULL
        AND (b.sender_phone IS NULL OR b.sender_phone NOT IN (SELECT phone9 FROM staff))
        AND (last_firm.at IS NULL OR b.eff_at > last_firm.at)
+       AND b.client_category IS DISTINCT FROM 'none'
      ORDER BY b.eff_at ASC
      LIMIT 25`,
     [chatJid, staffPhones, NON_MESSAGE_KINDS]

@@ -112,6 +112,20 @@
       <button class="admin-btn" id="whatsapp-open-btn" style="display:block;" onclick="location.href='/messages.html'">
         <span data-i18n="waWaiting">💬 Show WhatsApp</span><span id="whatsapp-count"></span>
       </button>
+      <!-- Every staff member's own Task Hub (public/mytasks.html) — email +
+           WhatsApp + monday + LAWLY-WhatsApp tasks in one prioritized list.
+           Not admin-gated, same reasoning as whatsapp-open-btn above: the page
+           is scoped to the signed-in person server-side, so display:block here
+           (not the default-hidden .admin-btn state) is intentional.
+           Placed directly above the synopsis button per Shira. NOTE: the
+           synopsis button itself isn't in this static markup — boot.js injects
+           it at runtime (see the comment above) — so double-check in the
+           browser that it still lands visually right below this one; if
+           boot.js inserts it some other way, this may need to move to wherever
+           boot.js actually anchors it. -->
+      <button class="admin-btn" id="mytasks-open-btn" style="display:block;" onclick="location.href='/mytasks.html'">
+        <span data-i18n="myTasksBtn">✅ My Tasks Today</span><span id="mytasks-count"></span>
+      </button>
       <button class="admin-btn gmail-btn" id="gmail-connect-btn">🔗 Connect Gmail</button>
       <button class="admin-btn" id="activity-open-btn" data-i18n="activityLog">📋 Activity Log</button>
      <!--   <button style="display:none" class="admin-btn" id="marketing-open-btn">📣 Marketing</button> -->

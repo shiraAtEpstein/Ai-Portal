@@ -1,4 +1,4 @@
-// ============================================================
+// ===========================================================
 // routes/daily.js — server-side state for the 'Today' panel.
 //
 // Per-user: the generated task list (cached per day), which tasks have been

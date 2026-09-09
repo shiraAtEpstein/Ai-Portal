@@ -13,7 +13,7 @@ let stubClassification = null;
 let stubDraft = null;
 classifyMod.classify = async () => (typeof stubClassification === 'function' ? stubClassification() : { classification: stubClassification, tripped: [], model: 'stub' });
 composeMod.compose = async () => Object.assign({ facts_used: [], abstain_reason: null, model: 'stub' }, stubDraft);
-const { runMessage, SLOTS_BY_TYPE } = require('../whatsapp/agent/pipeline');
+const { runMessage } = require('../whatsapp/agent/pipeline');
 
 const base = { direction: 'in', dealId: 'd1', isGroup: true };
 
@@ -125,7 +125,12 @@ test('pipeline: route-only, scheduling holes, procedure with entry, slot filteri
   stubClassification = cls({ type: 'procedure', slots: ['next_payment_due', 'balance'], faq_pick: 'AB-01' });
   stubDraft = { text: 'Hi, signing takes about an hour at our office. Yaakov will confirm the payment date.' };
   const proc = await run('How does signing work, and when is my payment?');
-  assert.ok(!wantedSeen.includes('balance'), 'a slot the type may not ask for is dropped before the resolver');
+  // 9 Sept: per-type slot whitelists are gone -- every slot the CLASSIFIER asked
+  // for reaches the resolver now, whatever the type. classify.js's own SLOTS set
+  // is still the only vocabulary it can pick from, and resolveFacts()/validate()
+  // still guarantee nothing invented reaches a client -- this only stops a type
+  // label from blinding compose to facts the classifier already said mattered.
+  assert.ok(wantedSeen.includes('balance'), 'every slot the classifier asked for reaches the resolver, regardless of type');
   assert.ok(wantedSeen.includes('responsible_staff'));
   assert.equal(proc.outcome, 'draft', 'a procedure question with an entry drafts without the deal fact');
 
@@ -144,6 +149,4 @@ test('pipeline: route-only, scheduling holes, procedure with entry, slot filteri
   stubClassification = () => { throw new Error('boom'); };
   const err = await run('hello there?');
   assert.equal(err.outcome, 'error', 'an exception is recorded, never thrown out of the worker');
-
-  assert.deepEqual(SLOTS_BY_TYPE.deal_fact, null);
 });

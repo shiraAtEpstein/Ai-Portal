@@ -187,11 +187,6 @@ module.exports = function createWaReviewRouter() {
           // history rows, where the board no longer has the chat.
           messageAt: (b && b.lastInboundAt) || r.created_at,
           messageText: r.message_text,
-          // The recent conversation (incl. any prior staff reply) the pipeline
-          // actually saw when composing this draft -- so a reviewer isn't
-          // judging the draft blind to context that was already there. Added
-          // 9 Sept alongside the client_category fix in replay-history.js.
-          turns: r.turns || [],
           outcome: r.outcome,
           outcomeLabel: OUTCOME_LABELS[r.outcome] || r.outcome,
           outcomeReason: r.outcome_reason,

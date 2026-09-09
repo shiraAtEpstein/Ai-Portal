@@ -202,7 +202,24 @@ module.exports = function createWaReviewRouter() {
       // below is untouched and still there for QA — it just has no button on
       // this screen anymore. Oldest wait first, same order the unanswered
       // board itself uses.
-      const queued = out.filter((x) => x.isQueued);
+      //
+      // ONE CARD PER CHAT (8 Sept, Shira): a chat gets a NEW wa_drafts row for
+      // every new unanswered client message (replay-history.js dedups by
+      // job_id, not by chat_jid — see its own comment on runQueueDrafts), so a
+      // chat with three unanswered messages in a row had three old rows, and
+      // every one of them has isQueued=true for as long as the chat stays
+      // open — all three showed up here as separate cards for the same chat.
+      // Collapsing to the single most recently created row per chat_jid fixes
+      // the display without touching how drafts are generated or deleting any
+      // history (older rows stay in wa_drafts for reconcile/audit, they just
+      // aren't shown here anymore once superseded).
+      const byChat = new Map();
+      for (const x of out) {
+        if (!x.isQueued) continue;
+        const prev = byChat.get(x.chatJid);
+        if (!prev || new Date(x.createdAt) > new Date(prev.createdAt)) byChat.set(x.chatJid, x);
+      }
+      const queued = [...byChat.values()];
       queued.sort((a, b2) => new Date(a.waitedSince || 0) - new Date(b2.waitedSince || 0));
       res.json({ scope: admin ? 'firm' : 'mine', me: myEmail, count: queued.length, queuedCount: queued.length, drafts: queued });
     } catch (e) {

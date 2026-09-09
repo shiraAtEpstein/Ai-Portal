@@ -269,27 +269,6 @@ function renderCard(d){
     body.appendChild(lh);
   }
 
-  /* ---- prior conversation (incl. any earlier staff reply) ----
-     Added 9 Sept: the card used to show ONLY the client's unanswered block,
-     with no way to see whether a staff member had already replied to
-     something earlier in the same conversation -- the reviewer was judging
-     the draft blind to context the model itself did see. */
-  if(d.turns && d.turns.length){
-    var sec0=el('div','section');
-    sec0.appendChild(el('div','lbl',null));
-    sec0.lastChild.appendChild(document.createTextNode('שיחה קודמת'));
-    var tbox=el('div','quoteBox');
-    d.turns.forEach(function(t){
-      var line=el('div');line.setAttribute('dir','auto');
-      var who=el('b',null,(t.who==='firm'?'המשרד: ':'הלקוח: '));
-      line.appendChild(who);
-      line.appendChild(document.createTextNode(t.text||''));
-      tbox.appendChild(line);
-    });
-    sec0.appendChild(tbox);
-    body.appendChild(sec0);
-  }
-
   /* ---- client message ---- */
   if(d.messageText){
     var sec1=el('div','section');

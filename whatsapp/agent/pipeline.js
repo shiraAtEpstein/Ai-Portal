@@ -74,6 +74,10 @@ async function runMessage(input, opts = {}) {
   const base = {
     mode, job_id: input.jobId, chat_jid: input.chatJid, deal_id: input.dealId, message_text: String(input.text || ''),
     skill_versions: versionsOf(skills), reference_text: input.referenceText || null,
+    // Persisted so the review screen can show the reviewer what conversation
+    // (including any prior staff reply) the model actually saw when it
+    // composed this draft -- see whatsapp/agent/db.js's insertDraft.
+    turns: input.turns || [],
   };
   const finish = async (row) => { const id = opts.dryRun ? null : await db.insertDraft(Object.assign({}, base, row)); return Object.assign({ id }, row); };
 

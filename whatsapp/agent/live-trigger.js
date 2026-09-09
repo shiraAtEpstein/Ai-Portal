@@ -29,7 +29,17 @@ function scheduleDraft(chatJid) {
 
   timers.set(chatJid, setTimeout(async () => {
     timers.delete(chatJid);
-    if (running.has(chatJid)) return; // a run is already in flight for this chat; the message that arrives next will reschedule
+    if (running.has(chatJid)) {
+      // A run is already in flight for this chat. Previously this just
+      // returned and relied on some LATER message to re-trigger a run — but
+      // if this happened to be the client's last message for now, nothing
+      // ever rescheduled and it was silently never drafted for. Reschedule
+      // ourselves instead so it's retried after the in-flight run clears.
+      // Cheap even when it turns out not to be needed: runQueueDrafts()
+      // already no-ops on a message that's already been drafted.
+      scheduleDraft(chatJid);
+      return;
+    }
     running.add(chatJid);
     try {
       // Lazy require: this file is loaded from provider.js (the Baileys

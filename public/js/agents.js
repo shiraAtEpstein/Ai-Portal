@@ -153,7 +153,8 @@ async function openConversation(id, btn) {
   } catch (err) { console.error('open conversation failed:', err); }
 }
 
-document.getElementById('new-chat-btn').addEventListener('click', newChat);
+var __newChatBtn = document.getElementById('new-chat-btn');
+if (__newChatBtn) __newChatBtn.addEventListener('click', newChat);
 const agentColors = {
   copywriter: '#C9A227', researcher: '#1A8754', paralegal: '#185FA5',
   document_review: '#7F77DD', legal_research: '#1A2744', client_intake: '#D4537E', default: '#1A2744',

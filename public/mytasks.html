@@ -50,6 +50,14 @@
   .stat.is-urgent .stat-num{color:var(--urgent);}
   @media (max-width:640px){ .summary-row{grid-template-columns:repeat(2,1fr);} }
 
+  .searchbox{position:relative; margin-bottom:12px;}
+  .searchbox .s-icon{position:absolute; inset-inline-start:12px; top:50%; transform:translateY(-50%); width:15px; height:15px; color:var(--ink-faint); pointer-events:none;}
+  .searchbox input{width:100%; box-sizing:border-box; border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:9px 36px; font:inherit; font-size:14px; color:var(--ink); box-shadow:var(--shadow);}
+  .searchbox input:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
+  .searchbox input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none; appearance:none;}
+  .searchbox .s-clear{position:absolute; inset-inline-end:6px; top:50%; transform:translateY(-50%); border:none; background:none; color:var(--ink-faint); font-size:17px; line-height:1; cursor:pointer; width:24px; height:24px; border-radius:7px; display:flex; align-items:center; justify-content:center;}
+  .searchbox .s-clear:hover{background:var(--surface-2); color:var(--ink);}
+
   .filters{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px;}
   .chip{border:1px solid var(--border); background:var(--surface); color:var(--ink-muted); padding:6px 13px; border-radius:999px; font-size:13.5px; font-weight:600; cursor:pointer;}
   .chip:hover{border-color:var(--accent);}
@@ -57,7 +65,10 @@
   .chip .n{opacity:.75; font-variant-numeric:tabular-nums;}
 
   .group{margin-bottom:22px;}
-  .group-head{display:flex; align-items:center; gap:10px; margin-bottom:10px; padding-inline-start:2px;}
+  .group-head{display:flex; align-items:center; gap:8px; margin-bottom:10px; padding:4px 2px; width:100%; background:none; border:none; cursor:pointer; text-align:start; font:inherit;}
+  .group-head .grp-chev{display:inline-flex; flex:none; color:var(--ink-faint); transition:transform .15s;}
+  .group-head .grp-chev svg{width:13px;height:13px; display:block;}
+  .group-head.is-open .grp-chev{transform:rotate(90deg);}
   .group-head h2{font-family:var(--font-display); font-size:16.5px; font-weight:700; margin:0;}
   .group-head .count{font-size:12px; font-weight:700; color:var(--ink-muted); background:var(--surface-2); border:1px solid var(--border-soft); padding:1px 8px; border-radius:999px; font-variant-numeric:tabular-nums;}
   .group-head.is-urgent h2{color:var(--urgent-ink);}
@@ -98,7 +109,7 @@
   .pill[data-p="low"]{background:var(--low-soft); color:var(--low-ink);}
   .pill .esc{opacity:.8;}
   .task-actions{display:flex; flex-direction:column; gap:6px; align-items:center;}
-  .iconbtn{width:28px;height:28px; border-radius:8px; border:1px solid transparent; background:transparent; color:var(--ink-faint); display:flex; align-items:center; justify-content:center; cursor:pointer;}
+  .iconbtn{width:28px;height:28px; border-radius:8px; border:1px solid transparent; background:transparent; color:var(--ink-faint); display:flex; align-items:center; justify-content:center; cursor:pointer; text-decoration:none;}
   .iconbtn:hover{background:var(--surface-2); color:var(--ink); border-color:var(--border-soft);}
   .iconbtn svg{width:15px;height:15px;}
   .pmenu{position:relative;}
@@ -140,6 +151,11 @@
 
   <div id="errorBox"></div>
   <div class="summary-row" id="summaryRow"></div>
+  <div class="searchbox">
+    <svg class="s-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+    <input type="search" id="searchInput" autocomplete="off"/>
+    <button type="button" id="searchClear" class="s-clear" hidden aria-label="clear">×</button>
+  </div>
   <div class="filters" id="filters"></div>
   <section id="taskList" aria-live="polite"></section>
 </div>
@@ -171,6 +187,7 @@
       escalated:'הועלה בגלל המתנה ארוכה',
       min:'דק׳', doneList:'הושלמו היום', empty:'אין כאן משימות כרגע — כל הכבוד.',
       save:'שמור', cancel:'בטל', edit:'ערוך', openSource:'פתח מקור',
+      search:'חיפוש משימות…', noResults:'אין משימות שתואמות לחיפוש',
       errLoad:'שגיאה בטעינת המשימות', errRefresh:'הרענון נכשל, נסה שוב עוד רגע',
       agoJust:'עכשיו', agoMin:'לפני {n} דק׳', agoHour:'לפני שעה', agoHours:'לפני {n} שעות', agoDay:'לפני יום', agoDays:'לפני {n} ימים'
     },
@@ -184,12 +201,13 @@
       escalated:'Escalated for waiting too long',
       min:'min', doneList:'Done today', empty:'Nothing here right now — nice work.',
       save:'Save', cancel:'Cancel', edit:'Edit', openSource:'Open source',
+      search:'Search tasks…', noResults:'No tasks match your search',
       errLoad:'Could not load your tasks', errRefresh:'Refresh failed, try again in a bit',
       agoJust:'just now', agoMin:'{n}m ago', agoHour:'1h ago', agoHours:'{n}h ago', agoDay:'1d ago', agoDays:'{n}d ago'
     }
   };
 
-  var state = { lang: 'he', filter: 'all', doneOpen: false, tasks: [], done: [] };
+  var state = { lang: 'he', filter: 'all', doneOpen: false, tasks: [], done: [], search: '', collapsed: {} };
   try {
     var savedLang = localStorage.getItem('mytasks-lang');
     if (savedLang === 'he' || savedLang === 'en') state.lang = savedLang;
@@ -289,6 +307,30 @@
     return task.source === state.filter;
   }
 
+  function matchesSearch(task){
+    var q = state.search.trim().toLowerCase();
+    if (!q) return true;
+    return (task.title || '').toLowerCase().indexOf(q) !== -1 ||
+      (task.summary || '').toLowerCase().indexOf(q) !== -1;
+  }
+
+  // Where the card's "open" button (email/WhatsApp icon) should point.
+  // Prefers the link the server already computed and stored (lib/task-hub.js
+  // — mail.google.com deep link for email, wa.me / group invite link for
+  // WhatsApp). Falls back to deriving it from source_ref client-side for
+  // rows created before that column existed, so old tasks don't need a
+  // refresh to become clickable.
+  function sourceLink(task){
+    if (task.link) return task.link;
+    if (!task.source_ref) return null;
+    if (task.source === 'email') return 'https://mail.google.com/mail/u/0/#all/' + encodeURIComponent(task.source_ref);
+    if (task.source === 'whatsapp' && !/@g\.us$/.test(task.source_ref)) {
+      var digits = String(task.source_ref).split('@')[0].split(':')[0].replace(/\D/g, '');
+      if (digits.length >= 9) return 'https://wa.me/972' + digits.slice(-9);
+    }
+    return null; // WhatsApp group chats with no known invite link — nothing to open
+  }
+
   function taskCard(task){
     var eff = task.effective_priority;
     var ratio = ageRatio(task);
@@ -297,8 +339,9 @@
       return '<button data-set-priority="'+p+'" data-id="'+task.id+'"><span class="dot" data-p="'+p+'"></span>'+t('p'+cap(p))+'</button>';
     }).join('');
     var srcLabel = t('src'+cap(task.source));
-    var linkBtn = task.source_ref && task.source !== 'manual'
-      ? '<button class="iconbtn" data-open="'+task.id+'" title="'+t('openSource')+'">'+LINK+'</button>' : '';
+    var openHref = task.source !== 'manual' ? sourceLink(task) : null;
+    var linkBtn = openHref
+      ? '<a class="iconbtn" href="'+escapeAttr(openHref)+'" target="_blank" rel="noopener noreferrer" title="'+t('openSource')+'">'+LINK+'</a>' : '';
 
     return (
       '<article class="task" data-id="'+task.id+'" data-eff="'+eff+'">'+
@@ -346,7 +389,11 @@
     renderSummary();
     renderFilters();
 
-    var visible = state.tasks.filter(matchesFilter);
+    var searchInput = document.getElementById('searchInput');
+    searchInput.placeholder = t('search');
+    document.getElementById('searchClear').hidden = !state.search;
+
+    var visible = state.tasks.filter(matchesFilter).filter(matchesSearch);
     var groups = { urgent:[], high:[], later:[] };
     visible.forEach(function(x){
       if (x.effective_priority === 'urgent') groups.urgent.push(x);
@@ -356,7 +403,7 @@
 
     var html = '';
     if (!visible.length) {
-      html = '<p class="empty">'+t('empty')+'</p>';
+      html = '<p class="empty">'+(state.search.trim() ? t('noResults') : t('empty'))+'</p>';
     } else {
       if (groups.urgent.length) html += groupHtml('urgent', t('groupUrgent'), groups.urgent);
       if (groups.high.length) html += groupHtml('high', t('groupHigh'), groups.high);
@@ -377,8 +424,14 @@
     wireList();
 
     function groupHtml(key, label, items){
-      return '<div class="group"><div class="group-head'+(key==='urgent'?' is-urgent':'')+'"><h2>'+label+'</h2><span class="count">'+items.length+'</span></div>'+
-        '<div class="card-stack">'+items.map(taskCard).join('')+'</div></div>';
+      var open = !state.collapsed[key];
+      return '<div class="group">'+
+        '<button type="button" class="group-head'+(key==='urgent'?' is-urgent':'')+(open?' is-open':'')+
+          '" data-grouptoggle="'+key+'" aria-expanded="'+open+'">'+
+          '<span class="grp-chev">'+CHEV+'</span><h2>'+label+'</h2><span class="count">'+items.length+'</span>'+
+        '</button>'+
+        (open ? ('<div class="card-stack">'+items.map(taskCard).join('')+'</div>') : '')+
+      '</div>';
     }
   }
 
@@ -432,6 +485,14 @@
     });
     var doneToggle = document.getElementById('doneToggle');
     if (doneToggle) doneToggle.addEventListener('click', function(){ state.doneOpen = !state.doneOpen; render(); });
+
+    Array.prototype.forEach.call(list.querySelectorAll('[data-grouptoggle]'), function(btn){
+      btn.addEventListener('click', function(){
+        var key = btn.getAttribute('data-grouptoggle');
+        state.collapsed[key] = !state.collapsed[key];
+        render();
+      });
+    });
   }
 
   document.addEventListener('click', function(){
@@ -442,6 +503,21 @@
     state.lang = state.lang === 'he' ? 'en' : 'he';
     try { localStorage.setItem('mytasks-lang', state.lang); } catch (e) {}
     render();
+  });
+
+  document.getElementById('searchInput').addEventListener('input', function(){
+    // render() rebuilds #summaryRow/#filters/#taskList but never touches
+    // #searchInput itself, so the field keeps focus and cursor position
+    // across every keystroke without needing to be refocused.
+    state.search = this.value;
+    render();
+  });
+  document.getElementById('searchClear').addEventListener('click', function(){
+    state.search = '';
+    var input = document.getElementById('searchInput');
+    input.value = '';
+    render();
+    input.focus();
   });
 
   document.getElementById('refreshBtn').addEventListener('click', async function(){

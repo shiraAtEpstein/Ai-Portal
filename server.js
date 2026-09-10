@@ -3,6 +3,29 @@
 // Day 5: slimmed down. Auth, chat, and admin live in routes/;
 // session and permission logic live in lib/.
 // ============================================================
+
+// ── Process-level safety net (2026-09-10) ───────────────────────────────
+// 10 Sep: a Baileys internal timeout (its own post-connect init,
+// executeInitQueries — code this app doesn't call directly and can't wrap
+// in a try/catch) escaped as an uncaught exception and crashed the ENTIRE
+// process. That takes down email, monday, Task Hub, everything — not just
+// the WhatsApp connector — and Render has to restart the instance from
+// scratch, with real downtime while it does. Registered first, before any
+// other require, so it's active even if something throws while a module
+// below is loading. This does not fix whatever actually errored (the
+// Baileys timeout itself is most likely transient — WhatsApp's own servers
+// answering slowly — and every existing try/catch and reconnect-with-
+// backoff in whatsapp/groups/provider.js still applies exactly as before);
+// it only stops ONE unhandled error anywhere from taking the whole portal
+// down with it. The error is still logged loudly — this is "log and keep
+// running", not "silently ignore".
+process.on('uncaughtException', (err) => {
+  console.error('[server] uncaughtException — logged, NOT crashing the process:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] unhandledRejection — logged, NOT crashing the process:', reason);
+});
+
 require('dotenv').config();
 const express = require('express');
 const nodemailer = require('nodemailer');

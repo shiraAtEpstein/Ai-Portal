@@ -151,7 +151,6 @@
   var ICONS = {
     email:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></svg>',
     whatsapp:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.39 1.26 4.81L2 22l5.4-1.42a9.87 9.87 0 0 0 4.64 1.18h.01c5.46 0 9.9-4.45 9.9-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2Zm0 1.67c2.2 0 4.26.86 5.82 2.4a8.2 8.2 0 0 1 2.42 5.84c0 4.55-3.7 8.24-8.25 8.24a8.2 8.2 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.18 8.18 0 0 1-1.26-4.38c0-4.55 3.7-8.24 8.25-8.24Z"/></svg>',
-    monday:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 3v18M3 9h18M3 15h18"/></svg>',
     manual:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.39 1.26 4.81L2 22l5.4-1.42a9.87 9.87 0 0 0 4.64 1.18h.01c5.46 0 9.9-4.45 9.9-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2Z"/></svg>'
   };
   var CLOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>';
@@ -165,9 +164,9 @@
     he:{
       title:'מוקד המשימות שלי', live:'מתעדכן אוטומטית', refresh:'רענן', refreshing:'מרענן…',
       statOpen:'משימות פתוחות', statUrgent:'דחופות', statTime:'זמן משוער היום', statDone:'הושלמו היום',
-      filterAll:'הכול', filterUrgent:'דחוף', filterEmail:'אימייל', filterWhatsapp:'וואטסאפ', filterMonday:'מאנדיי', filterManual:'LAWLY',
+      filterAll:'הכול', filterUrgent:'דחוף', filterEmail:'אימייל', filterWhatsapp:'וואטסאפ', filterManual:'LAWLY',
       groupUrgent:'קריטי', groupHigh:'היום', groupLater:'בהמשך',
-      srcEmail:'אימייל', srcWhatsapp:'וואטסאפ — קבוצת עסקה', srcMonday:'מאנדיי', srcManual:'נשלח ל-LAWLY בוואטסאפ',
+      srcEmail:'אימייל', srcWhatsapp:'וואטסאפ — קבוצת עסקה', srcManual:'נשלח ל-LAWLY בוואטסאפ',
       pUrgent:'דחוף', pHigh:'גבוה', pNormal:'רגיל', pLow:'נמוך',
       escalated:'הועלה בגלל המתנה ארוכה',
       min:'דק׳', doneList:'הושלמו היום', empty:'אין כאן משימות כרגע — כל הכבוד.',
@@ -178,9 +177,9 @@
     en:{
       title:"My Task Hub", live:'Live', refresh:'Refresh', refreshing:'Refreshing…',
       statOpen:'Open tasks', statUrgent:'Urgent', statTime:'Est. time today', statDone:'Done today',
-      filterAll:'All', filterUrgent:'Urgent', filterEmail:'Email', filterWhatsapp:'WhatsApp', filterMonday:'monday', filterManual:'LAWLY',
+      filterAll:'All', filterUrgent:'Urgent', filterEmail:'Email', filterWhatsapp:'WhatsApp', filterManual:'LAWLY',
       groupUrgent:'Critical', groupHigh:'Today', groupLater:'Later',
-      srcEmail:'Email', srcWhatsapp:'WhatsApp — deal group', srcMonday:'monday.com', srcManual:'Sent to LAWLY on WhatsApp',
+      srcEmail:'Email', srcWhatsapp:'WhatsApp — deal group', srcManual:'Sent to LAWLY on WhatsApp',
       pUrgent:'Urgent', pHigh:'High', pNormal:'Normal', pLow:'Low',
       escalated:'Escalated for waiting too long',
       min:'min', doneList:'Done today', empty:'Nothing here right now — nice work.',
@@ -218,7 +217,7 @@
     return t('agoDays',{n:Math.round(ms/D)});
   }
   function ageRatio(task){
-    var THRESH = { whatsapp:24, email:48, monday:48, manual:72 }; // hours
+    var THRESH = { whatsapp:24, email:48, manual:72 }; // hours
     var hrs = (Date.now() - new Date(task.first_seen_at).getTime()) / 3600000;
     return hrs / (THRESH[task.source] || 72);
   }
@@ -267,13 +266,13 @@
   }
 
   function renderFilters(){
-    var counts = { all:0, urgent:0, email:0, whatsapp:0, monday:0, manual:0 };
+    var counts = { all:0, urgent:0, email:0, whatsapp:0, manual:0 };
     state.tasks.forEach(function(x){
       counts.all++; counts[x.source] = (counts[x.source]||0)+1;
       if (x.effective_priority === 'urgent') counts.urgent++;
     });
     var defs = [['all',t('filterAll')],['urgent',t('filterUrgent')],['email',t('filterEmail')],
-      ['whatsapp',t('filterWhatsapp')],['monday',t('filterMonday')],['manual',t('filterManual')]];
+      ['whatsapp',t('filterWhatsapp')],['manual',t('filterManual')]];
     var el = document.getElementById('filters');
     el.innerHTML = defs.map(function(d){
       return '<button class="chip'+(state.filter===d[0]?' is-active':'')+'" data-filter="'+d[0]+'" type="button">'+

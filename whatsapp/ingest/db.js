@@ -1108,6 +1108,43 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
   return out;
 }
 
+// ── PERSONAL TASK-INBOX GROUPS (2026-09-10, Shira) ──────────────────────────
+// A staff member's own WhatsApp group with LAWLY/staff/Yaacov — e.g. "Yaakov
+// Hershkowitzes tasks משימות" — where EVERY message is candidate task text
+// for LAWLY to remember, sent to /api/mytasks (source 'manual'). Deliberately
+// NOT the same query as listUnansweredChats: there is no "client" side to
+// filter by direction/sender in a group like this, so every real message
+// (reactions/system events excluded) is read, oldest first. Which group
+// belongs to which staff member is stored explicitly on whatsapp_groups
+// (task_owner_email) — never guessed from the group's name, since names are
+// free text people can rename (this one alone mixes "tasks" and "משימות").
+async function listTaskInboxMessages(chatJid, { limit = 20 } = {}) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !chatJid) return [];
+  const r = await p.query(
+    `SELECT source_item_id, payload_encrypted, sender_phone, COALESCE(sent_at, created_at) AS eff_at
+     FROM processing_jobs
+     WHERE source = 'whatsapp' AND chat_jid = $1 AND deleted_at IS NULL
+       AND (msg_kind IS NULL OR msg_kind <> ALL($3::text[]))
+     ORDER BY eff_at DESC
+     LIMIT $2`,
+    [chatJid, limit, NON_MESSAGE_KINDS]
+  );
+  const out = [];
+  for (const row of r.rows) {
+    try {
+      const json = enc.decrypt(row.payload_encrypted || '');
+      const msg = json ? JSON.parse(json) : null;
+      const t = textPreview(msg && (msg.message || msg)) || '';
+      if (!t) continue;
+      out.push({ source_item_id: row.source_item_id, text: t, sender_phone: row.sender_phone, eff_at: row.eff_at });
+    } catch (_) { /* undecryptable — skip this one message, not the whole batch */ }
+  }
+  out.reverse(); // oldest first, so a first-run backlog gets turned into tasks in the order it was written
+  return out;
+}
+
 // Backfill msg_kind for rows ingested before the column existed. Same shape and
 // the same idempotence as backfillSentAt: only touches NULLs, bounded per pass,
 // and rows it cannot read are stamped 'unknown' so they are not rescanned
@@ -1423,6 +1460,7 @@ module.exports = {
   getOpenItemsForDeal,
   applyTaskUpdate,
   listUnansweredChats,
+  listTaskInboxMessages,
   diagnoseChat,
   backfillMsgKind,
   NON_MESSAGE_KINDS,

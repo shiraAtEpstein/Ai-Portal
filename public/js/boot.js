@@ -43,6 +43,11 @@ async function applySavedLanguage() {
       const sel = (window.CSS && CSS.escape) ? CSS.escape(id) : id;
       const item = document.querySelector('#conversation-list .agent-btn[data-id="' + sel + '"]');
       if (item) { await openConversation(id, item); } else { newChat(); }
+    } else if (typeof window.showHome === 'function') {
+      // Default landing screen (LAWLY Home Concept, 2026-09-10): the tile
+      // grid instead of an empty chat. newChat() is still what "Open Chat"
+      // and "New chat" use to get into an actual conversation.
+      window.showHome();
     } else {
       newChat();
     }
@@ -77,38 +82,24 @@ async function applySavedLanguage() {
       // Synopsis is open to admin, tech and paralegal — decided by
       // config/permissions.json, never by a role list written in the front-end.
       //
-      // The button is CREATED here rather than hidden in index.html: a control
-      // you may not use should not exist in your page at all, not even hidden.
-      //
-      // Fails CLOSED, and says precisely which piece is missing when it does —
-      // "no button" has three different causes and they need telling apart.
+      // 2026-09-10 (Shira): the drawer no longer duplicates the Home
+      // screen's tiles, so there is no sidebar "הפקת סינופסיס" button to
+      // create here any more — "Deal Synopsis" on Home (home.js) is the
+      // only entry point, and it reads window.__lawlyCaps below for the
+      // exact same permission check this file used to gate its own button
+      // with. Kept: the capabilities lookup itself (still the one source of
+      // truth home.js relies on) and the cleanup of any stray
+      // #synopsis-open-btn left over in cached/old markup.
       const caps = d.capabilities;
+      window.__lawlyCaps = caps || null;
       const synBtn0 = document.getElementById('synopsis-open-btn');
       if (synBtn0) synBtn0.remove();                       // never trust markup
       if (!caps) {
         console.warn('[synopsis] /api/me returned no "capabilities" field. ' +
-          'Deploy routes/me.js (it must call capabilitiesFor) — the button cannot be shown.');
+          'Deploy routes/me.js (it must call capabilitiesFor) — the Home tile cannot gate correctly.');
       } else if (!('synopsis' in caps)) {
         console.warn('[synopsis] capabilities has no "synopsis" key. ' +
           'Deploy lib/permissions.js — CONNECTIONS must include \'synopsis\'. Got:', Object.keys(caps).join(', '));
-      } else if (!(caps.synopsis || []).includes('use')) {
-        console.warn('[synopsis] your roles do not grant synopsis:use. Roles:', (d.roles || []).join(', '),
-          '· If you are admin/tech/paralegal, deploy config/permissions.json (it needs "synopsis": ["use"]) ' +
-          'and lib/permissions.js (role lookup must be case-insensitive).');
-      } else {
-        const bar = document.querySelector('.sidebar-bottom');
-        const settings = document.getElementById('settings-open-btn');
-        if (bar) {
-          const b = document.createElement('button');
-          b.className = 'admin-btn';
-          b.id = 'synopsis-open-btn';
-          b.style.display = 'block';
-          b.textContent = '📄 הפקת סינופסיס';
-          b.addEventListener('click', () => { location.href = '/synopsis.html'; });
-          bar.insertBefore(b, settings || null);
-        } else {
-          console.warn('[synopsis] .sidebar-bottom not found — nowhere to put the button.');
-        }
       }
 
       enterPortal(d.name || 'User', (d.roles || []).join(', '));

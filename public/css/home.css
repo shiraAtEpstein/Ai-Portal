@@ -1,0 +1,244 @@
+/* ══════════════════════════════════════════════════════════════════════
+   home.css — the tile-grid home screen (replaces the old empty "welcome"
+   state). Scoped entirely under .home-screen / .home-* class names so it
+   never collides with style.css's existing --navy/--gold/--gray-* tokens
+   (those stay a muted gray for the rest of the portal — this is a
+   separate, warmer palette for the home screen only, matching the
+   "LAWLY Home Concept" mockup Shira approved 2026-09-10).
+   ══════════════════════════════════════════════════════════════════════ */
+
+#no-agent.home-screen {
+  --home-ink: #15161a;
+  --home-ink-soft: #3c3d42;
+  --home-muted: #7a7f88;
+  --home-muted-2: #9c968b;
+  --home-cream: #f6f3ec;
+  --home-paper: #ffffff;
+  --home-line: rgba(21, 22, 26, 0.10);
+  --home-gold: #c9a227;
+  --home-gold-soft: #efe4c2;
+  --home-gold-wash: rgba(201, 162, 39, 0.10);
+  --home-font-display: 'Frank Ruhl Libre', Georgia, 'Times New Roman', serif;
+  --home-font-ui: 'Heebo', 'Assistant', -apple-system, Segoe UI, Roboto, sans-serif;
+
+  flex: 1;
+  display: none; /* flipped to flex by home.js when shown */
+  flex-direction: column;
+  align-items: stretch;
+  overflow-y: auto;
+  background: var(--home-cream);
+  padding: 36px 28px 48px;
+  font-family: var(--home-font-ui);
+  color: var(--home-ink);
+}
+
+.home-inner { max-width: 900px; width: 100%; margin: 0 auto; }
+
+.home-greet {
+  font-family: var(--home-font-display);
+  font-size: 30px;
+  font-weight: 500;
+  color: var(--home-ink);
+  margin: 0 0 4px;
+  letter-spacing: .2px;
+}
+
+.home-sub {
+  font-size: 14.5px;
+  color: var(--home-muted);
+  margin: 0 0 26px;
+}
+
+.home-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 14px;
+}
+
+.home-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  text-align: start;
+  background: var(--home-paper);
+  border: 1px solid var(--home-line);
+  border-radius: 16px;
+  padding: 18px 18px 16px;
+  cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  box-shadow: 0 1px 2px rgba(21,22,26,.03), 0 10px 24px -16px rgba(21,22,26,.18);
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.home-tile:hover, .home-tile:focus-visible {
+  transform: translateY(-2px);
+  border-color: var(--home-gold);
+  box-shadow: 0 4px 10px -4px rgba(21,22,26,.12), 0 16px 32px -18px rgba(21,22,26,.22);
+  outline: none;
+}
+.home-tile:active { transform: translateY(0); }
+
+.home-tile.is-accent {
+  background: linear-gradient(165deg, var(--home-gold-wash), var(--home-paper) 55%);
+  border-color: var(--home-gold-soft);
+}
+
+.home-tile-icon {
+  width: 42px; height: 42px;
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 21px;
+  background: var(--home-gold-wash);
+  flex: none;
+}
+.home-tile.is-accent .home-tile-icon { background: var(--home-gold-soft); }
+
+.home-tile-name {
+  font-family: var(--home-font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--home-ink);
+  margin: 0;
+}
+
+.home-tile-desc {
+  font-size: 12.5px;
+  color: var(--home-muted);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.home-tile-badge {
+  position: absolute;
+  top: 14px;
+  inset-inline-end: 14px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #b4462f;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  line-height: 1;
+}
+.home-tile-badge[hidden] { display: none; } /* explicit display above would otherwise beat the UA [hidden] rule */
+
+@media (max-width: 640px) {
+  #no-agent.home-screen { padding: 24px 16px 36px; }
+  .home-greet { font-size: 24px; }
+  .home-tiles { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Portal-wide top chrome — topbar + breadcrumb + the sidebar-as-drawer.
+   2026-09-10 (Shira): the "LAWLY Home Concept" top-bar/breadcrumb
+   treatment, applied everywhere in the portal, not just the home screen.
+   The old persistent left sidebar becomes a slide-out drawer — same
+   element (class="sidebar"), same ids inside it, same style.css rules for
+   its contents (.sidebar-user/.agent-btn/.admin-btn/.logout-btn/the
+   "LAWLY LIGHT SIDEBAR THEME" color overrides all still apply unchanged);
+   only its own position/visibility is overridden here.
+   ══════════════════════════════════════════════════════════════════════ */
+
+#portal { flex-direction: column; }
+.portal-body { flex: 1; display: flex; flex-direction: row; min-height: 0; overflow: hidden; }
+/* today.css sizes #daily-dock (and chat.js/style.css size .main) assuming
+   they fill a 100vh row — true before this chrome existed, not true now
+   that they sit in .portal-body below a topbar+breadcrumb. flex:1/min-
+   height:0 on .portal-body plus this height:100% keeps the same "fills
+   what's left" behavior without editing today.css. */
+#daily-dock { height: 100%; }
+
+/* 2026-09-10 (Shira): "the dayly shouldnt be there. i dont need that
+   visual at all" — hides the whole Today panel, both its docked form
+   (#daily-dock) and its collapsed-rail form (#daily-rail), in every
+   #portal.daily-collapsed state. The "Daily Brief" Home tile still works —
+   it programmatically clicks #daily-open-full (today.css's #daily-full
+   overlay), which is unaffected by this rule. Deliberately a CSS hide, not
+   a markup removal: daily.js reads/writes #daily-ring-txt, #daily-prog,
+   #daily-date, #daily-body etc. unconditionally in places, so keeping the
+   nodes in the DOM (just invisible) avoids re-auditing every one of those
+   for a null-guard. */
+#daily-dock, #daily-rail { display: none !important; }
+
+.topbar-main {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 22px;
+  background: #f6f3ec;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+.topbar-brand { display: flex; align-items: center; gap: 10px; }
+.topbar-brand .lawly-wordmark {
+  font-family: 'Frank Ruhl Libre', Georgia, 'Times New Roman', serif;
+  color: #17181c; font-weight: 600; letter-spacing: 1px;
+}
+.topbar-tagline { font-size: 11px; color: #9c968b; margin-top: 1px; }
+.topbar-controls { display: flex; align-items: center; gap: 10px; flex: none; }
+.menu-btn {
+  width: 36px; height: 36px; border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12); background: #fff; color: #15161a;
+  font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.menu-btn:hover { background: #f1ede2; }
+
+.breadcrumb-row {
+  flex: none;
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 22px;
+  background: #f6f3ec; border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  font-size: 13px; color: #7a7f88;
+}
+.crumb-home {
+  border: none; background: none; cursor: pointer; font: inherit;
+  color: #15161a; font-weight: 700; padding: 2px 3px; display: inline-flex; align-items: center; gap: 5px;
+}
+.crumb-home:hover { text-decoration: underline; }
+.crumb-sep { opacity: .55; }
+.crumb-current { color: #7a7f88; }
+
+.menu-backdrop {
+  position: fixed; inset: 0; background: rgba(21, 22, 26, 0.35); z-index: 65;
+}
+
+/* The sidebar itself keeps every style.css rule it already had for its
+   contents — only turned from a static flex column into a fixed
+   slide-out panel. */
+.sidebar {
+  position: fixed;
+  top: 0;
+  height: 100vh;
+  z-index: 70;
+  transition: transform .22s ease;
+  box-shadow: -10px 0 28px rgba(0, 0, 0, 0.18);
+  right: 0;
+  transform: translateX(100%);
+}
+#portal[dir="ltr"] .sidebar { right: auto; left: 0; transform: translateX(-100%); }
+/* Matches the specificity of the two dir-scoped rules above (id + attr +
+   class) so this reliably wins regardless of direction — a plain
+   ".sidebar.is-open" (id-less) would lose to "#portal[dir=...] .sidebar"
+   at equal specificity tiers and the drawer would never visibly open. */
+#portal[dir="rtl"] .sidebar.is-open,
+#portal[dir="ltr"] .sidebar.is-open {
+  transform: translateX(0);
+}
+.drawer-close {
+  align-self: flex-start;
+  margin: 12px 12px 0;
+  width: 30px; height: 30px; border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.12); background: transparent;
+  color: #3c3d42; cursor: pointer; font-size: 14px;
+}
+.drawer-close:hover { background: rgba(0, 0, 0, 0.05); }
+
+@media (max-width: 640px) {
+  .topbar-main, .breadcrumb-row { padding-inline: 14px; }
+}

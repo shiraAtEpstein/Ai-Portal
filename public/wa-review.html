@@ -1,492 +1,467 @@
-<!DOCTYPE html>
-<html dir="rtl" lang="he">
+<!doctype html>
+<html lang="he" dir="rtl">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>תשובות WhatsApp — Lawly</title>
-<!--
-  wa-review.html — the WhatsApp responder's review screen.
-
-  Shows what the agent (whatsapp/agent/pipeline.js) generated for real recent
-  client messages: the chat, the client's message, the draft (editable), and —
-  once it exists — the reply a staff member actually sent. A copy button puts
-  the (possibly hand-edited) draft on the clipboard; nothing here sends
-  anything or writes back to WhatsApp. Editing the text box only changes what
-  gets copied — it is not saved.
-
-  Visual language matches the "Lawly WhatsApp Drafts" design Shira supplied:
-  warm cream ground, Frank Ruhl Libre for headings, Assistant for body/UI.
-
-  PERMISSIONS: admin sees every chat's drafts; everyone else sees only chats
-  routed to them (routes/wa-review.js, reusing the same buildBoard() the
-  unanswered board and staff-response dashboard use for "who is this assigned to").
--->
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@400;500;600&family=Assistant:wght@400;500;600;700&display=swap" rel="stylesheet">
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>מוקד המשימות שלי — LAWLY</title>
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@500;700&family=Assistant:wght@400;500;600;700;800&display=swap');
+
   :root{
-    --bg:#F6F2EA; --ink:#14120F; --ink2:#2A261F; --muted:#6E6656; --mutedLight:#9A9078;
-    --border:#E4DCCC; --borderStrong:#D5CBB6; --dashedBorder:#DED4BF;
-    --cardHead:#F1EDE3; --cardBody:#FFFDF8; --quoteBg:#F4F0E6;
-    --green:#3B6B4A; --gold:#8A6A2F; --red:#A6432E;
-    --greenBg:#FFFDF8; --goldBg:#FFFDF8; --redBg:#FFFDF8;
-    --serif:"Frank Ruhl Libre",Georgia,serif; --sans:Assistant,"Segoe UI",Arial,sans-serif;
+    --bg:#f6f4ee; --surface:#ffffff; --surface-2:#fbf9f4;
+    --ink:#21232b; --ink-muted:#63667a; --ink-faint:#9497a6;
+    --border:#e6e2d6; --border-soft:#efece2;
+    --accent:#1f3a5f; --accent-ink:#ffffff; --accent-soft:#e7edf3; --accent-soft-ink:#1f3a5f;
+    --urgent:#a7371f; --urgent-soft:#fbeae4; --urgent-ink:#8a2c17;
+    --high:#8a5a12; --high-soft:#faf0dc; --high-ink:#734c0f;
+    --normal:#3d6485; --normal-soft:#e9f0f6; --normal-ink:#2f4f6b;
+    --low:#5f6a5a; --low-soft:#eef1ea; --low-ink:#4c5546;
+    --shadow: 0 1px 2px rgba(33,35,43,.04), 0 8px 24px -12px rgba(33,35,43,.14);
+    --radius: 14px;
+    --font-display:'Frank Ruhl Libre', 'Times New Roman', serif;
+    --font-body:'Assistant','Segoe UI',Arial,sans-serif;
   }
   *{box-sizing:border-box;}
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);direction:rtl;}
-  .wrap{max-width:1680px;margin:0 auto;padding:36px 22px 90px;}
+  body{margin:0; background:var(--bg); color:var(--ink); font-family:var(--font-body); -webkit-font-smoothing:antialiased;}
+  @media (prefers-reduced-motion: reduce){ *{animation-duration:.001ms !important; transition-duration:.001ms !important;} }
+  button{font-family:inherit;}
+  button:focus-visible, input:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
 
-  .toolRow{display:flex;justify-content:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:10px;}
-  .toolRow button{border:0;background:none;color:var(--mutedLight);font:12px var(--sans);cursor:pointer;padding:2px 0;}
-  .toolRow button:hover{color:var(--muted);}
-  .toolRow button:disabled{opacity:.5;cursor:default;}
+  .app{max-width:900px;margin:0 auto;padding:22px 22px 60px;}
+  .topbar{display:flex; align-items:center; gap:18px; flex-wrap:wrap; padding-bottom:16px; margin-bottom:18px; border-bottom:1px solid var(--border);}
+  .brand{display:flex; align-items:baseline; gap:10px;}
+  .brand-mark{font-weight:800; font-size:12px; letter-spacing:.14em; color:var(--accent-soft-ink); background:var(--accent-soft); padding:4px 8px; border-radius:6px;}
+  .topbar h1{font-family:var(--font-display); font-weight:700; font-size:24px; margin:0;}
+  .topbar-meta{display:flex; align-items:center; gap:8px; color:var(--ink-muted); font-size:13.5px; margin-inline-end:auto;}
+  .live-dot{width:8px;height:8px;border-radius:50%;background:#3f9a5c;flex:none; box-shadow:0 0 0 3px rgba(63,154,92,.2);}
+  .topbar-actions{display:flex; align-items:center; gap:8px;}
+  .btn{display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border); background:var(--surface); color:var(--ink); border-radius:10px; padding:8px 13px; font-size:14px; font-weight:600; cursor:pointer; transition:background .15s, border-color .15s, transform .1s;}
+  .btn:hover{border-color:var(--accent);}
+  .btn:active{transform:translateY(1px);}
+  .btn-primary{background:var(--accent); color:var(--accent-ink); border-color:var(--accent);}
+  .btn svg{width:15px;height:15px;flex:none;}
+  .btn.is-loading svg{animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
 
-  .header{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:18px;margin-bottom:22px;}
-  .titleBlock{text-align:right;}
-  h1{font-family:var(--serif);font-weight:400;font-size:27px;margin:0;color:var(--ink);}
-  .subtitle{font-size:14px;color:var(--muted);margin-top:6px;}
+  .summary-row{display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px;}
+  .stat{background:var(--surface); border:1px solid var(--border-soft); border-radius:var(--radius); padding:14px 16px; box-shadow:var(--shadow);}
+  .stat-num{font-family:var(--font-display); font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1;}
+  .stat-label{color:var(--ink-muted); font-size:12.5px; margin-top:6px; font-weight:600;}
+  .stat.is-urgent .stat-num{color:var(--urgent);}
+  @media (max-width:640px){ .summary-row{grid-template-columns:repeat(2,1fr);} }
 
-  .tabRow{display:flex;gap:16px;align-items:center;flex-wrap:wrap;}
-  .tab{border:0;background:none;font:600 14.5px var(--sans);color:var(--mutedLight);cursor:pointer;padding-bottom:2px;border-bottom:1px solid transparent;font-weight:400;}
-  .tab.on{color:var(--ink);font-weight:600;border-bottom:1px solid var(--gold);}
+  .filters{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px;}
+  .chip{border:1px solid var(--border); background:var(--surface); color:var(--ink-muted); padding:6px 13px; border-radius:999px; font-size:13.5px; font-weight:600; cursor:pointer;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.is-active{background:var(--accent); border-color:var(--accent); color:var(--accent-ink);}
+  .chip .n{opacity:.75; font-variant-numeric:tabular-nums;}
 
-  .searchBox{border:1px solid var(--border);background:#FFFDF8;border-radius:20px;padding:8px 16px;font:14px var(--sans);color:var(--ink);min-width:220px;direction:rtl;}
-  .searchBox:focus{outline:none;border-color:var(--gold);}
-  .searchBox::placeholder{color:var(--mutedLight);}
+  .group{margin-bottom:22px;}
+  .group-head{display:flex; align-items:center; gap:10px; margin-bottom:10px; padding-inline-start:2px;}
+  .group-head h2{font-family:var(--font-display); font-size:16.5px; font-weight:700; margin:0;}
+  .group-head .count{font-size:12px; font-weight:700; color:var(--ink-muted); background:var(--surface-2); border:1px solid var(--border-soft); padding:1px 8px; border-radius:999px; font-variant-numeric:tabular-nums;}
+  .group-head.is-urgent h2{color:var(--urgent-ink);}
+  .card-stack{display:flex; flex-direction:column; gap:9px;}
 
-  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;align-items:start;}
-  .card{background:var(--cardBody);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
-  .chead{background:var(--cardHead);padding:14px 20px;display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;}
-  .badge{display:inline-flex;align-items:center;border:1px solid var(--border);background:#FFFDF8;border-radius:20px;padding:4px 12px;font:600 12.5px var(--sans);white-space:nowrap;}
-  .badge.ready{color:var(--green);}
-  .badge.human{color:var(--gold);}
-  .badge.blocked{color:var(--red);}
-  .chead .right{text-align:right;}
-  .dealName{font-family:var(--serif);font-weight:500;font-size:17px;color:var(--ink);}
-  .metaLine{font-size:13px;color:var(--muted);margin-top:3px;}
-
-  .cbody{padding:18px 20px 20px;}
-  .section{margin-top:2px;}
-  .section + .section{margin-top:16px;}
-  .lbl{display:flex;justify-content:space-between;align-items:baseline;font:600 12px var(--sans);letter-spacing:1.2px;color:var(--muted);margin-bottom:8px;}
-  .lbl .hint{font:400 12px var(--sans);letter-spacing:normal;color:var(--mutedLight);cursor:default;}
-  .lbl .hint.link{cursor:pointer;text-decoration:underline;}
-  .lbl .hint.link:hover{color:var(--muted);}
-
-  /* Bold border on the boxes that actually hold a message's content (the
-     client's message, the response you'd copy, the "what was really sent"
-     reference) so each one reads as a clearly separate block at a glance —
-     as opposed to structural/decorative boxes (card shell, hint rows) which
-     stay on the thin border. */
-  .quoteBox{background:var(--quoteBg);border:2px solid var(--borderStrong);border-radius:10px;padding:13px 15px;font-size:15px;line-height:1.55;color:var(--ink2);white-space:pre-wrap;width:80%;min-height:120px;}
-  .quoteTime{font-size:12px;color:var(--mutedLight);margin-top:8px;}
-
-  textarea.draftBox{width:80%;min-height:170px;resize:vertical;background:#FFFFFF;border:2px solid var(--borderStrong);border-radius:10px;padding:13px 15px;font:15px/1.55 var(--sans);color:var(--ink2);}
-  textarea.draftBox:focus{outline:none;border-color:var(--gold);}
-
-  .draftFoot{display:flex;justify-content:space-between;align-items:center;margin-top:10px;flex-wrap:wrap;gap:10px;}
-  .draftFoot .left{display:flex;align-items:center;gap:14px;}
-  .linkBtn{border:0;background:none;color:var(--mutedLight);font:14px var(--sans);cursor:pointer;padding:0;}
-  .linkBtn:hover{color:var(--muted);}
-  .linkBtn:disabled{opacity:.5;cursor:default;}
-  .btnPrimary{border:0;background:var(--ink);color:#FDFBF6;border-radius:8px;padding:10px 20px;font:600 14px var(--sans);cursor:pointer;white-space:nowrap;}
-  .btnPrimary:disabled{opacity:.55;cursor:default;}
-  .code{font-size:11px;color:var(--mutedLight);}
-
-  .warnNote{margin-top:10px;font-size:12.5px;color:var(--red);background:#FBF2EF;border:1px solid #EAD2CB;border-radius:8px;padding:8px 12px;}
-
-  .noDraftRow{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;
-    background:var(--bg);border:1px dashed var(--dashedBorder);border-radius:10px;padding:14px 16px;}
-  .noDraftReason{font-size:14px;color:var(--muted);text-align:right;flex:1;min-width:220px;}
-  .btnGhost{border:1px solid var(--borderStrong);background:#FFFDF8;color:var(--ink);border-radius:8px;padding:9px 16px;font:600 14px var(--sans);cursor:pointer;white-space:nowrap;}
-  .btnGhost:disabled{opacity:.55;cursor:default;}
-
-  .linkHint{margin-top:12px;background:var(--bg);border:1px dashed var(--dashedBorder);border-radius:10px;padding:11px 15px;font-size:13px;color:var(--muted);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
-  .linkHint .txt{line-height:1.6;}
-  .linkHint button{border:1px solid var(--borderStrong);background:#FFFDF8;color:var(--ink);border-radius:6px;padding:6px 12px;font:600 12px var(--sans);cursor:pointer;white-space:nowrap;}
-
-  .refWrap{margin-top:4px;}
-  .refWrap .quoteBox{background:#F1F0FA;border-color:#C7C5E8;}
-
-  .state{padding:60px 18px;text-align:center;color:var(--muted);font-size:14px;line-height:1.9;}
-  .state a{color:var(--gold);}
-
-  .bottomRow{display:flex;justify-content:flex-start;margin-top:8px;}
-
-  @media (max-width: 1300px){
-    .cards{grid-template-columns:repeat(2,1fr);}
-  }
-  @media (max-width: 900px){
-    .cards{grid-template-columns:1fr;}
-  }
-  @media (max-width: 640px){
-    .header{flex-direction:column;align-items:flex-start;}
-    .titleBlock{text-align:right;width:100%;}
-    .searchBox{min-width:0;width:100%;}
-  }
+  .task{background:var(--surface); border:1px solid var(--border-soft); border-radius:12px; box-shadow:var(--shadow); border-inline-start:4px solid var(--normal); padding:12px 14px; display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:start;}
+  .task[data-eff="urgent"]{border-inline-start-color:var(--urgent);}
+  .task[data-eff="high"]{border-inline-start-color:var(--high);}
+  .task[data-eff="normal"]{border-inline-start-color:var(--normal);}
+  .task[data-eff="low"]{border-inline-start-color:var(--low);}
+  .task.is-done{opacity:.55;}
+  .task.is-done .task-title{text-decoration:line-through; text-decoration-color:var(--ink-faint);}
+  .task-check{width:21px;height:21px; border-radius:6px; border:1.6px solid var(--ink-faint); background:var(--surface); cursor:pointer; margin-top:2px; flex:none; display:flex; align-items:center; justify-content:center; padding:0;}
+  .task-check svg{width:13px;height:13px; opacity:0; stroke:var(--accent-ink);}
+  .task.is-done .task-check{background:var(--accent); border-color:var(--accent);}
+  .task.is-done .task-check svg{opacity:1;}
+  .task-main{min-width:0;}
+  .task-toprow{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:3px;}
+  .src{display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:700; color:var(--ink-muted);}
+  .src svg{width:13px;height:13px;}
+  .src.is-lawly{color:#1f8a5f;}
+  .task-title{font-weight:700; font-size:15px; line-height:1.35; margin:0;}
+  .task-summary{color:var(--ink-muted); font-size:13.5px; line-height:1.5; margin:3px 0 0;}
+  .task-editrow{display:flex; gap:8px; margin-top:7px; flex-wrap:wrap;}
+  .task-editrow input[type=text], .task-editrow input[type=number]{font-family:inherit; font-size:13.5px; border:1px solid var(--border); border-radius:7px; padding:5px 8px; background:var(--surface-2); color:var(--ink);}
+  .task-editrow input[type=text]{flex:1; min-width:160px;}
+  .task-editrow input[type=number]{width:64px;}
+  .task-metarow{display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap;}
+  .est{font-size:12.5px; color:var(--ink-muted); font-weight:600; display:inline-flex; align-items:center; gap:4px; font-variant-numeric:tabular-nums;}
+  .est svg{width:12px;height:12px;}
+  .age{font-size:12.5px; font-weight:600; display:inline-flex; align-items:center; gap:4px;}
+  .age.is-warm{color:var(--high);} .age.is-hot{color:var(--urgent);}
+  .age svg{width:12px;height:12px;}
+  .pill{font-size:11.5px; font-weight:800; letter-spacing:.02em; padding:3px 9px; border-radius:999px; border:1px solid transparent; cursor:pointer; display:inline-flex; align-items:center; gap:5px;}
+  .pill[data-p="urgent"]{background:var(--urgent-soft); color:var(--urgent-ink);}
+  .pill[data-p="high"]{background:var(--high-soft); color:var(--high-ink);}
+  .pill[data-p="normal"]{background:var(--normal-soft); color:var(--normal-ink);}
+  .pill[data-p="low"]{background:var(--low-soft); color:var(--low-ink);}
+  .pill .esc{opacity:.8;}
+  .task-actions{display:flex; flex-direction:column; gap:6px; align-items:center;}
+  .iconbtn{width:28px;height:28px; border-radius:8px; border:1px solid transparent; background:transparent; color:var(--ink-faint); display:flex; align-items:center; justify-content:center; cursor:pointer;}
+  .iconbtn:hover{background:var(--surface-2); color:var(--ink); border-color:var(--border-soft);}
+  .iconbtn svg{width:15px;height:15px;}
+  .pmenu{position:relative;}
+  .pmenu-list{position:absolute; inset-inline-end:0; top:calc(100% + 4px); background:var(--surface); border:1px solid var(--border); border-radius:10px; box-shadow:var(--shadow); padding:5px; z-index:5; display:none; min-width:130px;}
+  .pmenu.is-open .pmenu-list{display:block;}
+  .pmenu-list button{display:flex; width:100%; align-items:center; gap:7px; padding:6px 8px; border-radius:7px; background:none; border:none; font-size:13px; font-weight:600; color:var(--ink); cursor:pointer; text-align:start;}
+  .pmenu-list button:hover{background:var(--surface-2);}
+  .dot{width:8px;height:8px;border-radius:50%;flex:none;}
+  .dot[data-p="urgent"]{background:var(--urgent);} .dot[data-p="high"]{background:var(--high);}
+  .dot[data-p="normal"]{background:var(--normal);} .dot[data-p="low"]{background:var(--low);}
+  .empty{color:var(--ink-faint); font-size:13.5px; padding:16px 4px;}
+  .error{color:var(--urgent-ink); background:var(--urgent-soft); border:1px solid var(--urgent); border-radius:10px; padding:10px 14px; font-size:13.5px; margin-bottom:14px;}
+  .done-toggle{background:none; border:none; color:var(--ink-muted); font-size:13px; font-weight:700; cursor:pointer; padding:6px 2px; display:flex; align-items:center; gap:6px;}
+  .done-toggle svg{width:13px;height:13px; transition:transform .15s;}
+  .done-toggle.is-open svg{transform:rotate(90deg);}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="toolRow" id="toolRow" style="display:none">
-    <button type="button" id="reconcileBtn">בדוק מה נשלח בפועל</button>
-    <button type="button" id="refreshBtn">רענון ↻</button>
-  </div>
-  <div class="toolRow" id="toolRowStaff" style="display:none">
-    <button type="button" id="refreshBtn2">רענון ↻</button>
-  </div>
-
-  <div class="header">
-    <div class="titleBlock">
-      <h1>WhatsApp תשובות</h1>
-      <div class="subtitle" id="meta">טוען…</div>
+<div class="app" id="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">LAWLY</span>
+      <h1 data-i18n="title">מוקד המשימות שלי</h1>
     </div>
-    <div class="tabRow" id="tabRow" style="display:none">
-      <button class="tab on" data-t="ready" type="button">לאישור<span class="n" id="cntReady"></span></button>
-      <button class="tab" data-t="waiting" type="button">ממתין<span class="n" id="cntWaiting"></span></button>
-      <input type="search" id="searchBox" class="searchBox" placeholder="חיפוש לפי שם שיחה" autocomplete="off">
+    <div class="topbar-meta">
+      <span class="live-dot" aria-hidden="true"></span>
+      <span data-i18n="live">מתעדכן אוטומטית</span>
+      <span>·</span>
+      <span id="updatedAt" data-i18n="updated">—</span>
     </div>
-  </div>
+    <div class="topbar-actions">
+      <button class="btn" id="langToggle" type="button">EN</button>
+      <button class="btn btn-primary" id="refreshBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 4v6h-6"/></svg>
+        <span data-i18n="refresh">רענן</span>
+      </button>
+    </div>
+  </header>
 
-  <div class="cards" id="cards"></div>
-
-  <div class="bottomRow" id="bottomRow" style="display:none">
-    <button class="btnGhost" id="queueBtn" type="button">הכן טיוטות לשיחות ממתינות</button>
-  </div>
+  <div id="errorBox"></div>
+  <div class="summary-row" id="summaryRow"></div>
+  <div class="filters" id="filters"></div>
+  <section id="taskList" aria-live="polite"></section>
 </div>
 
 <script>
-function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e;}
-function esc(s){return String(s==null?'':s);}
+(function(){
+  "use strict";
 
-function fmtMsgTime(iso){
-  if(!iso) return '';
-  try{
-    var d=new Date(iso);
-    return d.toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit'})+', '+d.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'});
-  }catch(e){ return ''; }
-}
-// Relative "when" for a ready draft's card (mirrors the design's "מאתמול").
-function relativeWhen(iso){
-  if(!iso) return '';
-  try{
-    var d=new Date(iso), now=new Date();
-    var startOfDay=function(x){ return new Date(x.getFullYear(),x.getMonth(),x.getDate()); };
-    var days=Math.round((startOfDay(now)-startOfDay(d))/86400000);
-    if(days<=0) return 'היום';
-    if(days===1) return 'מאתמול';
-    if(days<7) return 'לפני '+days+' ימים';
-    return d.toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit'});
-  }catch(e){ return ''; }
-}
-
-var activeTab='ready'; // 'ready' | 'waiting'
-var lastData=null;
-var searchQuery='';
-
-/* ------------------------------------------------------------ sign-in --- */
-var TRIED_KEY='waReviewAuthBounce';
-function goSignIn(){
-  var already=false;
-  try{ already=sessionStorage.getItem(TRIED_KEY)==='1'; }catch(e){}
-  if(already) return showSignInLink();
-  try{ sessionStorage.setItem(TRIED_KEY,'1'); }catch(e){}
-  var next=encodeURIComponent(location.pathname+location.search);
-  fetch('/auth/google/status',{cache:'no-store'}).then(function(r){return r.json();})
-    .then(function(j){ location.replace(j&&j.enabled?('/auth/google/start?next='+next):'/'); })
-    .catch(function(){ location.replace('/'); });
-}
-function showSignInLink(){
-  document.getElementById('meta').textContent='נדרשת התחברות';
-  document.getElementById('cards').innerHTML='';
-  document.getElementById('cards').appendChild(
-    (function(){var d=el('div','state');d.innerHTML='יש להתחבר כדי לראות את המסך הזה.<br><a href="/">מעבר לעמוד ההתחברות</a>';return d;})()
-  );
-}
-function clearAuthBounce(){ try{ sessionStorage.removeItem(TRIED_KEY); }catch(e){} }
-
-/* --------------------------------------------------------------- cards --- */
-// Three states, three badges — matches the design exactly:
-//   ready   -> outcome 'draft' (validated, nothing pending) -> green "טיוטה מוכנה"
-//   review  -> has draft text but needs a human eye first: 'blocked' (failed
-//              validation) or 'escalate' with a suggested draft -> gold badge,
-//              same tab as 'ready' (it has content to review), with a warning.
-//   human   -> queued, genuinely nothing to copy yet -> gold "דורש טיפול אנושי",
-//              dashed reason box + "כתוב טיוטה בכל זאת".
-function badgeFor(d){
-  if(d.outcome==='draft') return {cls:'ready', text:'טיוטה מוכנה'};
-  if(d.outcome==='blocked') return {cls:'blocked', text:'נחסם אוטומטית — לבדיקה'};
-  if(d.draftText) return {cls:'human', text:'טיוטה לבדיקה — הועבר לאדם'};
-  return {cls:'human', text:'דורש טיפול אנושי'};
-}
-
-function regenerate(chatJid, btn, force){
-  var orig=btn.textContent;
-  btn.disabled=true; btn.textContent='מריץ…';
-  var qs='chatJid='+encodeURIComponent(chatJid)+'&limit=1'+(force?'&force=true':'');
-  fetch('/api/admin/wa-review/queue?'+qs,{method:'POST',credentials:'same-origin'})
-    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
-    .then(function(res){
-      if(!res.ok){ btn.disabled=false; btn.textContent=orig; alert('נכשל: '+((res.j&&res.j.error)||'שגיאה')); return; }
-      load();
-    })
-    .catch(function(){ btn.disabled=false; btn.textContent=orig; alert('נכשל להריץ.'); });
-}
-
-function renderCard(d){
-  var card=el('div','card');
-
-  /* ---- header band ---- */
-  var head=el('div','chead');
-  var bf=badgeFor(d);
-  head.appendChild(el('span','badge '+bf.cls,bf.text));
-  var right=el('div','right');
-  right.appendChild(el('div','dealName',d.chatLabel||d.chatJid||'—'));
-  var metaBits=[];
-  if(d.clientName) metaBits.push(d.clientName);
-  if(d.responsibleName) metaBits.push(d.responsibleName);
-  if(d.draftText) metaBits.push(relativeWhen(d.createdAt));
-  else if(d.waitedLabel) metaBits.push('ממתין '+d.waitedLabel);
-  right.appendChild(el('div','metaLine',metaBits.filter(Boolean).join(' · ')));
-  head.appendChild(right);
-  card.appendChild(head);
-
-  var body=el('div','cbody');
-
-  if(!d.dealLinked && d.chatJid && d.chatJid.indexOf('@g.us')!==-1){
-    var gid=d.chatJid.replace(/\D/g,'');
-    var lh=el('div','linkHint');
-    lh.appendChild(el('div','txt','לא מקושר לעסקה במאנדיי — כדי לקשר, הדביקו את המזהה הזה בעמודת מזהה הקבוצה בפריט המתאים בלוח קבלן/יד2.'));
-    var cb=el('button',null,'העתק מזהה קבוצה');
-    cb.type='button';
-    cb.addEventListener('click',function(){
-      var done=function(){ cb.textContent='הועתק ✓'; setTimeout(function(){cb.textContent='העתק מזהה קבוצה';},1600); };
-      if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(gid).then(done).catch(done); }
-      else { done(); }
-    });
-    lh.appendChild(cb);
-    body.appendChild(lh);
-  }
-
-  /* ---- client message ---- */
-  if(d.messageText){
-    var sec1=el('div','section');
-    sec1.appendChild(el('div','lbl',null));
-    sec1.lastChild.appendChild(document.createTextNode('הודעת הלקוח'));
-    var qbox=el('div','quoteBox');
-    var qt=el('div');qt.setAttribute('dir','auto');qt.textContent=d.messageText;qbox.appendChild(qt);
-    var qtime=fmtMsgTime(d.messageAt||d.createdAt);
-    if(qtime) qbox.appendChild(el('div','quoteTime',qtime));
-    sec1.appendChild(qbox);
-    body.appendChild(sec1);
-  }
-
-  /* ---- caveat for an escalate-with-suggestion draft ---- */
-  var reasonTxt=d.outcomeReasonLabel||d.outcomeReason||'';
-  if(d.outcome==='escalate' && d.draftText){
-    body.appendChild(el('div','warnNote','הועבר לאדם — '+(reasonTxt||'ללא סיבה מפורטת')+'. הטיוטה הבאה היא הצעה בלבד — יש לבדוק היטב לפני שימוש.'));
-  } else if(d.outcome==='blocked'){
-    body.appendChild(el('div','warnNote','נחסם אוטומטית: '+(reasonTxt||'')+' — יש לבדוק ידנית לפני שימוש.'));
-  }
-
-  /* ---- response: editable draft, or dashed "no draft yet" ---- */
-  var sec2=el('div','section');
-  var lbl2=el('div','lbl');
-  if(d.draftText){
-    var hint=el('span','hint','ניתן לעריכה');
-    lbl2.appendChild(hint);
-  } else {
-    lbl2.appendChild(el('span','hint',''));
-  }
-  lbl2.appendChild(document.createTextNode('התשובה שלך'));
-  sec2.appendChild(lbl2);
-
-  if(d.draftText){
-    var ta=document.createElement('textarea');
-    ta.className='draftBox';
-    ta.setAttribute('dir','auto');
-    ta.value=d.draftText;
-    sec2.appendChild(ta);
-
-    var foot=el('div','draftFoot');
-    var left=el('div','left');
-    var regenBtn=el('button','linkBtn','נסח מחדש');
-    regenBtn.type='button';
-    regenBtn.addEventListener('click',function(){ regenerate(d.chatJid, regenBtn, true); });
-    left.appendChild(regenBtn);
-    left.appendChild(el('span','hint','העריכה נכנסת לתוקף למה שיועתק'));
-    foot.appendChild(left);
-
-    var copyBtn=el('button','btnPrimary','העתק תשובה');
-    copyBtn.type='button';
-    copyBtn.addEventListener('click',function(){
-      var text=ta.value;
-      var done=function(){ copyBtn.textContent='הועתק ✓'; setTimeout(function(){copyBtn.textContent='העתק תשובה';},1600); };
-      if(navigator.clipboard && navigator.clipboard.writeText){
-        navigator.clipboard.writeText(text).then(done).catch(function(){ ta.select(); document.execCommand('copy'); done(); });
-      } else { ta.select(); document.execCommand('copy'); done(); }
-    });
-    foot.appendChild(copyBtn);
-    sec2.appendChild(foot);
-    if(d.answerBankCode) sec2.appendChild(el('div','code',d.answerBankCode));
-  } else {
-    var reasonMap={
-      escalate:reasonTxt||'ללא סיבה מפורטת',
-      error:'שגיאה בהרצה — '+reasonTxt,
-      silence:'לא נדרש מענה מהסוכן'+(reasonTxt?' — '+reasonTxt:'.'),
-      dropped:'סונן אוטומטית'+(reasonTxt?' — '+reasonTxt:' (תודה / אימוג׳י / הודעה לא רלוונטית).'),
-    };
-    var row=el('div','noDraftRow');
-    row.appendChild(el('div','noDraftReason','לא נוצרה טיוטה — '+(reasonMap[d.outcome]||reasonTxt||'—')));
-    var writeBtn=el('button','btnGhost','כתוב טיוטה בכל זאת');
-    writeBtn.type='button';
-    writeBtn.addEventListener('click',function(){ regenerate(d.chatJid, writeBtn, true); });
-    row.appendChild(writeBtn);
-    sec2.appendChild(row);
-  }
-  body.appendChild(sec2);
-
-  if(d.referenceText){
-    var rw=el('div','refWrap section');
-    rw.appendChild(el('div','lbl',null));
-    rw.lastChild.appendChild(document.createTextNode('מה שנשלח בפועל בשיחה'));
-    var rq=el('div','quoteBox');
-    var rt=el('div');rt.setAttribute('dir','auto');rt.textContent=d.referenceText;rq.appendChild(rt);
-    rw.appendChild(rq);
-    body.appendChild(rw);
-  }
-
-  card.appendChild(body);
-  return card;
-}
-
-// ready = has a draft to review (clean OR blocked OR escalate-with-suggestion)
-// waiting = queued, genuinely nothing to copy yet
-// The API only ever returns queued (isQueued) rows now — this screen is
-// "what needs a reply", full stop. Filtering here too is just cheap defense
-// if that ever changes.
-function splitByTab(drafts){
-  var queued=(drafts||[]).filter(function(d){ return !!d.isQueued; });
-  return {
-    ready: queued.filter(function(d){ return !!d.draftText; }),
-    waiting: queued.filter(function(d){ return !d.draftText; }),
+  var ICONS = {
+    email:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></svg>',
+    whatsapp:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.39 1.26 4.81L2 22l5.4-1.42a9.87 9.87 0 0 0 4.64 1.18h.01c5.46 0 9.9-4.45 9.9-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2Zm0 1.67c2.2 0 4.26.86 5.82 2.4a8.2 8.2 0 0 1 2.42 5.84c0 4.55-3.7 8.24-8.25 8.24a8.2 8.2 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.18 8.18 0 0 1-1.26-4.38c0-4.55 3.7-8.24 8.25-8.24Z"/></svg>',
+    manual:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.39 1.26 4.81L2 22l5.4-1.42a9.87 9.87 0 0 0 4.64 1.18h.01c5.46 0 9.9-4.45 9.9-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2Z"/></svg>'
   };
-}
+  var CLOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>';
+  var TIMER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 1.5M9 2h6"/></svg>';
+  var UP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 15 7-7 7 7"/></svg>';
+  var PENCIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+  var LINK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>';
+  var CHEV = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>';
 
-function render(data){
-  lastData=data;
-  var admin=data.scope==='firm';
-  document.getElementById('meta').textContent=(function(){
-    var g=splitByTab(data.drafts||[]);
-    return g.ready.length+' טיוטות לאישור · '+g.waiting.length+' ממתינות';
-  })();
-  document.getElementById('toolRow').style.display=admin?'flex':'none';
-  document.getElementById('toolRowStaff').style.display=admin?'none':'flex';
-  document.getElementById('bottomRow').style.display=admin?'flex':'none';
-  document.getElementById('tabRow').style.display='flex';
-
-  var groups=splitByTab(data.drafts||[]);
-  document.getElementById('cntReady').textContent=' ('+groups.ready.length+')';
-  document.getElementById('cntWaiting').textContent=' ('+groups.waiting.length+')';
-
-  var list=groups[activeTab]||[];
-  if(searchQuery){
-    var q=searchQuery.toLowerCase();
-    list=list.filter(function(d){
-      return ((d.chatLabel||'')+' '+(d.clientName||'')).toLowerCase().indexOf(q)!==-1;
-    });
-  }
-  var cards=document.getElementById('cards');
-  cards.innerHTML='';
-  if(!list.length){
-    var msg;
-    if(searchQuery){
-      msg = 'אין תוצאות התואמות לחיפוש.';
-    } else if(activeTab==='ready'){
-      msg = admin ? 'אין כרגע טיוטות מוכנות. לחצו על "הכן טיוטות לשיחות ממתינות".' : 'אין כרגע תשובות מוכנות לכם.';
-    } else {
-      msg = 'אין כרגע שיחות שממתינות בלי טיוטה — 👍';
+  var I18N = {
+    he:{
+      title:'מוקד המשימות שלי', live:'מתעדכן אוטומטית', refresh:'רענן', refreshing:'מרענן…',
+      statOpen:'משימות פתוחות', statUrgent:'דחופות', statTime:'זמן משוער היום', statDone:'הושלמו היום',
+      filterAll:'הכול', filterUrgent:'דחוף', filterEmail:'אימייל', filterWhatsapp:'וואטסאפ', filterManual:'LAWLY',
+      groupUrgent:'קריטי', groupHigh:'היום', groupLater:'בהמשך',
+      srcEmail:'אימייל', srcWhatsapp:'וואטסאפ — קבוצת עסקה', srcManual:'נשלח ל-LAWLY בוואטסאפ',
+      pUrgent:'דחוף', pHigh:'גבוה', pNormal:'רגיל', pLow:'נמוך',
+      escalated:'הועלה בגלל המתנה ארוכה',
+      min:'דק׳', doneList:'הושלמו היום', empty:'אין כאן משימות כרגע — כל הכבוד.',
+      save:'שמור', cancel:'בטל', edit:'ערוך', openSource:'פתח מקור',
+      errLoad:'שגיאה בטעינת המשימות', errRefresh:'הרענון נכשל, נסה שוב עוד רגע',
+      agoJust:'עכשיו', agoMin:'לפני {n} דק׳', agoHour:'לפני שעה', agoHours:'לפני {n} שעות', agoDay:'לפני יום', agoDays:'לפני {n} ימים'
+    },
+    en:{
+      title:"My Task Hub", live:'Live', refresh:'Refresh', refreshing:'Refreshing…',
+      statOpen:'Open tasks', statUrgent:'Urgent', statTime:'Est. time today', statDone:'Done today',
+      filterAll:'All', filterUrgent:'Urgent', filterEmail:'Email', filterWhatsapp:'WhatsApp', filterManual:'LAWLY',
+      groupUrgent:'Critical', groupHigh:'Today', groupLater:'Later',
+      srcEmail:'Email', srcWhatsapp:'WhatsApp — deal group', srcManual:'Sent to LAWLY on WhatsApp',
+      pUrgent:'Urgent', pHigh:'High', pNormal:'Normal', pLow:'Low',
+      escalated:'Escalated for waiting too long',
+      min:'min', doneList:'Done today', empty:'Nothing here right now — nice work.',
+      save:'Save', cancel:'Cancel', edit:'Edit', openSource:'Open source',
+      errLoad:'Could not load your tasks', errRefresh:'Refresh failed, try again in a bit',
+      agoJust:'just now', agoMin:'{n}m ago', agoHour:'1h ago', agoHours:'{n}h ago', agoDay:'1d ago', agoDays:'{n}d ago'
     }
-    cards.appendChild(el('div','state',msg));
-    return;
+  };
+
+  var state = { lang: 'he', filter: 'all', doneOpen: false, tasks: [], done: [] };
+  try {
+    var savedLang = localStorage.getItem('mytasks-lang');
+    if (savedLang === 'he' || savedLang === 'en') state.lang = savedLang;
+  } catch (e) { /* private mode etc. — default stands */ }
+
+  var PORDER = { urgent:0, high:1, normal:2, low:3 };
+
+  function t(key, vars){
+    var s = I18N[state.lang][key] || key;
+    if (vars) for (var k in vars) s = s.replace('{'+k+'}', vars[k]);
+    return s;
   }
-  list.forEach(function(d){ cards.appendChild(renderCard(d)); });
-}
+  function cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
+  function escapeHtml(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; }
+  function escapeAttr(s){ return escapeHtml(s).replace(/"/g,'&quot;'); }
 
-function load(){
-  document.getElementById('meta').textContent='טוען…';
-  fetch('/api/wa-review',{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}})
-    .then(function(r){
-      if(r.status===401){ goSignIn(); return null; }
-      if(!r.ok) throw new Error('bad status '+r.status);
-      clearAuthBounce();
-      return r.json();
-    })
-    .then(function(data){ if(data) render(data); })
-    .catch(function(e){
-      document.getElementById('meta').textContent='שגיאה בטעינה';
-      document.getElementById('cards').innerHTML='';
-      document.getElementById('cards').appendChild(el('div','state','לא ניתן לטעון את הרשימה. נסו רענון.'));
+  function ageLabel(iso){
+    var ms = Date.now() - new Date(iso).getTime();
+    var H = 3600*1000, D = 24*H;
+    if (ms < 5*60*1000) return t('agoJust');
+    if (ms < H) return t('agoMin',{n:Math.max(1,Math.round(ms/60000))});
+    if (ms < 2*H) return t('agoHour');
+    if (ms < D) return t('agoHours',{n:Math.round(ms/H)});
+    if (ms < 2*D) return t('agoDay');
+    return t('agoDays',{n:Math.round(ms/D)});
+  }
+  function ageRatio(task){
+    var THRESH = { whatsapp:24, email:48, manual:72 }; // hours
+    var hrs = (Date.now() - new Date(task.first_seen_at).getTime()) / 3600000;
+    return hrs / (THRESH[task.source] || 72);
+  }
+
+  async function api(path, opts){
+    var res = await fetch('/api/mytasks' + path, Object.assign({
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin'
+    }, opts || {}));
+    if (!res.ok) {
+      var body = {}; try { body = await res.json(); } catch (e) {}
+      throw new Error(body.error || ('HTTP ' + res.status));
+    }
+    return res.json();
+  }
+
+  function showError(msg){
+    document.getElementById('errorBox').innerHTML = msg ? '<div class="error">'+escapeHtml(msg)+'</div>' : '';
+  }
+
+  async function loadTasks(){
+    try {
+      var data = await api('');
+      state.tasks = (data.tasks || []).filter(function(x){ return x.status === 'open'; });
+      state.done = (data.tasks || []).filter(function(x){ return x.status === 'done'; });
+      showError(null);
+      document.getElementById('updatedAt').textContent = t('agoJust');
+    } catch (e) {
+      showError(t('errLoad') + ': ' + e.message);
+    }
+    render();
+  }
+
+  function renderSummary(){
+    var open = state.tasks;
+    var urgent = open.filter(function(x){ return x.effective_priority === 'urgent'; });
+    var totalMin = open.reduce(function(a,x){ return a + (x.estimated_minutes||0); }, 0);
+    document.getElementById('summaryRow').innerHTML =
+      stat(open.length, t('statOpen')) +
+      stat(urgent.length, t('statUrgent'), true) +
+      stat(totalMin + ' ' + t('min'), t('statTime')) +
+      stat(state.done.length, t('statDone'));
+    function stat(n,label,isUrgent){
+      return '<div class="stat'+(isUrgent?' is-urgent':'')+'"><div class="stat-num">'+n+'</div><div class="stat-label">'+label+'</div></div>';
+    }
+  }
+
+  function renderFilters(){
+    var counts = { all:0, urgent:0, email:0, whatsapp:0, manual:0 };
+    state.tasks.forEach(function(x){
+      counts.all++; counts[x.source] = (counts[x.source]||0)+1;
+      if (x.effective_priority === 'urgent') counts.urgent++;
     });
-}
+    var defs = [['all',t('filterAll')],['urgent',t('filterUrgent')],['email',t('filterEmail')],
+      ['whatsapp',t('filterWhatsapp')],['manual',t('filterManual')]];
+    var el = document.getElementById('filters');
+    el.innerHTML = defs.map(function(d){
+      return '<button class="chip'+(state.filter===d[0]?' is-active':'')+'" data-filter="'+d[0]+'" type="button">'+
+        d[1]+' <span class="n">'+(counts[d[0]]||0)+'</span></button>';
+    }).join('');
+    Array.prototype.forEach.call(el.querySelectorAll('.chip'), function(btn){
+      btn.addEventListener('click', function(){ state.filter = btn.getAttribute('data-filter'); render(); });
+    });
+  }
 
-function runAdmin(btn, path, note){
-  btn.disabled=true; var orig=btn.textContent; btn.textContent='מריץ…';
-  fetch(path,{method:'POST',credentials:'same-origin'})
-    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
-    .then(function(res){
-      btn.disabled=false; btn.textContent=orig;
-      if(!res.ok){ alert('נכשל: '+((res.j&&res.j.error)||'שגיאה')); return; }
-      if(note) alert(note(res.j.result));
-      load();
-    })
-    .catch(function(){ btn.disabled=false; btn.textContent=orig; alert('נכשל להריץ.'); });
-}
+  function matchesFilter(task){
+    if (state.filter === 'all') return true;
+    if (state.filter === 'urgent') return task.effective_priority === 'urgent';
+    return task.source === state.filter;
+  }
 
-document.getElementById('queueBtn').addEventListener('click',function(){
-  runAdmin(this,'/api/admin/wa-review/queue?limit=200',function(r){
-    if(!r) return 'הסתיים.';
-    var extra=[];
-    if(r.alreadyDrafted) extra.push(r.alreadyDrafted+' כבר היו עם טיוטה');
-    if(r.noText) extra.push(r.noText+' ללא טקסט לקריאה (וידאו/סטיקר/שגיאת פענוח)');
-    return r.queued+' שיחות ממתינות כרגע · נוצרו '+r.ran+' טיוטות חדשות'+(extra.length?' ('+extra.join(', ')+')':'')+'.';
+  function taskCard(task){
+    var eff = task.effective_priority;
+    var ratio = ageRatio(task);
+    var ageCls = ratio >= 1 ? 'is-hot' : (ratio >= 0.6 ? 'is-warm' : '');
+    var pillMenu = ['urgent','high','normal','low'].map(function(p){
+      return '<button data-set-priority="'+p+'" data-id="'+task.id+'"><span class="dot" data-p="'+p+'"></span>'+t('p'+cap(p))+'</button>';
+    }).join('');
+    var srcLabel = t('src'+cap(task.source));
+    var linkBtn = task.source_ref && task.source !== 'manual'
+      ? '<button class="iconbtn" data-open="'+task.id+'" title="'+t('openSource')+'">'+LINK+'</button>' : '';
+
+    return (
+      '<article class="task" data-id="'+task.id+'" data-eff="'+eff+'">'+
+        '<button class="task-check" data-toggle="'+task.id+'" aria-label="toggle"></button>'+
+        '<div class="task-main">'+
+          '<div class="task-toprow"><span class="src'+(task.source==='manual'?' is-lawly':'')+'">'+ICONS[task.source]+srcLabel+'</span></div>'+
+          '<div class="task-view" data-view="'+task.id+'">'+
+            '<p class="task-title">'+escapeHtml(task.title)+'</p>'+
+            (task.summary ? '<p class="task-summary">'+escapeHtml(task.summary)+'</p>' : '')+
+          '</div>'+
+          '<div class="task-editrow" data-edit="'+task.id+'" hidden>'+
+            '<input type="text" data-field="title" value="'+escapeAttr(task.title)+'"/>'+
+            '<input type="number" data-field="est" value="'+(task.estimated_minutes||15)+'" min="1" max="240"/>'+
+            '<button class="btn" data-save="'+task.id+'" type="button">'+t('save')+'</button>'+
+            '<button class="btn" data-cancel="'+task.id+'" type="button">'+t('cancel')+'</button>'+
+          '</div>'+
+          '<div class="task-metarow">'+
+            '<div class="pmenu" data-menu="'+task.id+'">'+
+              '<button class="pill" data-p="'+eff+'" data-open-menu="'+task.id+'" type="button">'+
+                (task.escalated ? '<span class="esc" title="'+t('escalated')+'">'+UP+'</span>' : '')+
+                t('p'+cap(eff))+
+              '</button>'+
+              '<div class="pmenu-list">'+pillMenu+'</div>'+
+            '</div>'+
+            '<span class="est">'+TIMER+' '+(task.estimated_minutes||'—')+' '+t('min')+'</span>'+
+            '<span class="age '+ageCls+'">'+CLOCK+' '+ageLabel(task.first_seen_at)+'</span>'+
+          '</div>'+
+        '</div>'+
+        '<div class="task-actions">'+
+          '<button class="iconbtn" data-editbtn="'+task.id+'" title="'+t('edit')+'">'+PENCIL+'</button>'+
+          linkBtn+
+        '</div>'+
+      '</article>'
+    );
+  }
+
+  function render(){
+    document.documentElement.lang = state.lang === 'he' ? 'he' : 'en';
+    document.documentElement.dir = state.lang === 'he' ? 'rtl' : 'ltr';
+    document.getElementById('langToggle').textContent = state.lang === 'he' ? 'EN' : 'עב';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-i18n]'), function(el){
+      el.textContent = t(el.getAttribute('data-i18n'));
+    });
+
+    renderSummary();
+    renderFilters();
+
+    var visible = state.tasks.filter(matchesFilter);
+    var groups = { urgent:[], high:[], later:[] };
+    visible.forEach(function(x){
+      if (x.effective_priority === 'urgent') groups.urgent.push(x);
+      else if (x.effective_priority === 'high') groups.high.push(x);
+      else groups.later.push(x);
+    });
+
+    var html = '';
+    if (!visible.length) {
+      html = '<p class="empty">'+t('empty')+'</p>';
+    } else {
+      if (groups.urgent.length) html += groupHtml('urgent', t('groupUrgent'), groups.urgent);
+      if (groups.high.length) html += groupHtml('high', t('groupHigh'), groups.high);
+      if (groups.later.length) html += groupHtml('later', t('groupLater'), groups.later);
+    }
+    if (state.done.length) {
+      html += '<button class="done-toggle'+(state.doneOpen?' is-open':'')+'" id="doneToggle" type="button">'+CHEV+' '+t('doneList')+' ('+state.done.length+')</button>';
+      if (state.doneOpen) {
+        html += '<div class="card-stack" style="margin-top:9px;">' + state.done.map(function(x){
+          return '<article class="task is-done" data-eff="'+x.priority+'"><button class="task-check" disabled></button>'+
+            '<div class="task-main"><div class="task-toprow"><span class="src">'+ICONS[x.source]+t('src'+cap(x.source))+'</span></div>'+
+            '<p class="task-title">'+escapeHtml(x.title)+'</p></div></article>';
+        }).join('') + '</div>';
+      }
+    }
+
+    document.getElementById('taskList').innerHTML = html;
+    wireList();
+
+    function groupHtml(key, label, items){
+      return '<div class="group"><div class="group-head'+(key==='urgent'?' is-urgent':'')+'"><h2>'+label+'</h2><span class="count">'+items.length+'</span></div>'+
+        '<div class="card-stack">'+items.map(taskCard).join('')+'</div></div>';
+    }
+  }
+
+  function wireList(){
+    var list = document.getElementById('taskList');
+    Array.prototype.forEach.call(list.querySelectorAll('[data-toggle]'), function(btn){
+      btn.addEventListener('click', async function(){
+        var id = btn.getAttribute('data-toggle');
+        try { await api('/'+id+'/toggle', { method:'POST' }); await loadTasks(); }
+        catch (e) { showError(e.message); }
+      });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-editbtn]'), function(btn){
+      btn.addEventListener('click', function(){
+        var id = btn.getAttribute('data-editbtn');
+        list.querySelector('[data-view="'+id+'"]').hidden = true;
+        list.querySelector('[data-edit="'+id+'"]').hidden = false;
+      });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-cancel]'), function(btn){
+      btn.addEventListener('click', function(){ render(); });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-save]'), function(btn){
+      btn.addEventListener('click', async function(){
+        var id = btn.getAttribute('data-save');
+        var row = list.querySelector('[data-edit="'+id+'"]');
+        var title = row.querySelector('[data-field="title"]').value.trim();
+        var est = parseInt(row.querySelector('[data-field="est"]').value, 10);
+        try {
+          await api('/'+id, { method:'PATCH', body: JSON.stringify({ title: title, estimated_minutes: est }) });
+          await loadTasks();
+        } catch (e) { showError(e.message); }
+      });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-open-menu]'), function(btn){
+      btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        var wrap = btn.closest('.pmenu');
+        var wasOpen = wrap.classList.contains('is-open');
+        Array.prototype.forEach.call(list.querySelectorAll('.pmenu.is-open'), function(m){ m.classList.remove('is-open'); });
+        if (!wasOpen) wrap.classList.add('is-open');
+      });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-set-priority]'), function(btn){
+      btn.addEventListener('click', async function(){
+        var id = btn.getAttribute('data-id');
+        var p = btn.getAttribute('data-set-priority');
+        try { await api('/'+id, { method:'PATCH', body: JSON.stringify({ priority: p }) }); await loadTasks(); }
+        catch (e) { showError(e.message); }
+      });
+    });
+    var doneToggle = document.getElementById('doneToggle');
+    if (doneToggle) doneToggle.addEventListener('click', function(){ state.doneOpen = !state.doneOpen; render(); });
+  }
+
+  document.addEventListener('click', function(){
+    Array.prototype.forEach.call(document.querySelectorAll('.pmenu.is-open'), function(m){ m.classList.remove('is-open'); });
   });
-});
-document.getElementById('reconcileBtn').addEventListener('click',function(){
-  runAdmin(this,'/api/admin/wa-review/reconcile?limit=500',function(r){
-    return r ? ('נבדקו '+r.checked+', נמצאה תשובה בפועל עבור '+r.filled+'.') : 'הסתיים.';
+
+  document.getElementById('langToggle').addEventListener('click', function(){
+    state.lang = state.lang === 'he' ? 'en' : 'he';
+    try { localStorage.setItem('mytasks-lang', state.lang); } catch (e) {}
+    render();
   });
-});
-document.getElementById('refreshBtn').addEventListener('click',load);
-document.getElementById('refreshBtn2').addEventListener('click',load);
 
-document.querySelectorAll('.tab').forEach(function(tab){
-  tab.addEventListener('click',function(){
-    document.querySelectorAll('.tab').forEach(function(c){c.classList.remove('on');});
-    tab.classList.add('on');
-    activeTab=tab.getAttribute('data-t');
-    if(lastData) render(lastData);
+  document.getElementById('refreshBtn').addEventListener('click', async function(){
+    var btn = this;
+    btn.classList.add('is-loading');
+    btn.querySelector('span').textContent = t('refreshing');
+    try {
+      await api('/refresh', { method:'POST' });
+      await loadTasks();
+    } catch (e) {
+      showError(t('errRefresh') + ': ' + e.message);
+    } finally {
+      btn.classList.remove('is-loading');
+      btn.querySelector('span').textContent = t('refresh');
+    }
   });
-});
 
-var searchEl=document.getElementById('searchBox');
-if(searchEl){
-  searchEl.addEventListener('input',function(){
-    searchQuery=searchEl.value.trim();
-    if(lastData) render(lastData);
-  });
-}
-
-load();
-
-// Auto-refresh: the screen used to only update on page load or a manual
-// button click, so a new client message (or a draft the live-trigger
-// generated in the background) could sit unseen until someone remembered to
-// refresh. Poll quietly in the background instead — render() already
-// rebuilds the cards from lastData using the current activeTab/searchQuery,
-// so this just keeps that data current without disturbing what's on screen.
-setInterval(load, 25000);
+  loadTasks();
+  setInterval(loadTasks, 45000);
+})();
 </script>
 </body>
 </html>

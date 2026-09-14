@@ -751,8 +751,39 @@
     .then(function (me) { if (me && me.isAdmin) document.getElementById('teamToggleBtn').hidden = false; })
     .catch(function () { /* non-fatal — button just stays hidden */ });
 
+  // Real-time push (2026-09-14): a message in a linked WhatsApp
+  // task-inbox group now shows up here the instant the server extracts
+  // it (GET /api/mytasks/stream, SSE), not just on the next 45s poll or
+  // a manual refresh. Additive — the 45s poll below stays as a fallback
+  // for whenever this connection isn't open (older browser, a proxy
+  // that kills long-lived responses, or the reconnect backoff below
+  // still winding up).
+  function connectTaskStream(){
+    if (state.mode === 'team') return; // team view has no personal stream to open
+    var backoffMs = 2000;
+    var es = null;
+    function open(){
+      try { es = new EventSource('/api/mytasks/stream'); } catch (e) { return; }
+      es.addEventListener('task', function(){
+        // Payload carries the task itself, but re-pulling the small "my
+        // open tasks" list keeps this in lockstep with loadTasks()'s own
+        // filtering/sorting instead of duplicating that logic here.
+        if (state.mode !== 'team') loadTasks();
+        backoffMs = 2000;
+      });
+      es.onerror = function(){
+        if (es) { es.close(); es = null; }
+        setTimeout(open, backoffMs);
+        backoffMs = Math.min(backoffMs * 2, 30000);
+      };
+    }
+    open();
+    window.addEventListener('beforeunload', function(){ if (es) es.close(); });
+  }
+
   loadTasks();
   setInterval(function(){ if (state.mode === 'team') loadTeamTasks(); else loadTasks(); }, 45000);
+  if (typeof EventSource !== 'undefined') connectTaskStream();
 })();
 </script>
 </body>

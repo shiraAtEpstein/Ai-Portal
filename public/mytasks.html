@@ -58,6 +58,11 @@
   .searchbox .s-clear{position:absolute; inset-inline-end:6px; top:50%; transform:translateY(-50%); border:none; background:none; color:var(--ink-faint); font-size:17px; line-height:1; cursor:pointer; width:24px; height:24px; border-radius:7px; display:flex; align-items:center; justify-content:center;}
   .searchbox .s-clear:hover{background:var(--surface-2); color:var(--ink);}
 
+  .composer{display:flex; gap:8px; margin-bottom:14px;}
+  .composer input{flex:1; min-width:0; border:1px solid var(--border); background:var(--surface); border-radius:10px; padding:9px 14px; font:inherit; font-size:14px; color:var(--ink); box-shadow:var(--shadow);}
+  .composer input:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
+  @media (max-width:520px){ .composer{flex-wrap:wrap;} .composer input{width:100%;} }
+
   .filters{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px;}
   .chip{border:1px solid var(--border); background:var(--surface); color:var(--ink-muted); padding:6px 13px; border-radius:999px; font-size:13.5px; font-weight:600; cursor:pointer;}
   .chip:hover{border-color:var(--accent);}
@@ -149,6 +154,14 @@
     </div>
   </header>
 
+  <div class="composer" id="composer">
+    <input type="text" id="composerInput" maxlength="500" autocomplete="off"/>
+    <button class="btn btn-primary" id="composerBtn" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+      <span data-i18n="addTask">הוסף משימה</span>
+    </button>
+  </div>
+
   <div id="errorBox"></div>
   <div class="summary-row" id="summaryRow"></div>
   <div class="searchbox">
@@ -188,7 +201,8 @@
       min:'דק׳', doneList:'הושלמו היום', empty:'אין כאן משימות כרגע — כל הכבוד.',
       save:'שמור', cancel:'בטל', edit:'ערוך', openSource:'פתח מקור',
       search:'חיפוש משימות…', noResults:'אין משימות שתואמות לחיפוש',
-      errLoad:'שגיאה בטעינת המשימות', errRefresh:'הרענון נכשל, נסה שוב עוד רגע',
+      addTask:'הוסף משימה', addPlaceholder:'הוסיפי כאן משימה ל-LAWLY…', adding:'מוסיף…',
+      errLoad:'שגיאה בטעינת המשימות', errRefresh:'הרענון נכשל, נסה שוב עוד רגע', errAdd:'לא ניתן להוסיף את המשימה',
       agoJust:'עכשיו', agoMin:'לפני {n} דק׳', agoHour:'לפני שעה', agoHours:'לפני {n} שעות', agoDay:'לפני יום', agoDays:'לפני {n} ימים'
     },
     en:{
@@ -202,7 +216,8 @@
       min:'min', doneList:'Done today', empty:'Nothing here right now — nice work.',
       save:'Save', cancel:'Cancel', edit:'Edit', openSource:'Open source',
       search:'Search tasks…', noResults:'No tasks match your search',
-      errLoad:'Could not load your tasks', errRefresh:'Refresh failed, try again in a bit',
+      addTask:'Add task', addPlaceholder:'Type a task for LAWLY…', adding:'Adding…',
+      errLoad:'Could not load your tasks', errRefresh:'Refresh failed, try again in a bit', errAdd:'Could not add the task',
       agoJust:'just now', agoMin:'{n}m ago', agoHour:'1h ago', agoHours:'{n}h ago', agoDay:'1d ago', agoDays:'{n}d ago'
     }
   };
@@ -392,6 +407,7 @@
     var searchInput = document.getElementById('searchInput');
     searchInput.placeholder = t('search');
     document.getElementById('searchClear').hidden = !state.search;
+    document.getElementById('composerInput').placeholder = t('addPlaceholder');
 
     var visible = state.tasks.filter(matchesFilter).filter(matchesSearch);
     var groups = { urgent:[], high:[], later:[] };
@@ -518,6 +534,39 @@
     input.value = '';
     render();
     input.focus();
+  });
+
+  // "Add my own task" composer — posts straight to the existing
+  // POST /api/mytasks/chat endpoint (taskHub.addManualTask), the same
+  // manual-task-extract skill that already turns free text sent to LAWLY
+  // on WhatsApp into a task. This just gives that same channel a box on
+  // the page itself, instead of requiring a WhatsApp message.
+  var composerInput = document.getElementById('composerInput');
+  var composerBtn = document.getElementById('composerBtn');
+
+  async function submitManualTask(){
+    var text = composerInput.value.trim();
+    if (!text) return;
+    composerBtn.disabled = true;
+    composerBtn.classList.add('is-loading');
+    composerBtn.querySelector('span').textContent = t('adding');
+    try {
+      await api('/chat', { method:'POST', body: JSON.stringify({ text: text }) });
+      composerInput.value = '';
+      showError(null);
+      await loadTasks();
+    } catch (e) {
+      showError(t('errAdd') + ': ' + e.message);
+    } finally {
+      composerBtn.disabled = false;
+      composerBtn.classList.remove('is-loading');
+      composerBtn.querySelector('span').textContent = t('addTask');
+    }
+  }
+
+  composerBtn.addEventListener('click', submitManualTask);
+  composerInput.addEventListener('keydown', function(e){
+    if (e.key === 'Enter') { e.preventDefault(); submitManualTask(); }
   });
 
   document.getElementById('refreshBtn').addEventListener('click', async function(){

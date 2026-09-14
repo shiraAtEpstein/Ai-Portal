@@ -34,7 +34,7 @@ const { SafeCache } = require('./safe-cache');
 const { createAuthStore } = require('./auth-store');
 const db = require('./db');
 const ingestDb = require('../ingest/db');
-const { senderFromMessage, normalizePhone, jidUser, isLidJid } = require('../ingest/phone');
+const { senderFromMessage, normalizePhone, jidUser, isLidJid, textPreview } = require('../ingest/phone');
 const { loadDirectory } = require('../../lib/routing');
 const { matchStaffByName } = require('../../lib/responsible');
 const { pickDealByGroupName } = require('../ingest/match');
@@ -410,6 +410,15 @@ class BaileysGroupsProvider extends EventEmitter {
           if (info.direction === 'in' && !resolveSenderStaff(info, msg)) {
             try { require('../agent/live-trigger').scheduleDraft(info.chat_jid); } catch (_) {}
           }
+          // Real-time Task Hub push (2026-09-14) — only for a group already
+          // linked as someone's personal task-inbox (task_owner_email set,
+          // see resolveTaskOwnerForGroupName / _upsertGroup above). Extracts
+          // and pushes THIS message immediately instead of waiting for that
+          // person's next Task Hub refresh. Fire-and-forget: never awaited,
+          // never allowed to affect message ingestion either way.
+          if (info.is_group) {
+            this._maybePushRealtimeTask(info, msg);
+          }
         } else skipped++;
       } catch (e) {
         skipped++;
@@ -418,6 +427,33 @@ class BaileysGroupsProvider extends EventEmitter {
     }
     if (enqueued || skipped) {
       console.log(`[whatsapp/ingest] enqueued ${enqueued}, skipped/duplicate ${skipped}`);
+    }
+  }
+
+  // Look up whether this group is a linked personal task-inbox
+  // (whatsapp_groups.task_owner_email) and, if so, hand the message to
+  // lib/task-hub.js for immediate extraction + push. Best-effort and
+  // fire-and-forget on purpose: a slow or failing Claude call here must
+  // never delay or break WhatsApp message ingestion, and there is no
+  // caller waiting on this promise.
+  async _maybePushRealtimeTask(info, msg) {
+    try {
+      const group = await db.getGroup(this.accountId, info.chat_jid);
+      if (!group || !group.task_owner_email) return;
+      const text = textPreview((msg && msg.message) || msg) || '';
+      if (!text) return;
+      const effAt = info.timestamp
+        ? new Date(info.timestamp * 1000).toISOString()
+        : new Date().toISOString();
+      require('../../lib/task-hub')
+        .processRealtimeManualMessage(group.task_owner_email, {
+          text,
+          source_item_id: info.message_id,
+          eff_at: effAt,
+        })
+        .catch((e) => console.error('[whatsapp/ingest] realtime task push failed:', e.message));
+    } catch (e) {
+      console.error('[whatsapp/ingest] task-inbox lookup failed:', e.message);
     }
   }
 

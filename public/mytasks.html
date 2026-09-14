@@ -26,6 +26,7 @@
   @media (prefers-reduced-motion: reduce){ *{animation-duration:.001ms !important; transition-duration:.001ms !important;} }
   button{font-family:inherit;}
   button:focus-visible, input:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+  [hidden]{display:none !important;}
 
   .app{max-width:900px;margin:0 auto;padding:22px 22px 60px;}
   .topbar{display:flex; align-items:center; gap:18px; flex-wrap:wrap; padding-bottom:16px; margin-bottom:18px; border-bottom:1px solid var(--border);}
@@ -35,7 +36,7 @@
   .topbar-meta{display:flex; align-items:center; gap:8px; color:var(--ink-muted); font-size:13.5px; margin-inline-end:auto;}
   .live-dot{width:8px;height:8px;border-radius:50%;background:#3f9a5c;flex:none; box-shadow:0 0 0 3px rgba(63,154,92,.2);}
   .topbar-actions{display:flex; align-items:center; gap:8px;}
-  .btn{display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border); background:var(--surface); color:var(--ink); border-radius:10px; padding:8px 13px; font-size:14px; font-weight:600; cursor:pointer; transition:background .15s, border-color .15s, transform .1s;}
+  .btn{display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border); background:var(--surface); color:var(--ink); border-radius:10px; padding:8px 13px; font-size:14px; font-weight:600; cursor:pointer; text-decoration:none; transition:background .15s, border-color .15s, transform .1s;}
   .btn:hover{border-color:var(--accent);}
   .btn:active{transform:translateY(1px);}
   .btn-primary{background:var(--accent); color:var(--accent-ink); border-color:var(--accent);}
@@ -63,6 +64,7 @@
   .composer input:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
   @media (max-width:520px){ .composer{flex-wrap:wrap;} .composer input{width:100%;} }
 
+  .people{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;}
   .filters{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px;}
   .chip{border:1px solid var(--border); background:var(--surface); color:var(--ink-muted); padding:6px 13px; border-radius:999px; font-size:13.5px; font-weight:600; cursor:pointer;}
   .chip:hover{border-color:var(--accent);}
@@ -80,6 +82,7 @@
   .card-stack{display:flex; flex-direction:column; gap:9px;}
 
   .task{background:var(--surface); border:1px solid var(--border-soft); border-radius:12px; box-shadow:var(--shadow); border-inline-start:4px solid var(--normal); padding:12px 14px; display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:start;}
+  .task.is-readonly{grid-template-columns:1fr auto;}
   .task[data-eff="urgent"]{border-inline-start-color:var(--urgent);}
   .task[data-eff="high"]{border-inline-start-color:var(--high);}
   .task[data-eff="normal"]{border-inline-start-color:var(--normal);}
@@ -95,6 +98,7 @@
   .src{display:inline-flex; align-items:center; gap:5px; font-size:12px; font-weight:700; color:var(--ink-muted);}
   .src svg{width:13px;height:13px;}
   .src.is-lawly{color:#1f8a5f;}
+  .who{display:inline-flex; align-items:center; font-size:12px; font-weight:700; color:var(--accent-soft-ink); background:var(--accent-soft); padding:2px 9px; border-radius:999px;}
   .task-title{font-weight:700; font-size:15px; line-height:1.35; margin:0;}
   .task-summary{color:var(--ink-muted); font-size:13.5px; line-height:1.5; margin:3px 0 0;}
   .task-editrow{display:flex; gap:8px; margin-top:7px; flex-wrap:wrap;}
@@ -146,6 +150,10 @@
       <span id="updatedAt" data-i18n="updated">—</span>
     </div>
     <div class="topbar-actions">
+      <button class="btn" id="teamToggleBtn" type="button" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span id="teamToggleLabel">כל הצוות</span>
+      </button>
       <button class="btn" id="langToggle" type="button">EN</button>
       <button class="btn btn-primary" id="refreshBtn" type="button">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 4v6h-6"/></svg>
@@ -169,6 +177,7 @@
     <input type="search" id="searchInput" autocomplete="off"/>
     <button type="button" id="searchClear" class="s-clear" hidden aria-label="clear">×</button>
   </div>
+  <div class="people" id="people" hidden></div>
   <div class="filters" id="filters"></div>
   <section id="taskList" aria-live="polite"></section>
 </div>
@@ -202,7 +211,9 @@
       save:'שמור', cancel:'בטל', edit:'ערוך', openSource:'פתח מקור',
       search:'חיפוש משימות…', noResults:'אין משימות שתואמות לחיפוש',
       addTask:'הוסף משימה', addPlaceholder:'הוסיפי כאן משימה ל-LAWLY…', adding:'מוסיף…',
+      teamView:'כל הצוות', myTasksView:'המשימות שלי', allPeople:'כולם', statTimeTeam:'זמן משוער כולל',
       errLoad:'שגיאה בטעינת המשימות', errRefresh:'הרענון נכשל, נסה שוב עוד רגע', errAdd:'לא ניתן להוסיף את המשימה',
+      errTeamForbidden:'אין הרשאת מנהל לצפות בתצוגת הצוות',
       agoJust:'עכשיו', agoMin:'לפני {n} דק׳', agoHour:'לפני שעה', agoHours:'לפני {n} שעות', agoDay:'לפני יום', agoDays:'לפני {n} ימים'
     },
     en:{
@@ -217,12 +228,22 @@
       save:'Save', cancel:'Cancel', edit:'Edit', openSource:'Open source',
       search:'Search tasks…', noResults:'No tasks match your search',
       addTask:'Add task', addPlaceholder:'Type a task for LAWLY…', adding:'Adding…',
+      teamView:'Team view', myTasksView:'My tasks', allPeople:'Everyone', statTimeTeam:'Total est. time',
       errLoad:'Could not load your tasks', errRefresh:'Refresh failed, try again in a bit', errAdd:'Could not add the task',
+      errTeamForbidden:'Admin access required for the team view',
       agoJust:'just now', agoMin:'{n}m ago', agoHour:'1h ago', agoHours:'{n}h ago', agoDay:'1d ago', agoDays:'{n}d ago'
     }
   };
 
-  var state = { lang: 'he', filter: 'all', doneOpen: false, tasks: [], done: [], search: '', collapsed: {} };
+  // mode 'mine' = the signed-in user's own tasks (default). mode 'team' =
+  // the admin-only "see everyone's tasks" view, toggled by #teamToggleBtn
+  // (only ever shown to admins — see the isAdmin check near the bottom).
+  // Kept as one page/one state object rather than a separate page so
+  // switching is instant and reuses all the same rendering/i18n/search code.
+  var state = {
+    lang: 'he', mode: 'mine', filter: 'all', personFilter: 'all', doneOpen: false,
+    tasks: [], done: [], teamTasks: [], teamUsers: [], search: '', collapsed: {}
+  };
   try {
     var savedLang = localStorage.getItem('mytasks-lang');
     if (savedLang === 'he' || savedLang === 'en') state.lang = savedLang;
@@ -284,23 +305,56 @@
     render();
   }
 
-  function renderSummary(){
-    var open = state.tasks;
-    var urgent = open.filter(function(x){ return x.effective_priority === 'urgent'; });
-    var totalMin = open.reduce(function(a,x){ return a + (x.estimated_minutes||0); }, 0);
-    document.getElementById('summaryRow').innerHTML =
-      stat(open.length, t('statOpen')) +
+  // Admin-only: every open task from every user, via the same endpoint the
+  // (now-folded-in) team page used — GET /api/mytasks/admin/all, gated
+  // server-side by requireAdmin. 403 here shouldn't normally happen (the
+  // toggle button is itself admin-gated), but handled defensively in case
+  // someone's admin role was revoked mid-session.
+  async function loadTeamTasks(){
+    try {
+      var res = await fetch('/api/mytasks/admin/all', {
+        headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin'
+      });
+      if (res.status === 403) {
+        state.teamTasks = []; state.teamUsers = [];
+        showError(t('errTeamForbidden'));
+        render();
+        return;
+      }
+      if (!res.ok) {
+        var body = {}; try { body = await res.json(); } catch (e) {}
+        throw new Error(body.error || ('HTTP ' + res.status));
+      }
+      var data = await res.json();
+      state.teamTasks = data.tasks || [];
+      state.teamUsers = data.users || [];
+      showError(null);
+      document.getElementById('updatedAt').textContent = t('agoJust');
+    } catch (e) {
+      showError(t('errLoad') + ': ' + e.message);
+    }
+    render();
+  }
+
+  function renderSummary(list){
+    var urgent = list.filter(function(x){ return x.effective_priority === 'urgent'; });
+    var totalMin = list.reduce(function(a,x){ return a + (x.estimated_minutes||0); }, 0);
+    var html =
+      stat(list.length, t('statOpen')) +
       stat(urgent.length, t('statUrgent'), true) +
-      stat(totalMin + ' ' + t('min'), t('statTime')) +
-      stat(state.done.length, t('statDone'));
+      stat(totalMin + ' ' + t('min'), state.mode === 'team' ? t('statTimeTeam') : t('statTime'));
+    // "Done today" only means anything for the signed-in user's own tasks —
+    // the team view never fetches other people's done tasks.
+    if (state.mode === 'mine') html += stat(state.done.length, t('statDone'));
+    document.getElementById('summaryRow').innerHTML = html;
     function stat(n,label,isUrgent){
       return '<div class="stat'+(isUrgent?' is-urgent':'')+'"><div class="stat-num">'+n+'</div><div class="stat-label">'+label+'</div></div>';
     }
   }
 
-  function renderFilters(){
+  function renderFilters(list){
     var counts = { all:0, urgent:0, email:0, whatsapp:0, manual:0 };
-    state.tasks.forEach(function(x){
+    list.forEach(function(x){
       counts.all++; counts[x.source] = (counts[x.source]||0)+1;
       if (x.effective_priority === 'urgent') counts.urgent++;
     });
@@ -313,6 +367,29 @@
     }).join('');
     Array.prototype.forEach.call(el.querySelectorAll('.chip'), function(btn){
       btn.addEventListener('click', function(){ state.filter = btn.getAttribute('data-filter'); render(); });
+    });
+  }
+
+  // Team mode only: one chip per active staff member (plus "Everyone"),
+  // counted from ALL team tasks regardless of the source filter above — so
+  // a person's count doesn't jump around as you flip between Email/WhatsApp/
+  // LAWLY. Staff with zero open tasks still get a chip (0), so the roster
+  // itself is visible, not just who currently has something open.
+  function renderPeople(){
+    var el = document.getElementById('people');
+    if (state.mode !== 'team') { el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false;
+    var byUser = {};
+    state.teamTasks.forEach(function(x){ byUser[x.user_id] = (byUser[x.user_id]||0)+1; });
+    var chips = [{ id:'all', label:t('allPeople'), n: state.teamTasks.length }].concat(
+      state.teamUsers.map(function(u){ return { id:u.id, label:u.name || u.email, n: byUser[u.id]||0 }; })
+    );
+    el.innerHTML = chips.map(function(c){
+      return '<button class="chip'+(state.personFilter===c.id?' is-active':'')+'" data-person="'+escapeAttr(c.id)+'" type="button">'+
+        escapeHtml(c.label)+' <span class="n">'+c.n+'</span></button>';
+    }).join('');
+    Array.prototype.forEach.call(el.querySelectorAll('.chip'), function(btn){
+      btn.addEventListener('click', function(){ state.personFilter = btn.getAttribute('data-person'); render(); });
     });
   }
 
@@ -350,13 +427,39 @@
     var eff = task.effective_priority;
     var ratio = ageRatio(task);
     var ageCls = ratio >= 1 ? 'is-hot' : (ratio >= 0.6 ? 'is-warm' : '');
-    var pillMenu = ['urgent','high','normal','low'].map(function(p){
-      return '<button data-set-priority="'+p+'" data-id="'+task.id+'"><span class="dot" data-p="'+p+'"></span>'+t('p'+cap(p))+'</button>';
-    }).join('');
     var srcLabel = t('src'+cap(task.source));
     var openHref = task.source !== 'manual' ? sourceLink(task) : null;
     var linkBtn = openHref
       ? '<a class="iconbtn" href="'+escapeAttr(openHref)+'" target="_blank" rel="noopener noreferrer" title="'+t('openSource')+'">'+LINK+'</a>' : '';
+
+    // Team mode: read-only card (no checkbox/edit/priority-menu — this is a
+    // view into other people's tasks, not a way to edit them), with a name
+    // tag so it's clear whose task each card is.
+    if (state.mode === 'team') {
+      var whoTag = '<span class="who">'+escapeHtml(task.user_name || task.user_email || '')+'</span>';
+      return (
+        '<article class="task is-readonly" data-eff="'+eff+'">'+
+          '<div class="task-main">'+
+            '<div class="task-toprow">'+whoTag+'<span class="src'+(task.source==='manual'?' is-lawly':'')+'">'+ICONS[task.source]+srcLabel+'</span></div>'+
+            '<p class="task-title">'+escapeHtml(task.title)+'</p>'+
+            (task.summary ? '<p class="task-summary">'+escapeHtml(task.summary)+'</p>' : '')+
+            '<div class="task-metarow">'+
+              '<span class="pill" data-p="'+eff+'">'+
+                (task.escalated ? '<span class="esc" title="'+t('escalated')+'">'+UP+'</span>' : '')+
+                t('p'+cap(eff))+
+              '</span>'+
+              '<span class="est">'+TIMER+' '+(task.estimated_minutes||'—')+' '+t('min')+'</span>'+
+              '<span class="age '+ageCls+'">'+CLOCK+' '+ageLabel(task.first_seen_at)+'</span>'+
+            '</div>'+
+          '</div>'+
+          '<div class="task-actions">'+linkBtn+'</div>'+
+        '</article>'
+      );
+    }
+
+    var pillMenu = ['urgent','high','normal','low'].map(function(p){
+      return '<button data-set-priority="'+p+'" data-id="'+task.id+'"><span class="dot" data-p="'+p+'"></span>'+t('p'+cap(p))+'</button>';
+    }).join('');
 
     return (
       '<article class="task" data-id="'+task.id+'" data-eff="'+eff+'">'+
@@ -400,16 +503,27 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-i18n]'), function(el){
       el.textContent = t(el.getAttribute('data-i18n'));
     });
+    document.getElementById('teamToggleLabel').textContent = state.mode === 'team' ? t('myTasksView') : t('teamView');
 
-    renderSummary();
-    renderFilters();
+    // Which dataset is on screen: the signed-in user's own tasks, or (admins
+    // only) everyone's — same page, same rendering below, just a different
+    // source list. Team mode additionally scopes to the selected person chip.
+    var base = state.mode === 'team' ? state.teamTasks : state.tasks;
+    var scoped = state.mode === 'team'
+      ? base.filter(function(x){ return state.personFilter === 'all' || x.user_id === state.personFilter; })
+      : base;
+
+    document.getElementById('composer').hidden = state.mode === 'team';
+    renderPeople();
+    renderSummary(scoped);
+    renderFilters(scoped);
 
     var searchInput = document.getElementById('searchInput');
     searchInput.placeholder = t('search');
     document.getElementById('searchClear').hidden = !state.search;
     document.getElementById('composerInput').placeholder = t('addPlaceholder');
 
-    var visible = state.tasks.filter(matchesFilter).filter(matchesSearch);
+    var visible = scoped.filter(matchesFilter).filter(matchesSearch);
     var groups = { urgent:[], high:[], later:[] };
     visible.forEach(function(x){
       if (x.effective_priority === 'urgent') groups.urgent.push(x);
@@ -425,7 +539,9 @@
       if (groups.high.length) html += groupHtml('high', t('groupHigh'), groups.high);
       if (groups.later.length) html += groupHtml('later', t('groupLater'), groups.later);
     }
-    if (state.done.length) {
+    // "Done today" is the signed-in user's own completed tasks — the team
+    // view never fetches anyone else's done tasks, so this stays mine-only.
+    if (state.mode === 'mine' && state.done.length) {
       html += '<button class="done-toggle'+(state.doneOpen?' is-open':'')+'" id="doneToggle" type="button">'+CHEV+' '+t('doneList')+' ('+state.done.length+')</button>';
       if (state.doneOpen) {
         html += '<div class="card-stack" style="margin-top:9px;">' + state.done.map(function(x){
@@ -574,8 +690,15 @@
     btn.classList.add('is-loading');
     btn.querySelector('span').textContent = t('refreshing');
     try {
-      await api('/refresh', { method:'POST' });
-      await loadTasks();
+      if (state.mode === 'team') {
+        // No per-person "pull from email/WhatsApp/monday" equivalent for
+        // the whole team (that's what /refresh does for one signed-in
+        // user) — refreshing here just re-reads the current DB state.
+        await loadTeamTasks();
+      } else {
+        await api('/refresh', { method:'POST' });
+        await loadTasks();
+      }
     } catch (e) {
       showError(t('errRefresh') + ': ' + e.message);
     } finally {
@@ -584,8 +707,25 @@
     }
   });
 
+  // Team/mine toggle — same page, just swaps the data source and, in team
+  // mode, hides the composer (adding a task while looking at someone else's
+  // list would be confusing) and shows the person chips instead.
+  document.getElementById('teamToggleBtn').addEventListener('click', function(){
+    state.mode = state.mode === 'mine' ? 'team' : 'mine';
+    state.personFilter = 'all';
+    if (state.mode === 'team') loadTeamTasks(); else render();
+  });
+
+  // Reveal the "Team view" toggle only for admins — GET /api/mytasks/admin/all
+  // is already gated server-side (requireAdmin); this just keeps non-admins
+  // from seeing a button that would 403 on them.
+  fetch('/api/me', { credentials: 'same-origin' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (me) { if (me && me.isAdmin) document.getElementById('teamToggleBtn').hidden = false; })
+    .catch(function () { /* non-fatal — button just stays hidden */ });
+
   loadTasks();
-  setInterval(loadTasks, 45000);
+  setInterval(function(){ if (state.mode === 'team') loadTeamTasks(); else loadTasks(); }, 45000);
 })();
 </script>
 </body>

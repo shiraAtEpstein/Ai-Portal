@@ -320,6 +320,24 @@ async function setGroupResponsibleByJid(providerGroupJid, email, name) {
   );
 }
 
+// Link a group to the staff member whose personal task inbox it is (by its
+// WhatsApp jid). Used both for a manual/explicit link and for the
+// auto-resolved case (see whatsapp/groups/provider.js's
+// resolveTaskOwnerForGroupName — 2026-09-14, Shira: names are now an exact,
+// enforced convention, so auto-linking on a unique name match is safe).
+// Never overwrites an existing link — see the caller, which only calls this
+// when task_owner_email is still null, so a later rename can't silently
+// hijack an already-linked group.
+async function setGroupTaskOwnerByJid(providerGroupJid, email) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !providerGroupJid || !email) return;
+  await p.query(
+    `UPDATE whatsapp_groups SET task_owner_email = $2 WHERE provider_group_jid = $1`,
+    [providerGroupJid, email]
+  );
+}
+
 // Look up a group by its WhatsApp jid (one account), including its cached
 // deal_id — used to resolve the responsible via the ALREADY-linked deal
 // (covers both group-id and name-match linkage).
@@ -417,6 +435,7 @@ module.exports = {
   setGroupDeal,
   setGroupDealByJid,
   setGroupResponsibleByJid,
+  setGroupTaskOwnerByJid,
   openConnectionGap,
   closeConnectionGap,
   listConnectionGaps,

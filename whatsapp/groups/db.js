@@ -75,6 +75,15 @@ async function ensureTables() {
   // group is needed). Routing sends a chat's alert to this person only.
   await p.query(`ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS responsible_email TEXT;`);
   await p.query(`ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS responsible_name TEXT;`);
+  // Personal task-inbox groups (2026-09-10, Shira): which staff member a
+  // WhatsApp group's messages should become tasks for. Set explicitly, once,
+  // per group — never guessed from the group's name (see lib/task-hub.js's
+  // fetchManualCandidates() / whatsapp/ingest/db.js's listTaskInboxMessages()).
+  // This column was referenced by that code from the start but the matching
+  // self-provisioning line was missed here — added now so it exists on every
+  // environment without a manual step, the same way every other column on
+  // this table already does.
+  await p.query(`ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS task_owner_email TEXT;`);
   // Connection gap log: one row per offline window (went_down_at .. came_back_at).
   // WhatsApp only redelivers messages missed during SHORT gaps; a long outage
   // may drop some for good. This table is the audit trail so a human can see

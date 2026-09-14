@@ -34,9 +34,9 @@ router.get('/', async function (req, res) {
 
 // GET /api/mytasks/admin/all — admin-only. Every open task from every user,
 // plus the active staff roster (so someone with zero open tasks still shows
-// up as a name to click), for the "Team Tasks" admin view
-// (public/admin-tasks.html). Read-only — this never mutates another user's
-// tasks; that stays limited to the owning user via the endpoints above.
+// up as a name to click), for the "Team view" toggle inside mytasks.html.
+// Read-only itself; an admin can mutate another user's task (edit/reprioritize,
+// never mark done) via PATCH /admin/:id below.
 router.get('/admin/all', authenticate, requireAdmin, async function (req, res) {
   try {
     var tasks = await taskHub.listAllTasks();
@@ -48,6 +48,29 @@ router.get('/admin/all', authenticate, requireAdmin, async function (req, res) {
   } catch (e) {
     console.error('[mytasks] GET /admin/all failed', e);
     res.status(500).json({ error: 'failed to load team tasks' });
+  }
+});
+
+// PATCH /api/mytasks/admin/:id — admin-only. Lets an admin edit a task's
+// title/estimate or override its priority for ANY user's task, from the
+// "Team view" in mytasks.html — same field whitelist as the owner-only
+// PATCH /:id below. Deliberately has no admin equivalent for done/toggle:
+// POST /:id/toggle (further down) stays scoped to req.session.userId only,
+// so this route can never be used to mark someone else's task as done.
+router.patch('/admin/:id', authenticate, requireAdmin, async function (req, res) {
+  var id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+  var fields = {};
+  if (typeof req.body.title === 'string') fields.title = req.body.title;
+  if (req.body.estimated_minutes !== undefined) fields.estimated_minutes = parseInt(req.body.estimated_minutes, 10);
+  if (typeof req.body.priority === 'string') fields.priority = req.body.priority;
+  try {
+    var task = await taskHub.patchTaskAsAdmin(id, fields);
+    if (!task) return res.status(404).json({ error: 'not found' });
+    res.json({ task: task });
+  } catch (e) {
+    console.error('[mytasks] PATCH /admin/:id failed', e);
+    res.status(500).json({ error: 'update failed' });
   }
 });
 

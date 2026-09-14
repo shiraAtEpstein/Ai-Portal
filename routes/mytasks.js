@@ -3,6 +3,7 @@
 var express = require('express');
 var router = express.Router();
 var taskHub = require('../lib/task-hub');
+var taskEvents = require('../lib/task-events');
 var db = require('../db');
 var { authenticate, requireAdmin } = require('../lib/sessions');
 
@@ -72,6 +73,42 @@ router.patch('/admin/:id', authenticate, requireAdmin, async function (req, res)
     console.error('[mytasks] PATCH /admin/:id failed', e);
     res.status(500).json({ error: 'update failed' });
   }
+});
+
+// GET /api/mytasks/stream — Server-Sent Events (2026-09-14). Pushes a task
+// the instant it's created by a real-time extraction (a message landing in
+// a linked WhatsApp task-inbox group — see lib/task-hub.js's
+// processRealtimeManualMessage and lib/task-events.js), instead of the
+// signed-in user having to wait for the next 45s poll or click refresh.
+// Protected by the same `authenticate` as every other route in this file
+// (router.use(authenticate) above) — the browser's EventSource sends the
+// portal_session cookie automatically on this same-origin request, no
+// extra wiring needed.
+// Additive only: if this connection never opens (older client, a proxy
+// that kills long-lived responses) mytasks.html's existing 45s poll and
+// refresh button keep working exactly as before.
+router.get('/stream', function (req, res) {
+  var userId = req.session.userId;
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+  res.write('retry: 3000\n\n');
+
+  var unsubscribe = taskEvents.subscribe(userId, function (task) {
+    res.write('event: task\ndata: ' + JSON.stringify(task) + '\n\n');
+  });
+
+  // Idle-timeout insurance for whatever sits in front of this on Render —
+  // a comment line, ignored by EventSource, just proof the connection is alive.
+  var keepAlive = setInterval(function () { res.write(': ping\n\n'); }, 25000);
+
+  req.on('close', function () {
+    clearInterval(keepAlive);
+    unsubscribe();
+  });
 });
 
 router.post('/refresh', async function (req, res) {

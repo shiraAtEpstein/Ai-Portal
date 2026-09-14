@@ -3,7 +3,8 @@
 var express = require('express');
 var router = express.Router();
 var taskHub = require('../lib/task-hub');
-var { authenticate } = require('../lib/sessions');
+var db = require('../db');
+var { authenticate, requireAdmin } = require('../lib/sessions');
 
 /**
  * Auth-gated, per-user Task Hub endpoints. Generic — works for whoever is
@@ -28,6 +29,25 @@ router.get('/', async function (req, res) {
   } catch (e) {
     console.error('[mytasks] GET / failed', e);
     res.status(500).json({ error: 'failed to load tasks' });
+  }
+});
+
+// GET /api/mytasks/admin/all — admin-only. Every open task from every user,
+// plus the active staff roster (so someone with zero open tasks still shows
+// up as a name to click), for the "Team Tasks" admin view
+// (public/admin-tasks.html). Read-only — this never mutates another user's
+// tasks; that stays limited to the owning user via the endpoints above.
+router.get('/admin/all', authenticate, requireAdmin, async function (req, res) {
+  try {
+    var tasks = await taskHub.listAllTasks();
+    var allUsers = await db.listAllUsers();
+    var users = allUsers
+      .filter(function (u) { return u.status === 'active'; })
+      .map(function (u) { return { id: u.id, name: u.name, email: u.email }; });
+    res.json({ tasks: tasks, users: users });
+  } catch (e) {
+    console.error('[mytasks] GET /admin/all failed', e);
+    res.status(500).json({ error: 'failed to load team tasks' });
   }
 });
 

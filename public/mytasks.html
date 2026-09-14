@@ -432,34 +432,53 @@
     var linkBtn = openHref
       ? '<a class="iconbtn" href="'+escapeAttr(openHref)+'" target="_blank" rel="noopener noreferrer" title="'+t('openSource')+'">'+LINK+'</a>' : '';
 
-    // Team mode: read-only card (no checkbox/edit/priority-menu — this is a
-    // view into other people's tasks, not a way to edit them), with a name
-    // tag so it's clear whose task each card is.
+    var pillMenu = ['urgent','high','normal','low'].map(function(p){
+      return '<button data-set-priority="'+p+'" data-id="'+task.id+'"><span class="dot" data-p="'+p+'"></span>'+t('p'+cap(p))+'</button>';
+    }).join('');
+
+    // Team mode: a view into someone else's tasks — the admin can edit the
+    // title/estimate and change priority exactly like the task's own owner
+    // (same editrow + priority pmenu markup as the 'mine' card below, wired
+    // through PATCH /admin/:id in wireList()), with a name tag so it's clear
+    // whose task each card is. The one thing deliberately missing is the
+    // .task-check checkbox — there is no way for an admin to mark someone
+    // else's task done, by design (no [data-toggle] element is ever
+    // rendered here, and there is no admin toggle endpoint to call anyway).
     if (state.mode === 'team') {
       var whoTag = '<span class="who">'+escapeHtml(task.user_name || task.user_email || '')+'</span>';
       return (
-        '<article class="task is-readonly" data-eff="'+eff+'">'+
+        '<article class="task is-readonly" data-id="'+task.id+'" data-eff="'+eff+'">'+
           '<div class="task-main">'+
             '<div class="task-toprow">'+whoTag+'<span class="src'+(task.source==='manual'?' is-lawly':'')+'">'+ICONS[task.source]+srcLabel+'</span></div>'+
-            '<p class="task-title">'+escapeHtml(task.title)+'</p>'+
-            (task.summary ? '<p class="task-summary">'+escapeHtml(task.summary)+'</p>' : '')+
+            '<div class="task-view" data-view="'+task.id+'">'+
+              '<p class="task-title">'+escapeHtml(task.title)+'</p>'+
+              (task.summary ? '<p class="task-summary">'+escapeHtml(task.summary)+'</p>' : '')+
+            '</div>'+
+            '<div class="task-editrow" data-edit="'+task.id+'" hidden>'+
+              '<input type="text" data-field="title" value="'+escapeAttr(task.title)+'"/>'+
+              '<input type="number" data-field="est" value="'+(task.estimated_minutes||15)+'" min="1" max="240"/>'+
+              '<button class="btn" data-save="'+task.id+'" type="button">'+t('save')+'</button>'+
+              '<button class="btn" data-cancel="'+task.id+'" type="button">'+t('cancel')+'</button>'+
+            '</div>'+
             '<div class="task-metarow">'+
-              '<span class="pill" data-p="'+eff+'">'+
-                (task.escalated ? '<span class="esc" title="'+t('escalated')+'">'+UP+'</span>' : '')+
-                t('p'+cap(eff))+
-              '</span>'+
+              '<div class="pmenu" data-menu="'+task.id+'">'+
+                '<button class="pill" data-p="'+eff+'" data-open-menu="'+task.id+'" type="button">'+
+                  (task.escalated ? '<span class="esc" title="'+t('escalated')+'">'+UP+'</span>' : '')+
+                  t('p'+cap(eff))+
+                '</button>'+
+                '<div class="pmenu-list">'+pillMenu+'</div>'+
+              '</div>'+
               '<span class="est">'+TIMER+' '+(task.estimated_minutes||'—')+' '+t('min')+'</span>'+
               '<span class="age '+ageCls+'">'+CLOCK+' '+ageLabel(task.first_seen_at)+'</span>'+
             '</div>'+
           '</div>'+
-          '<div class="task-actions">'+linkBtn+'</div>'+
+          '<div class="task-actions">'+
+            '<button class="iconbtn" data-editbtn="'+task.id+'" title="'+t('edit')+'">'+PENCIL+'</button>'+
+            linkBtn+
+          '</div>'+
         '</article>'
       );
     }
-
-    var pillMenu = ['urgent','high','normal','low'].map(function(p){
-      return '<button data-set-priority="'+p+'" data-id="'+task.id+'"><span class="dot" data-p="'+p+'"></span>'+t('p'+cap(p))+'</button>';
-    }).join('');
 
     return (
       '<article class="task" data-id="'+task.id+'" data-eff="'+eff+'">'+
@@ -592,9 +611,13 @@
         var row = list.querySelector('[data-edit="'+id+'"]');
         var title = row.querySelector('[data-field="title"]').value.trim();
         var est = parseInt(row.querySelector('[data-field="est"]').value, 10);
+        // Team mode edits someone else's task — goes through the admin-only
+        // PATCH /admin/:id endpoint instead of the owner-scoped PATCH /:id,
+        // and reloads from the team dataset afterward.
+        var path = state.mode === 'team' ? '/admin/'+id : '/'+id;
         try {
-          await api('/'+id, { method:'PATCH', body: JSON.stringify({ title: title, estimated_minutes: est }) });
-          await loadTasks();
+          await api(path, { method:'PATCH', body: JSON.stringify({ title: title, estimated_minutes: est }) });
+          if (state.mode === 'team') await loadTeamTasks(); else await loadTasks();
         } catch (e) { showError(e.message); }
       });
     });
@@ -611,7 +634,11 @@
       btn.addEventListener('click', async function(){
         var id = btn.getAttribute('data-id');
         var p = btn.getAttribute('data-set-priority');
-        try { await api('/'+id, { method:'PATCH', body: JSON.stringify({ priority: p }) }); await loadTasks(); }
+        var path = state.mode === 'team' ? '/admin/'+id : '/'+id;
+        try {
+          await api(path, { method:'PATCH', body: JSON.stringify({ priority: p }) });
+          if (state.mode === 'team') await loadTeamTasks(); else await loadTasks();
+        }
         catch (e) { showError(e.message); }
       });
     });

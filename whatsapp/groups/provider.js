@@ -55,6 +55,32 @@ const MAX_RECONNECT_ATTEMPTS = 15;       // ~1h of backed-off tries, then stop
 const STABLE_MS = 60_000;                // stay connected this long before the
                                          // backoff counter is forgiven (see 'open')
 
+// Resolve a group's personal task-inbox owner from its NAME alone — e.g.
+// "Shayna Kovan Tasks" / "Shayna Kovan משימות". 2026-09-14 (Shira): the
+// original 09-10 design deliberately never guessed this from the name
+// (see lib/task-hub.js's header) because names are free text people rename
+// — but Shira has now committed to an EXACT, enforced naming convention
+// (the staff member's full name, verbatim, as it appears in
+// config/staff-directory.json, plus the word "Tasks" or "משימות"), so a
+// unique substring match is safe. Still never guesses: requires the task
+// keyword AND a match against exactly one staff member's full name, and
+// skips a staffer with no email (rules out "Lawly" itself, and the partner
+// Yaakov Epstein is fine to match since he simply won't have "task"/
+// "משימות" in a normal deal-group name). Returns an email, or null.
+function resolveTaskOwnerForGroupName(name, dir) {
+  const n = String(name || '');
+  if (!n) return null;
+  const hasTaskWord = /\btasks?\b/i.test(n) || n.indexOf('משימ') !== -1;
+  if (!hasTaskWord) return null;
+  const nLower = n.toLowerCase();
+  const staff = (dir && dir.staff) || [];
+  const hits = staff.filter((s) => {
+    const full = String(s.name || '').toLowerCase().trim();
+    return full && s.email && nLower.indexOf(full) !== -1;
+  });
+  return hits.length === 1 ? hits[0].email : null; // 0 or >1 matches -> never guess
+}
+
 // Resolve the staff member who sent a message — by phone number, else by the
 // display name WhatsApp attaches (pushName). The name path recovers staff who
 // appear as an anonymous @lid (no phone), so their replies count as firm
@@ -629,7 +655,25 @@ class BaileysGroupsProvider extends EventEmitter {
       this.accountId, jid, name, participantCount,
       phones && phones.phone9, phones && phones.full
     );
-    if (group) this.emit('group', group);
+    if (group) {
+      this.emit('group', group);
+      // Auto-link this group as a staff member's personal task inbox, from
+      // its name alone — only when not already linked (never overwrite an
+      // existing/manual link), so this is safe to re-run on every rename,
+      // reconnect-time rediscovery, and membership-change refresh.
+      if (!group.task_owner_email) {
+        try {
+          const dir = loadDirectory();
+          const email = resolveTaskOwnerForGroupName(group.name, dir);
+          if (email) {
+            await db.setGroupTaskOwnerByJid(jid, email);
+            console.log(`[whatsapp/groups] auto-linked task-inbox group "${group.name}" -> ${email}`);
+          }
+        } catch (e) {
+          console.error('[whatsapp/groups] task-owner auto-link failed:', e.message);
+        }
+      }
+    }
   }
 
   // Turn a Baileys participants array into the set of normalized (last-9-digit)

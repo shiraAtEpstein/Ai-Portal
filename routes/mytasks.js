@@ -44,11 +44,57 @@ router.get('/', async function (req, res) {
   }
 });
 
+// 2026-09-15 (Shira): the "Team view" toggle used to call GET /admin/all
+// the instant it was opened — every open task from every user in one
+// request — just to draw the person-chips row. Slow, and gave no loading
+// feedback, so admins would click the toggle repeatedly thinking it hadn't
+// registered. Replaced with a dropdown: GET /admin/roster loads a cheap
+// roster+count first (this is what opening Team view now fetches), then
+// GET /admin/user/:id loads just the ONE person picked from the dropdown.
+// GET /admin/all itself is kept, unchanged, for the dropdown's explicit
+// "everyone" choice — still available, just no longer automatic.
+
+// GET /api/mytasks/admin/roster — admin-only, cheap. Active staff with an
+// open-task COUNT per person (one aggregate query — no task rows), so the
+// Team view dropdown can populate instantly without loading anyone's actual
+// tasks until a specific person is chosen.
+router.get('/admin/roster', authenticate, requireAdmin, async function (req, res) {
+  try {
+    var users = await taskHub.listTeamRoster();
+    res.json({ users: users });
+  } catch (e) {
+    console.error('[mytasks] GET /admin/roster failed', e);
+    res.status(500).json({ error: 'failed to load team roster' });
+  }
+});
+
+var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// GET /api/mytasks/admin/user/:id — admin-only. Just the one person's open
+// tasks (what the dropdown fetches on selection), reusing the exact same
+// query the owner-scoped GET / already runs (taskHub.listTasks) for an
+// admin-chosen id instead of req.session.userId. Rows carry no
+// user_name/user_email — the dropdown already has that from the roster it
+// loaded, and adds it back on the client before rendering.
+router.get('/admin/user/:id', authenticate, requireAdmin, async function (req, res) {
+  var id = req.params.id;
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'bad id' });
+  try {
+    var tasks = await taskHub.listTasks(id);
+    res.json({ tasks: tasks });
+  } catch (e) {
+    console.error('[mytasks] GET /admin/user/:id failed', e);
+    res.status(500).json({ error: 'failed to load tasks for user' });
+  }
+});
+
 // GET /api/mytasks/admin/all — admin-only. Every open task from every user,
-// plus the active staff roster (so someone with zero open tasks still shows
-// up as a name to click), for the "Team view" toggle inside mytasks.html.
-// Read-only itself; an admin can mutate another user's task (edit/reprioritize,
-// never mark done) via PATCH /admin/:id below.
+// plus the active staff roster. Kept for the Team view dropdown's explicit
+// "everyone" option — no longer fetched automatically just from opening
+// Team view (see GET /admin/roster above for that). An admin can mutate
+// another user's task (edit/reprioritize, never mark done) via
+// PATCH /admin/:id below, regardless of which of these three GET routes
+// loaded it.
 router.get('/admin/all', authenticate, requireAdmin, async function (req, res) {
   try {
     var tasks = await taskHub.listAllTasks();

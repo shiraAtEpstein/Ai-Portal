@@ -64,7 +64,11 @@
   .composer input:focus-visible{outline:2px solid var(--accent); outline-offset:1px;}
   @media (max-width:520px){ .composer{flex-wrap:wrap;} .composer input{width:100%;} }
 
-  .people{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;}
+  .people{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px;}
+  .person-select{border:1px solid var(--border); background:var(--surface); color:var(--ink); border-radius:10px; padding:8px 12px; font:inherit; font-size:13.5px; font-weight:600; box-shadow:var(--shadow); cursor:pointer; max-width:100%;}
+  .person-select:disabled{opacity:.6; cursor:default;}
+  .person-select-status{color:var(--ink-muted); font-size:12.5px; font-weight:600; display:inline-flex; align-items:center; gap:6px;}
+  .person-select-status:empty{display:none;}
   .filters{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px;}
   .chip{border:1px solid var(--border); background:var(--surface); color:var(--ink-muted); padding:6px 13px; border-radius:999px; font-size:13.5px; font-weight:600; cursor:pointer;}
   .chip:hover{border-color:var(--accent);}
@@ -177,7 +181,10 @@
     <input type="search" id="searchInput" autocomplete="off"/>
     <button type="button" id="searchClear" class="s-clear" hidden aria-label="clear">×</button>
   </div>
-  <div class="people" id="people" hidden></div>
+  <div class="people" id="people" hidden>
+    <select id="personSelect" class="person-select"></select>
+    <span id="personSelectStatus" class="person-select-status" aria-live="polite"></span>
+  </div>
   <div class="filters" id="filters"></div>
   <section id="taskList" aria-live="polite"></section>
 </div>
@@ -211,7 +218,8 @@
       save:'שמור', cancel:'בטל', edit:'ערוך', openSource:'פתח מקור',
       search:'חיפוש משימות…', noResults:'אין משימות שתואמות לחיפוש',
       addTask:'הוסף משימה', addPlaceholder:'הוסיפי כאן משימה ל-LAWLY…', adding:'מוסיף…',
-      teamView:'כל הצוות', myTasksView:'המשימות שלי', allPeople:'כולם', statTimeTeam:'זמן משוער כולל',
+      teamView:'כל הצוות', myTasksView:'המשימות שלי', allPeople:'כולם (כל הצוות)', statTimeTeam:'זמן משוער כולל',
+      loading:'טוען…', selectPersonPlaceholder:'בחר/י איש צוות…', selectPersonPrompt:'בחר/י איש צוות מהרשימה כדי לראות את המשימות שלו/שלה.',
       errLoad:'שגיאה בטעינת המשימות', errRefresh:'הרענון נכשל, נסה שוב עוד רגע', errAdd:'לא ניתן להוסיף את המשימה',
       errTeamForbidden:'אין הרשאת מנהל לצפות בתצוגת הצוות',
       agoJust:'עכשיו', agoMin:'לפני {n} דק׳', agoHour:'לפני שעה', agoHours:'לפני {n} שעות', agoDay:'לפני יום', agoDays:'לפני {n} ימים'
@@ -228,7 +236,8 @@
       save:'Save', cancel:'Cancel', edit:'Edit', openSource:'Open source',
       search:'Search tasks…', noResults:'No tasks match your search',
       addTask:'Add task', addPlaceholder:'Type a task for LAWLY…', adding:'Adding…',
-      teamView:'Team view', myTasksView:'My tasks', allPeople:'Everyone', statTimeTeam:'Total est. time',
+      teamView:'Team view', myTasksView:'My tasks', allPeople:'Everyone (whole team)', statTimeTeam:'Total est. time',
+      loading:'Loading…', selectPersonPlaceholder:'Choose a team member…', selectPersonPrompt:'Choose a team member from the list to see their tasks.',
       errLoad:'Could not load your tasks', errRefresh:'Refresh failed, try again in a bit', errAdd:'Could not add the task',
       errTeamForbidden:'Admin access required for the team view',
       agoJust:'just now', agoMin:'{n}m ago', agoHour:'1h ago', agoHours:'{n}h ago', agoDay:'1d ago', agoDays:'{n}d ago'
@@ -240,9 +249,17 @@
   // (only ever shown to admins — see the isAdmin check near the bottom).
   // Kept as one page/one state object rather than a separate page so
   // switching is instant and reuses all the same rendering/i18n/search code.
+  // personFilter: '' = nothing picked yet (team mode's default — nothing
+  // fetched until a choice is made), 'all' = the dropdown's explicit
+  // "everyone" option (the one case that still loads every user's tasks),
+  // or a specific user id (the normal case: just that person's tasks).
+  // teamRoster holds {id,name,email,openCount} from the cheap GET
+  // /admin/roster call, used to populate the dropdown and to stitch a name
+  // onto single-person task rows (which don't carry one server-side).
   var state = {
-    lang: 'he', mode: 'mine', filter: 'all', personFilter: 'all', doneOpen: false,
-    tasks: [], done: [], teamTasks: [], teamUsers: [], search: '', collapsed: {}
+    lang: 'he', mode: 'mine', filter: 'all', personFilter: '', doneOpen: false,
+    tasks: [], done: [], teamTasks: [], teamRoster: [], teamRosterLoading: false, teamLoading: false,
+    search: '', collapsed: {}
   };
   try {
     var savedLang = localStorage.getItem('mytasks-lang');
@@ -305,20 +322,58 @@
     render();
   }
 
-  // Admin-only: every open task from every user, via the same endpoint the
-  // (now-folded-in) team page used — GET /api/mytasks/admin/all, gated
-  // server-side by requireAdmin. 403 here shouldn't normally happen (the
-  // toggle button is itself admin-gated), but handled defensively in case
-  // someone's admin role was revoked mid-session.
-  async function loadTeamTasks(){
+  // Admin-only, cheap: the active staff roster with an open-task COUNT per
+  // person (GET /api/mytasks/admin/roster — an aggregate query, not
+  // anyone's actual tasks), to populate the Team view dropdown. This is
+  // what opening Team view now fetches, instead of everyone's full task
+  // list. 403 here shouldn't normally happen (the toggle button is itself
+  // admin-gated), but handled defensively in case someone's admin role was
+  // revoked mid-session.
+  async function loadTeamRoster(){
     try {
-      var res = await fetch('/api/mytasks/admin/all', {
+      var res = await fetch('/api/mytasks/admin/roster', {
         headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin'
       });
       if (res.status === 403) {
-        state.teamTasks = []; state.teamUsers = [];
+        state.teamRoster = []; state.teamTasks = [];
         showError(t('errTeamForbidden'));
-        render();
+      } else if (!res.ok) {
+        var body = {}; try { body = await res.json(); } catch (e) {}
+        throw new Error(body.error || ('HTTP ' + res.status));
+      } else {
+        var data = await res.json();
+        state.teamRoster = data.users || [];
+        showError(null);
+      }
+    } catch (e) {
+      showError(t('errLoad') + ': ' + e.message);
+    }
+    render();
+  }
+
+  // Fetches the currently-selected dropdown choice: one person's open tasks
+  // (GET /admin/user/:id — the normal, cheap case) or, for the dropdown's
+  // explicit "everyone" option, the full firm-wide list (GET /admin/all —
+  // the one case that still loads every user's tasks, now opt-in instead of
+  // automatic). teamReqSeq guards against a slow response landing after the
+  // admin has already picked someone else — only the latest request is
+  // allowed to update state.
+  var teamReqSeq = 0;
+  async function loadTeamSelection(personId){
+    var mySeq = ++teamReqSeq;
+    state.teamLoading = true;
+    render();
+    try {
+      var path = personId === 'all'
+        ? '/api/mytasks/admin/all'
+        : '/api/mytasks/admin/user/' + encodeURIComponent(personId);
+      var res = await fetch(path, {
+        headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin'
+      });
+      if (res.status === 403) {
+        if (mySeq !== teamReqSeq) return;
+        state.teamTasks = [];
+        showError(t('errTeamForbidden'));
         return;
       }
       if (!res.ok) {
@@ -326,14 +381,28 @@
         throw new Error(body.error || ('HTTP ' + res.status));
       }
       var data = await res.json();
-      state.teamTasks = data.tasks || [];
-      state.teamUsers = data.users || [];
+      if (mySeq !== teamReqSeq) return; // superseded by a newer selection — drop this stale reply
+      var tasks = data.tasks || [];
+      if (personId !== 'all') {
+        // GET /admin/user/:id returns bare task rows (it's already scoped
+        // to one person server-side) — stitch the name/email on from the
+        // roster we already have, so taskCard()'s team-mode `.who` tag
+        // keeps working unchanged.
+        var person = state.teamRoster.filter(function(u){ return u.id === personId; })[0];
+        tasks = tasks.map(function(x){
+          return Object.assign({}, x, { user_name: person && person.name, user_email: person && person.email });
+        });
+      }
+      state.teamTasks = tasks;
       showError(null);
       document.getElementById('updatedAt').textContent = t('agoJust');
     } catch (e) {
+      if (mySeq !== teamReqSeq) return;
       showError(t('errLoad') + ': ' + e.message);
+    } finally {
+      if (mySeq === teamReqSeq) state.teamLoading = false;
+      render();
     }
-    render();
   }
 
   function renderSummary(list){
@@ -370,27 +439,32 @@
     });
   }
 
-  // Team mode only: one chip per active staff member (plus "Everyone"),
-  // counted from ALL team tasks regardless of the source filter above — so
-  // a person's count doesn't jump around as you flip between Email/WhatsApp/
-  // LAWLY. Staff with zero open tasks still get a chip (0), so the roster
-  // itself is visible, not just who currently has something open.
+  // Team mode only: a dropdown built from the cheap roster (id/name/email/
+  // openCount) instead of chips derived from an already-loaded full task
+  // list — nothing about any person's actual tasks is fetched until they're
+  // picked here. Staff with zero open tasks still get an option (0), so the
+  // roster itself is visible, not just who currently has something open.
   function renderPeople(){
     var el = document.getElementById('people');
-    if (state.mode !== 'team') { el.hidden = true; el.innerHTML = ''; return; }
+    if (state.mode !== 'team') { el.hidden = true; return; }
     el.hidden = false;
-    var byUser = {};
-    state.teamTasks.forEach(function(x){ byUser[x.user_id] = (byUser[x.user_id]||0)+1; });
-    var chips = [{ id:'all', label:t('allPeople'), n: state.teamTasks.length }].concat(
-      state.teamUsers.map(function(u){ return { id:u.id, label:u.name || u.email, n: byUser[u.id]||0 }; })
-    );
-    el.innerHTML = chips.map(function(c){
-      return '<button class="chip'+(state.personFilter===c.id?' is-active':'')+'" data-person="'+escapeAttr(c.id)+'" type="button">'+
-        escapeHtml(c.label)+' <span class="n">'+c.n+'</span></button>';
-    }).join('');
-    Array.prototype.forEach.call(el.querySelectorAll('.chip'), function(btn){
-      btn.addEventListener('click', function(){ state.personFilter = btn.getAttribute('data-person'); render(); });
-    });
+
+    var select = document.getElementById('personSelect');
+    var opts = '<option value="">'+t('selectPersonPlaceholder')+'</option>'+
+      '<option value="all">'+t('allPeople')+'</option>'+
+      state.teamRoster.map(function(u){
+        return '<option value="'+escapeAttr(u.id)+'">'+escapeHtml(u.name || u.email)+' ('+u.openCount+')</option>';
+      }).join('');
+    if (select.innerHTML !== opts) select.innerHTML = opts;
+    select.value = state.personFilter;
+    select.disabled = !!(state.teamLoading || state.teamRosterLoading);
+    select.onchange = function(){
+      state.personFilter = select.value;
+      state.teamTasks = [];
+      if (state.personFilter) loadTeamSelection(state.personFilter); else render();
+    };
+
+    document.getElementById('personSelectStatus').textContent = state.teamLoading ? t('loading') : '';
   }
 
   function matchesFilter(task){
@@ -522,15 +596,19 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-i18n]'), function(el){
       el.textContent = t(el.getAttribute('data-i18n'));
     });
-    document.getElementById('teamToggleLabel').textContent = state.mode === 'team' ? t('myTasksView') : t('teamView');
+    document.getElementById('teamToggleLabel').textContent =
+      state.mode === 'team' ? (state.teamRosterLoading ? t('loading') : t('myTasksView')) : t('teamView');
+    var teamToggleBtn = document.getElementById('teamToggleBtn');
+    teamToggleBtn.classList.toggle('is-loading', !!state.teamRosterLoading);
+    teamToggleBtn.disabled = !!state.teamRosterLoading;
 
     // Which dataset is on screen: the signed-in user's own tasks, or (admins
-    // only) everyone's — same page, same rendering below, just a different
-    // source list. Team mode additionally scopes to the selected person chip.
-    var base = state.mode === 'team' ? state.teamTasks : state.tasks;
-    var scoped = state.mode === 'team'
-      ? base.filter(function(x){ return state.personFilter === 'all' || x.user_id === state.personFilter; })
-      : base;
+    // only) whichever person/everyone was picked from the Team view dropdown
+    // — same page, same rendering below, just a different source list.
+    // state.teamTasks already comes back scoped from the server (one
+    // person's tasks, or everyone's for the dropdown's "all" choice), so no
+    // extra client-side filtering is needed here.
+    var scoped = state.mode === 'team' ? state.teamTasks : state.tasks;
 
     document.getElementById('composer').hidden = state.mode === 'team';
     renderPeople();
@@ -552,7 +630,11 @@
 
     var html = '';
     if (!visible.length) {
-      html = '<p class="empty">'+(state.search.trim() ? t('noResults') : t('empty'))+'</p>';
+      if (state.mode === 'team' && !state.personFilter) {
+        html = '<p class="empty">'+t('selectPersonPrompt')+'</p>';
+      } else {
+        html = '<p class="empty">'+(state.search.trim() ? t('noResults') : t('empty'))+'</p>';
+      }
     } else {
       if (groups.urgent.length) html += groupHtml('urgent', t('groupUrgent'), groups.urgent);
       if (groups.high.length) html += groupHtml('high', t('groupHigh'), groups.high);
@@ -617,7 +699,8 @@
         var path = state.mode === 'team' ? '/admin/'+id : '/'+id;
         try {
           await api(path, { method:'PATCH', body: JSON.stringify({ title: title, estimated_minutes: est }) });
-          if (state.mode === 'team') await loadTeamTasks(); else await loadTasks();
+          if (state.mode === 'team') { if (state.personFilter) await loadTeamSelection(state.personFilter); }
+          else await loadTasks();
         } catch (e) { showError(e.message); }
       });
     });
@@ -637,7 +720,8 @@
         var path = state.mode === 'team' ? '/admin/'+id : '/'+id;
         try {
           await api(path, { method:'PATCH', body: JSON.stringify({ priority: p }) });
-          if (state.mode === 'team') await loadTeamTasks(); else await loadTasks();
+          if (state.mode === 'team') { if (state.personFilter) await loadTeamSelection(state.personFilter); }
+          else await loadTasks();
         }
         catch (e) { showError(e.message); }
       });
@@ -737,8 +821,11 @@
       if (state.mode === 'team') {
         // No per-person "pull from email/WhatsApp/monday" equivalent for
         // the whole team (that's what /refresh does for one signed-in
-        // user) — refreshing here just re-reads the current DB state.
-        await loadTeamTasks();
+        // user) — refreshing here just re-reads the current DB state for
+        // whatever's currently selected (roster if nothing's picked yet,
+        // otherwise that person's — or everyone's — tasks).
+        if (state.personFilter) await loadTeamSelection(state.personFilter);
+        else await loadTeamRoster();
       } else {
         await api('/refresh', { method:'POST' });
         await loadTasks();
@@ -753,11 +840,23 @@
 
   // Team/mine toggle — same page, just swaps the data source and, in team
   // mode, hides the composer (adding a task while looking at someone else's
-  // list would be confusing) and shows the person chips instead.
-  document.getElementById('teamToggleBtn').addEventListener('click', function(){
+  // list would be confusing) and shows the person dropdown instead. Entering
+  // team mode only loads the cheap roster (counts, not tasks) — nothing
+  // about anyone's actual tasks loads until a person is picked from the
+  // dropdown. The button disables itself and shows a loading label for the
+  // one moment that takes, specifically so a slow connection can't be
+  // mistaken for "the click didn't register" and mashed repeatedly.
+  document.getElementById('teamToggleBtn').addEventListener('click', async function(){
+    if (state.teamRosterLoading) return;
     state.mode = state.mode === 'mine' ? 'team' : 'mine';
-    state.personFilter = 'all';
-    if (state.mode === 'team') loadTeamTasks(); else render();
+    if (state.mode !== 'team') { render(); return; }
+    state.personFilter = '';
+    state.teamTasks = [];
+    state.teamRosterLoading = true;
+    render();
+    await loadTeamRoster();
+    state.teamRosterLoading = false;
+    render();
   });
 
   // Reveal the "Team view" toggle only for admins — GET /api/mytasks/admin/all
@@ -773,7 +872,16 @@
   // the next 45s tick — a background call, so it never blocks the initial
   // (already-triaged) list from rendering immediately.
   backgroundRefresh();
-  setInterval(function(){ if (state.mode === 'team') loadTeamTasks(); else backgroundRefresh(); }, 45000);
+  setInterval(function(){
+    if (state.mode === 'team') {
+      // Only refresh whatever's actually on screen — a specific person's
+      // tasks, or everyone's if that was explicitly chosen. Nothing to
+      // refresh if no one's been picked from the dropdown yet.
+      if (state.personFilter) loadTeamSelection(state.personFilter);
+    } else {
+      backgroundRefresh();
+    }
+  }, 45000);
 })();
 </script>
 </body>

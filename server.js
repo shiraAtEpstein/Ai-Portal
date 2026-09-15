@@ -195,3 +195,10 @@ if (dropbox.configured()) {
   const REFRESH_MS = parseInt(process.env.AGENTS_REFRESH_MS || '300000', 10); // 5 min
   setInterval(function () { refreshAgents('interval'); }, REFRESH_MS).unref();
 }
+// Server-side Task Hub sweep — creates a task for every active staff member
+// on a timer, so a chat resolved to someone on the shared Board still turns
+// into a task for them even if they never open Task Hub themselves (see
+// lib/task-hub.js's startServerSideSweep, 2026-09-15).
+try { require('./lib/task-hub').startServerSideSweep(); } catch (e) {
+  console.error('[task-hub/sweep] failed to start:', e.message);
+}

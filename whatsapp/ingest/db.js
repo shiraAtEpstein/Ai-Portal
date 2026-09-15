@@ -5,7 +5,7 @@
 // ============================================================
 const { getPool } = require('../../db');
 const enc = require('../../lib/crypto');
-const { textPreview, messageKind } = require('./phone');
+const { textPreview, messageKind, unwrapMessage } = require('./phone');
 // Every wait in the system is measured on the firm's working clock (08:00–22:00,
 // no Saturday) — see lib/business-hours.js. Wall-clock hours are still logged
 // beside it in [unanswered/why], because when a number looks wrong the first
@@ -255,6 +255,19 @@ async function ensureTables() {
       set_at   TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
+  // Voice-message transcription (2026-09-14, per claude/lawly-voice-task-notes-spec.md,
+  // v1 scope: personal task-inbox groups only — see listTaskInboxMessages()).
+  // NULL = not an audio message, or not attempted yet. 'pending' = claimed by
+  // some in-flight attempt (see claimVoiceTranscriptionJob — the UPDATE...
+  // WHERE guard there is what makes claiming atomic, not a lock taken here).
+  // 'done' = voice_transcript_text_enc holds the real transcript. 'failed' =
+  // gave up after voice_transcript_attempts hit the cap; that row's audio
+  // note is silently left out of task candidates rather than surfaced with
+  // junk content — logged server-side for now (no dedicated UI for this in v1).
+  await p.query(`ALTER TABLE processing_jobs ADD COLUMN IF NOT EXISTS voice_transcript_status TEXT;`);
+  await p.query(`ALTER TABLE processing_jobs ADD COLUMN IF NOT EXISTS voice_transcript_text_enc TEXT;`);
+  await p.query(`ALTER TABLE processing_jobs ADD COLUMN IF NOT EXISTS voice_transcript_attempts INT NOT NULL DEFAULT 0;`);
+  await p.query(`ALTER TABLE processing_jobs ADD COLUMN IF NOT EXISTS voice_transcript_updated_at TIMESTAMPTZ;`);
   ensured = true;
 }
 
@@ -1155,7 +1168,8 @@ async function listTaskInboxMessages(chatJid, { limit = 20 } = {}) {
   const p = getPool();
   if (!p || !chatJid) return [];
   const r = await p.query(
-    `SELECT source_item_id, payload_encrypted, sender_phone, COALESCE(sent_at, created_at) AS eff_at
+    `SELECT source_item_id, payload_encrypted, sender_phone, COALESCE(sent_at, created_at) AS eff_at,
+            voice_transcript_status, voice_transcript_text_enc, voice_transcript_attempts
      FROM processing_jobs
      WHERE source = 'whatsapp' AND chat_jid = $1 AND deleted_at IS NULL
        AND (msg_kind IS NULL OR msg_kind <> ALL($3::text[]))
@@ -1163,18 +1177,108 @@ async function listTaskInboxMessages(chatJid, { limit = 20 } = {}) {
      LIMIT $2`,
     [chatJid, limit, NON_MESSAGE_KINDS]
   );
+  // Lazy require, same style as lib/task-hub.js's own require('../whatsapp/ingest/db')
+  // — voice.js is optional-ish (a missing/broken transcription module should
+  // degrade to "voice notes stay untranscribed", never break typed-text tasks).
+  let voice = null;
+  try { voice = require('./voice'); } catch (e) { console.warn('[task-inbox] whatsapp/ingest/voice not available:', e.message); }
+
   const out = [];
   for (const row of r.rows) {
     try {
       const json = enc.decrypt(row.payload_encrypted || '');
       const msg = json ? JSON.parse(json) : null;
-      const t = textPreview(msg && (msg.message || msg)) || '';
-      if (!t) continue;
-      out.push({ source_item_id: row.source_item_id, text: t, sender_phone: row.sender_phone, eff_at: row.eff_at });
+      const unwrapped = msg && unwrapMessage(msg.message || msg);
+      const isVoiceNote = !!(unwrapped && unwrapped.audioMessage);
+
+      if (isVoiceNote) {
+        if (row.voice_transcript_status === 'done' && row.voice_transcript_text_enc) {
+          const transcript = enc.decrypt(row.voice_transcript_text_enc || '') || '';
+          if (!transcript) continue; // decrypted to nothing — treat like any other empty candidate
+          out.push({ source_item_id: row.source_item_id, text: transcript, sender_phone: row.sender_phone, eff_at: row.eff_at });
+        } else {
+          // Not transcribed yet (or a previous attempt failed and is still
+          // under the retry cap) — kick off/continue transcription in the
+          // background, and leave this message OUT of the candidates this
+          // round. Deliberately not surfaced as a placeholder task: unlike
+          // the voicemail feature's own list page, a Task Hub row here goes
+          // through refreshTasks()'s isNewCandidate() dedup the moment it's
+          // created, so a task written now with placeholder content would
+          // never get revisited once the real transcript lands. Simplest
+          // correct behavior: the voice note just becomes a task on the
+          // refresh AFTER its transcript finishes, same as it would if
+          // Yaakov had typed it a few minutes later than he actually spoke it.
+          if (voice && typeof voice.transcribeOne === 'function') {
+            voice.transcribeOne(row.source_item_id, msg).catch((e) => {
+              console.warn('[task-inbox] voice.transcribeOne failed for', row.source_item_id, e && e.message);
+            });
+          }
+          continue;
+        }
+      } else {
+        const t = textPreview(msg && (msg.message || msg)) || '';
+        if (!t) continue;
+        out.push({ source_item_id: row.source_item_id, text: t, sender_phone: row.sender_phone, eff_at: row.eff_at });
+      }
     } catch (_) { /* undecryptable — skip this one message, not the whole batch */ }
   }
   out.reverse(); // oldest first, so a first-run backlog gets turned into tasks in the order it was written
   return out;
+}
+
+// Atomically claim a voice message for transcription: only the caller that
+// gets a row back should actually download+transcribe. Postgres's row-level
+// locking during UPDATE makes this safe without an explicit transaction/lock —
+// a second concurrent claim attempt blocks until the first UPDATE commits, then
+// re-evaluates the WHERE clause against the now-'pending' row and matches nothing.
+//
+// A 'pending' row older than 10 minutes is treated as abandoned (e.g. the
+// process doing the transcribing crashed or the server restarted mid-call)
+// and can be reclaimed — otherwise a single interrupted attempt would leave
+// that voice note stuck forever, since nothing else moves it out of 'pending'.
+async function claimVoiceTranscriptionJob(sourceItemId, { maxAttempts = 3 } = {}) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !sourceItemId) return null;
+  const r = await p.query(
+    `UPDATE processing_jobs
+       SET voice_transcript_status = 'pending',
+           voice_transcript_attempts = voice_transcript_attempts + 1,
+           voice_transcript_updated_at = now()
+     WHERE source = 'whatsapp' AND source_item_id = $1
+       AND (voice_transcript_status IS NULL
+            OR (voice_transcript_status = 'failed' AND voice_transcript_attempts < $2)
+            OR (voice_transcript_status = 'pending' AND voice_transcript_updated_at < now() - interval '10 minutes'))
+     RETURNING source_item_id`,
+    [sourceItemId, maxAttempts]
+  );
+  return r.rows[0] || null;
+}
+
+async function saveVoiceTranscript(sourceItemId, { text } = {}) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !sourceItemId) return;
+  await p.query(
+    `UPDATE processing_jobs
+       SET voice_transcript_status = 'done',
+           voice_transcript_text_enc = $2,
+           voice_transcript_updated_at = now()
+     WHERE source = 'whatsapp' AND source_item_id = $1`,
+    [sourceItemId, enc.encrypt(text || '')]
+  );
+}
+
+async function markVoiceTranscriptionFailed(sourceItemId, errMessage) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !sourceItemId) return;
+  await p.query(
+    `UPDATE processing_jobs SET voice_transcript_status = 'failed', voice_transcript_updated_at = now()
+     WHERE source = 'whatsapp' AND source_item_id = $1`,
+    [sourceItemId]
+  );
+  console.warn('[voice-transcribe] failed for', sourceItemId, '-', errMessage);
 }
 
 // Backfill msg_kind for rows ingested before the column existed. Same shape and
@@ -1466,41 +1570,10 @@ async function responseStats({ days = 30, staffPhones = [] } = {}) {
   };
 }
 
-// Most-recently-active staff members in a chat, read straight off the
-// plaintext sender_staff_phone9 column (no decryption). Built for
-// lib/responsible.js's fallback: when a group has no usable monday-resolved
-// responsible person (none linked, or the monday person isn't actually a
-// participant in the group), responsibility should default to whoever has
-// actually been corresponding here — not to a name nobody in the chat has
-// ever seen. One row per distinct staff phone9, newest activity first, so
-// the caller can walk down the list (e.g. to skip the partner, who is
-// present in nearly every group and should only be the answer when he is
-// truly the only staffer who has ever replied).
-async function lastActiveStaffPhone9s(chatJid, { limit = 10 } = {}) {
-  await ensureTables();
-  const p = getPool();
-  if (!p) return [];
-  const jid = String(chatJid || '').trim();
-  if (!jid) return [];
-  const lim = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 50);
-  const r = await p.query(
-    `SELECT sender_staff_phone9, MAX(COALESCE(sent_at, created_at)) AS last_at
-     FROM processing_jobs
-     WHERE source = 'whatsapp' AND chat_jid = $1 AND deleted_at IS NULL
-       AND sender_staff_phone9 IS NOT NULL
-     GROUP BY sender_staff_phone9
-     ORDER BY last_at DESC
-     LIMIT $2`,
-    [jid, lim]
-  );
-  return r.rows.map((row) => ({ phone9: row.sender_staff_phone9, lastAt: row.last_at }));
-}
-
 module.exports = {
   ensureTables,
   listRecentJobs,
   responseStats,
-  lastActiveStaffPhone9s,
   dismissChat,
   markMessageDeleted,
   getChatTriage,
@@ -1524,6 +1597,9 @@ module.exports = {
   applyTaskUpdate,
   listUnansweredChats,
   listTaskInboxMessages,
+  claimVoiceTranscriptionJob,
+  saveVoiceTranscript,
+  markVoiceTranscriptionFailed,
   diagnoseChat,
   backfillMsgKind,
   NON_MESSAGE_KINDS,

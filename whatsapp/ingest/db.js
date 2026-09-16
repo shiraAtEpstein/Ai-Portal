@@ -1570,10 +1570,41 @@ async function responseStats({ days = 30, staffPhones = [] } = {}) {
   };
 }
 
+// Most-recently-active staff members in a chat, read straight off the
+// plaintext sender_staff_phone9 column (no decryption). Built for
+// lib/responsible.js's fallback: when a group has no usable monday-resolved
+// responsible person (none linked, or the monday person isn't actually a
+// participant in the group), responsibility should default to whoever has
+// actually been corresponding here — not to a name nobody in the chat has
+// ever seen. One row per distinct staff phone9, newest activity first, so
+// the caller can walk down the list (e.g. to skip the partner, who is
+// present in nearly every group and should only be the answer when he is
+// truly the only staffer who has ever replied).
+async function lastActiveStaffPhone9s(chatJid, { limit = 10 } = {}) {
+  await ensureTables();
+  const p = getPool();
+  if (!p) return [];
+  const jid = String(chatJid || '').trim();
+  if (!jid) return [];
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 50);
+  const r = await p.query(
+    `SELECT sender_staff_phone9, MAX(COALESCE(sent_at, created_at)) AS last_at
+     FROM processing_jobs
+     WHERE source = 'whatsapp' AND chat_jid = $1 AND deleted_at IS NULL
+       AND sender_staff_phone9 IS NOT NULL
+     GROUP BY sender_staff_phone9
+     ORDER BY last_at DESC
+     LIMIT $2`,
+    [jid, lim]
+  );
+  return r.rows.map((row) => ({ phone9: row.sender_staff_phone9, lastAt: row.last_at }));
+}
+
 module.exports = {
   ensureTables,
   listRecentJobs,
   responseStats,
+  lastActiveStaffPhone9s,
   dismissChat,
   markMessageDeleted,
   getChatTriage,

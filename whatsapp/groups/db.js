@@ -84,6 +84,19 @@ async function ensureTables() {
   // environment without a manual step, the same way every other column on
   // this table already does.
   await p.query(`ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS task_owner_email TEXT;`);
+  // 2026-09-14 (Shira): lib/relink.js's relinkUnlinked() re-selects EVERY group
+  // with deal_id still NULL on every run, with no memory of past attempts. For
+  // a group that plainly isn't a deal at all (a personal/social chat, a vendor
+  // group — anything the AI name-matcher was never going to match), that meant
+  // an unbounded retry loop: each run re-ran the AI deal-matcher fresh, and an
+  // ambiguous case could land on a DIFFERENT wrong deal each time, overwriting
+  // responsible_email with a new wrong person's address every run (confirmed
+  // live: one non-deal group cycled through 4 different staff members as
+  // "responsible" across 4 relink runs). This counter caps that: relinkOne
+  // increments it whenever a run ends without a linked deal, and
+  // relinkUnlinked() stops selecting a group once it's tried and failed a few
+  // times — see DEAL_LINK_MAX_ATTEMPTS in lib/relink.js.
+  await p.query(`ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS deal_link_attempts INT NOT NULL DEFAULT 0;`);
   // Connection gap log: one row per offline window (went_down_at .. came_back_at).
   // WhatsApp only redelivers messages missed during SHORT gaps; a long outage
   // may drop some for good. This table is the audit trail so a human can see
@@ -306,6 +319,20 @@ async function setGroupDeal(accountId, providerGroupJid, dealId) {
   );
 }
 
+// Count one more failed deal-link attempt for a group (by its WhatsApp jid).
+// See the deal_link_attempts comment in ensureTables for why this exists —
+// without it, relinkUnlinked() retries a non-deal group forever, and each
+// retry's AI name-match can land on a different wrong deal.
+async function incrementDealLinkAttempts(providerGroupJid) {
+  await ensureTables();
+  const p = getPool();
+  if (!p || !providerGroupJid) return;
+  await p.query(
+    `UPDATE whatsapp_groups SET deal_link_attempts = deal_link_attempts + 1 WHERE provider_group_jid = $1`,
+    [providerGroupJid]
+  );
+}
+
 // Cache the resolved responsible staff member on a group (by its WhatsApp jid).
 // email='' is a valid "resolved to nobody / default owner" marker so we don't
 // re-query monday for a group with no linked deal.
@@ -362,12 +389,19 @@ async function getTaskOwnerEmail(providerGroupJid) {
 // Look up a group by its WhatsApp jid (one account), including its cached
 // deal_id — used to resolve the responsible via the ALREADY-linked deal
 // (covers both group-id and name-match linkage).
+//
+// 2026-09-14 (Shira): participant_phones added to the SELECT. lib/responsible.js's
+// resolveAndStore() calls this to get the group row and then checks the matched
+// staffer against participant_phones (a monday "person in charge" who isn't
+// actually in the WhatsApp group shouldn't be treated as responsible for it) —
+// that check was silently always failing because this query never returned the
+// column it needed.
 async function getGroupByJid(providerGroupJid) {
   await ensureTables();
   const p = getPool();
   if (!p || !providerGroupJid) return null;
   const r = await p.query(
-    `SELECT id, name, provider_group_jid, deal_id, responsible_email
+    `SELECT id, name, provider_group_jid, deal_id, responsible_email, participant_phones
      FROM whatsapp_groups WHERE provider_group_jid = $1 AND removed_at IS NULL LIMIT 1`,
     [providerGroupJid]
   );
@@ -455,6 +489,7 @@ module.exports = {
   getGroupByJid,
   setGroupDeal,
   setGroupDealByJid,
+  incrementDealLinkAttempts,
   setGroupResponsibleByJid,
   setGroupTaskOwnerByJid,
   getTaskOwnerEmail,

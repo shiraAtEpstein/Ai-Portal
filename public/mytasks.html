@@ -138,6 +138,10 @@
   .done-toggle{background:none; border:none; color:var(--ink-muted); font-size:13px; font-weight:700; cursor:pointer; padding:6px 2px; display:flex; align-items:center; gap:6px;}
   .done-toggle svg{width:13px;height:13px; transition:transform .15s;}
   .done-toggle.is-open svg{transform:rotate(90deg);}
+  .task-more{background:none; border:none; color:var(--ink-muted); font-size:12.5px; font-weight:700; cursor:pointer; padding:3px 0 0; margin:0; display:flex; align-items:center; gap:4px;}
+  .task-more:hover{color:var(--ink);}
+  .task-more svg{width:11px;height:11px; transition:transform .15s;}
+  .task-more[aria-expanded="true"] svg{transform:rotate(90deg);}
 </style>
 </head>
 <body>
@@ -216,6 +220,7 @@
       escalated:'הועלה בגלל המתנה ארוכה',
       min:'דק׳', doneList:'הושלמו היום', empty:'אין כאן משימות כרגע — כל הכבוד.',
       save:'שמור', cancel:'בטל', edit:'ערוך', openSource:'פתח מקור',
+      showMore:'הצג פרטים', showLess:'הסתר פרטים',
       search:'חיפוש משימות…', noResults:'אין משימות שתואמות לחיפוש',
       addTask:'הוסף משימה', addPlaceholder:'הוסיפי כאן משימה ל-LAWLY…', adding:'מוסיף…',
       teamView:'כל הצוות', myTasksView:'המשימות שלי', allPeople:'כולם (כל הצוות)', statTimeTeam:'זמן משוער כולל',
@@ -234,6 +239,7 @@
       escalated:'Escalated for waiting too long',
       min:'min', doneList:'Done today', empty:'Nothing here right now — nice work.',
       save:'Save', cancel:'Cancel', edit:'Edit', openSource:'Open source',
+      showMore:'Show details', showLess:'Hide details',
       search:'Search tasks…', noResults:'No tasks match your search',
       addTask:'Add task', addPlaceholder:'Type a task for LAWLY…', adding:'Adding…',
       teamView:'Team view', myTasksView:'My tasks', allPeople:'Everyone (whole team)', statTimeTeam:'Total est. time',
@@ -259,7 +265,12 @@
   var state = {
     lang: 'he', mode: 'mine', filter: 'all', personFilter: '', doneOpen: false,
     tasks: [], done: [], teamTasks: [], teamRoster: [], teamRosterLoading: false, teamLoading: false,
-    search: '', collapsed: {}
+    search: '', collapsed: {},
+    // 2026-09-16 (Shira): task cards now show a collapsed one-liner by
+    // default with a "Show details" toggle that reveals the full summary —
+    // per-task, keyed by id, since render() rebuilds every card from scratch
+    // on every poll/refresh and would otherwise forget what was expanded.
+    expandedTasks: {}
   };
   try {
     var savedLang = localStorage.getItem('mytasks-lang');
@@ -506,6 +517,22 @@
     var linkBtn = openHref
       ? '<a class="iconbtn" href="'+escapeAttr(openHref)+'" target="_blank" rel="noopener noreferrer" title="'+t('openSource')+'">'+LINK+'</a>' : '';
 
+    // 2026-09-16 (Shira): "the task, and then a show-more that opens the
+    // rest of the necessary details" — the card itself (title, priority,
+    // time estimate, age) stays a compact one-liner; the fuller summary
+    // (now 2-4 real sentences per the same-day compose-style rewrite, not a
+    // fragment) is collapsed by default behind this toggle. Collapsed is
+    // the default for a task not in state.expandedTasks.
+    var expanded = !!state.expandedTasks[task.id];
+    var moreToggle = task.summary
+      ? '<button type="button" class="task-more" data-more="'+task.id+'" aria-expanded="'+(expanded?'true':'false')+'">'+
+          CHEV+(expanded ? t('showLess') : t('showMore'))+
+        '</button>'
+      : '';
+    var summaryBlock = task.summary
+      ? '<p class="task-summary"'+(expanded ? '' : ' hidden')+'>'+escapeHtml(task.summary)+'</p>'
+      : '';
+
     var pillMenu = ['urgent','high','normal','low'].map(function(p){
       return '<button data-set-priority="'+p+'" data-id="'+task.id+'"><span class="dot" data-p="'+p+'"></span>'+t('p'+cap(p))+'</button>';
     }).join('');
@@ -526,7 +553,7 @@
             '<div class="task-toprow">'+whoTag+'<span class="src'+(task.source==='manual'?' is-lawly':'')+'">'+ICONS[task.source]+srcLabel+'</span></div>'+
             '<div class="task-view" data-view="'+task.id+'">'+
               '<p class="task-title">'+escapeHtml(task.title)+'</p>'+
-              (task.summary ? '<p class="task-summary">'+escapeHtml(task.summary)+'</p>' : '')+
+              moreToggle+summaryBlock+
             '</div>'+
             '<div class="task-editrow" data-edit="'+task.id+'" hidden>'+
               '<input type="text" data-field="title" value="'+escapeAttr(task.title)+'"/>'+
@@ -561,7 +588,7 @@
           '<div class="task-toprow"><span class="src'+(task.source==='manual'?' is-lawly':'')+'">'+ICONS[task.source]+srcLabel+'</span></div>'+
           '<div class="task-view" data-view="'+task.id+'">'+
             '<p class="task-title">'+escapeHtml(task.title)+'</p>'+
-            (task.summary ? '<p class="task-summary">'+escapeHtml(task.summary)+'</p>' : '')+
+            moreToggle+summaryBlock+
           '</div>'+
           '<div class="task-editrow" data-edit="'+task.id+'" hidden>'+
             '<input type="text" data-field="title" value="'+escapeAttr(task.title)+'"/>'+
@@ -729,6 +756,13 @@
     var doneToggle = document.getElementById('doneToggle');
     if (doneToggle) doneToggle.addEventListener('click', function(){ state.doneOpen = !state.doneOpen; render(); });
 
+    Array.prototype.forEach.call(list.querySelectorAll('[data-more]'), function(btn){
+      btn.addEventListener('click', function(){
+        var id = btn.getAttribute('data-more');
+        state.expandedTasks[id] = !state.expandedTasks[id];
+        render();
+      });
+    });
     Array.prototype.forEach.call(list.querySelectorAll('[data-grouptoggle]'), function(btn){
       btn.addEventListener('click', function(){
         var key = btn.getAttribute('data-grouptoggle');

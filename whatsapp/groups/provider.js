@@ -34,7 +34,7 @@ const { SafeCache } = require('./safe-cache');
 const { createAuthStore } = require('./auth-store');
 const db = require('./db');
 const ingestDb = require('../ingest/db');
-const { senderFromMessage, normalizePhone, jidUser, isLidJid } = require('../ingest/phone');
+const { senderFromMessage, normalizePhone, jidUser, isLidJid, unwrapMessage } = require('../ingest/phone');
 const { loadDirectory } = require('../../lib/routing');
 const { matchStaffByName } = require('../../lib/responsible');
 const { pickDealByGroupName } = require('../ingest/match');
@@ -413,6 +413,24 @@ class BaileysGroupsProvider extends EventEmitter {
           if (info.direction === 'in' && !resolveSenderStaff(info, msg)) {
             try { require('../agent/live-trigger').scheduleDraft(info.chat_jid); } catch (_) {}
           }
+          // 2026-09-16 (Shira): "why does a voice note need to wait for a
+          // poll — shouldn't it just trigger?" It can: the live socket
+          // already hands us this message the instant it arrives, same as
+          // the responder trigger right above. Only pay the extra
+          // task_owner_email lookup for an actual audioMessage in a group
+          // that's someone's personal task inbox — text messages and every
+          // deal group skip this entirely. Fire-and-forget, same as
+          // scheduleDraft: never blocks or breaks ingestion.
+          try {
+            const inner = unwrapMessage(msg && msg.message);
+            if (inner && inner.audioMessage) {
+              const ownerEmail = await db.getTaskOwnerEmail(info.chat_jid);
+              if (ownerEmail) {
+                require('../ingest/voice').transcribeOne(info.message_id, msg, ownerEmail)
+                  .catch((e) => console.warn('[task-inbox/live] transcribeOne failed for', info.message_id, e && e.message));
+              }
+            }
+          } catch (e) { console.warn('[task-inbox/live] voice-trigger check failed (non-fatal):', e.message); }
         } else skipped++;
       } catch (e) {
         skipped++;

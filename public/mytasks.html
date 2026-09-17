@@ -34,7 +34,7 @@
   .brand-mark{font-weight:800; font-size:12px; letter-spacing:.14em; color:var(--accent-soft-ink); background:var(--accent-soft); padding:4px 8px; border-radius:6px;}
   .topbar h1{font-family:var(--font-display); font-weight:700; font-size:24px; margin:0;}
   .topbar-meta{display:flex; align-items:center; gap:8px; color:var(--ink-muted); font-size:13.5px; margin-inline-end:auto;}
-  .live-dot{width:8px;height:8px;border-radius:50%;background:#3f9a5c;flex:none; box-shadow:0 0 0 3px rgba(63,154,92,.2);}
+  .live-dot{width:8px;height:8px;border-radius:50%;background:#9aa4ad;flex:none; box-shadow:0 0 0 3px rgba(154,164,173,.2);}
   .topbar-actions{display:flex; align-items:center; gap:8px;}
   .btn{display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border); background:var(--surface); color:var(--ink); border-radius:10px; padding:8px 13px; font-size:14px; font-weight:600; cursor:pointer; text-decoration:none; transition:background .15s, border-color .15s, transform .1s;}
   .btn:hover{border-color:var(--accent);}
@@ -216,7 +216,7 @@
 
   var I18N = {
     he:{
-      title:'מוקד המשימות שלי', live:'מתעדכן אוטומטית', refresh:'רענן', refreshing:'מרענן…',
+      title:'מוקד המשימות שלי', live:'עדכון ידני', refresh:'רענן', refreshing:'מרענן…',
       statOpen:'משימות פתוחות', statUrgent:'דחופות', statTime:'זמן משוער היום', statDone:'הושלמו היום',
       filterAll:'הכול', filterUrgent:'דחוף', filterEmail:'אימייל', filterWhatsapp:'וואטסאפ', filterManual:'LAWLY',
       groupUrgent:'קריטי', groupHigh:'היום', groupLater:'בהמשך',
@@ -235,7 +235,7 @@
       agoJust:'עכשיו', agoMin:'לפני {n} דק׳', agoHour:'לפני שעה', agoHours:'לפני {n} שעות', agoDay:'לפני יום', agoDays:'לפני {n} ימים'
     },
     en:{
-      title:"My Task Hub", live:'Live', refresh:'Refresh', refreshing:'Refreshing…',
+      title:"My Task Hub", live:'Manual update', refresh:'Refresh', refreshing:'Refreshing…',
       statOpen:'Open tasks', statUrgent:'Urgent', statTime:'Est. time today', statDone:'Done today',
       filterAll:'All', filterUrgent:'Urgent', filterEmail:'Email', filterWhatsapp:'WhatsApp', filterManual:'LAWLY',
       groupUrgent:'Critical', groupHigh:'Today', groupLater:'Later',
@@ -863,22 +863,23 @@
     if (e.key === 'Enter') { e.preventDefault(); submitManualTask(); }
   });
 
-  // Auto-refresh ("mine" mode only): pulls in new WhatsApp/email candidates
-  // without the person having to click the button — per Shira 2026-09-15,
-  // tasks should update on their own the same way the shared Board does.
-  // Silent by design: runs on a timer in the background, so a transient
-  // failure (or the server's own rate-limit kicking in if the manual button
-  // was *also* just clicked) should not surface an error banner — only the
-  // explicit button click does that. isNewCandidate() server-side already
-  // skips anything already triaged, so polling often costs nothing extra
-  // beyond the DB scan except when a genuinely new message has arrived.
-  async function backgroundRefresh(){
-    if (state.mode !== 'mine') return;
-    try {
-      await api('/refresh', { method:'POST' });
-      await loadTasks();
-    } catch (e) { /* quiet — the 45s poll will just try again */ }
-  }
+  // 2026-09-17 (Shira): REVERSES the 2026-09-15 "auto-refresh, no click
+  // needed" decision above this comment used to describe — AI-credit cost
+  // control. POST /refresh is what triggers the actual Claude triage calls
+  // (via taskHub.refreshTasks()), so it must now only fire when the person
+  // explicitly clicks the Refresh button below. No call on page load, no
+  // background poll. Loading the page still shows whatever's already been
+  // triaged (loadTasks() below is a plain DB read, free). If this needs to
+  // come back later, the old function was `backgroundRefresh()`: POST
+  // /refresh then loadTasks(), called once on load and every 45s on a
+  // setInterval, 'mine' mode only — see git history.
+  //
+  // NOTE: this page-level change is NOT the whole picture — lib/scheduler.js
+  // also runs the exact same refreshTasks() for every active user on its own
+  // server-side timer (TASK_HUB_AUTO_REFRESH_SECONDS, default 5 min),
+  // independent of whether anyone has this page open at all. That's now
+  // gated off by default too (see lib/scheduler.js), otherwise this change
+  // alone would not actually stop the automatic AI spend.
 
   document.getElementById('refreshBtn').addEventListener('click', async function(){
     var btn = this;
@@ -935,19 +936,12 @@
     .catch(function () { /* non-fatal — button just stays hidden */ });
 
   loadTasks();
-  // Pull fresh candidates once right after opening the page too, not just on
-  // the next 45s tick — a background call, so it never blocks the initial
-  // (already-triaged) list from rendering immediately.
-  backgroundRefresh();
+  // Team view keeps its own light poll — this only re-reads whatever's
+  // already on screen (loadTeamSelection), it does NOT call POST /refresh
+  // and does not trigger any AI triage, so it's not part of the cost this
+  // page used to add and is left as-is.
   setInterval(function(){
-    if (state.mode === 'team') {
-      // Only refresh whatever's actually on screen — a specific person's
-      // tasks, or everyone's if that was explicitly chosen. Nothing to
-      // refresh if no one's been picked from the dropdown yet.
-      if (state.personFilter) loadTeamSelection(state.personFilter);
-    } else {
-      backgroundRefresh();
-    }
+    if (state.mode === 'team' && state.personFilter) loadTeamSelection(state.personFilter);
   }, 45000);
 })();
 </script>

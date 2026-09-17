@@ -104,7 +104,12 @@
   .src.is-lawly{color:#1f8a5f;}
   .who{display:inline-flex; align-items:center; font-size:12px; font-weight:700; color:var(--accent-soft-ink); background:var(--accent-soft); padding:2px 9px; border-radius:999px;}
   .task-title{font-weight:700; font-size:15px; line-height:1.35; margin:0;}
-  .task-summary{color:var(--ink-muted); font-size:13.5px; line-height:1.5; margin:3px 0 0;}
+  .task-summary{color:var(--ink-muted); font-size:13.5px; line-height:1.5; margin:4px 0 0; display:flex; flex-direction:column; gap:4px;}
+  .summary-line{margin:0;}
+  .summary-label{color:var(--ink); font-weight:700;}
+  .summary-link-btn{display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; border-radius:6px; color:var(--accent); vertical-align:middle; margin-inline-start:2px; text-decoration:none;}
+  .summary-link-btn:hover{background:var(--accent-soft);}
+  .summary-link-btn svg{width:13px;height:13px;}
   .task-editrow{display:flex; gap:8px; margin-top:7px; flex-wrap:wrap;}
   .task-editrow input[type=text], .task-editrow input[type=number]{font-family:inherit; font-size:13.5px; border:1px solid var(--border); border-radius:7px; padding:5px 8px; background:var(--surface-2); color:var(--ink);}
   .task-editrow input[type=text]{flex:1; min-width:160px;}
@@ -219,7 +224,7 @@
       pUrgent:'דחוף', pHigh:'גבוה', pNormal:'רגיל', pLow:'נמוך',
       escalated:'הועלה בגלל המתנה ארוכה',
       min:'דק׳', doneList:'הושלמו היום', empty:'אין כאן משימות כרגע — כל הכבוד.',
-      save:'שמור', cancel:'בטל', edit:'ערוך', openSource:'פתח מקור',
+      save:'שמור', cancel:'בטל', edit:'ערוך', openSource:'פתח מקור', openDeal:'פתח בדיל במאנדיי',
       showMore:'הצג פרטים', showLess:'הסתר פרטים',
       search:'חיפוש משימות…', noResults:'אין משימות שתואמות לחיפוש',
       addTask:'הוסף משימה', addPlaceholder:'הוסיפי כאן משימה ל-LAWLY…', adding:'מוסיף…',
@@ -238,7 +243,7 @@
       pUrgent:'Urgent', pHigh:'High', pNormal:'Normal', pLow:'Low',
       escalated:'Escalated for waiting too long',
       min:'min', doneList:'Done today', empty:'Nothing here right now — nice work.',
-      save:'Save', cancel:'Cancel', edit:'Edit', openSource:'Open source',
+      save:'Save', cancel:'Cancel', edit:'Edit', openSource:'Open source', openDeal:'Open deal in monday.com',
       showMore:'Show details', showLess:'Hide details',
       search:'Search tasks…', noResults:'No tasks match your search',
       addTask:'Add task', addPlaceholder:'Type a task for LAWLY…', adding:'Adding…',
@@ -287,6 +292,34 @@
   function cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
   function escapeHtml(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML; }
   function escapeAttr(s){ return escapeHtml(s).replace(/"/g,'&quot;'); }
+
+  // 2026-09-17 (Shira): "כל נושא שורה נפרדת, שיהיה מודגש המאת/הרקע/הנדרש,
+  // וקישור לחיץ (איקון) במקום טקסט" — WhatsApp summaries from the wa-triage
+  // skill (see the 2026-09-17 SQL update) come back as separate מאת:/נדרש:/
+  // רקע:/קישור לדיל: lines, but escapeHtml(task.summary) alone dumped them
+  // into one run-on block since newlines don't create visual breaks without
+  // extra markup. This puts each line in its own row, bolds a recognized
+  // label, and turns a קישור לדיל line into a small clickable icon instead
+  // of printing the raw URL. A summary that doesn't use these labels (an
+  // older task, or another source) still renders one line per line with no
+  // label bolded, nothing lost or broken for those.
+  var KNOWN_SUMMARY_LABELS = ['מאת', 'נדרש', 'רקע', 'קישור לדיל'];
+  function summaryLinesHtml(summary){
+    var lines = String(summary).split(/\r?\n/).map(function(l){ return l.trim(); }).filter(Boolean);
+    return lines.map(function(line){
+      var m = /^([^:：]{1,20})[:：]\s*(.*)$/.exec(line);
+      var label = (m && KNOWN_SUMMARY_LABELS.indexOf(m[1].trim()) !== -1) ? m[1].trim() : null;
+      var value = m ? m[2].trim() : line;
+      if (label === 'קישור לדיל' && /^https:\/\//.test(value)) {
+        return '<div class="summary-line"><strong class="summary-label">'+escapeHtml(label)+':</strong> '+
+          '<a class="summary-link-btn" href="'+escapeAttr(value)+'" target="_blank" rel="noopener noreferrer" title="'+escapeAttr(t('openDeal'))+'">'+LINK+'</a></div>';
+      }
+      if (label) {
+        return '<div class="summary-line"><strong class="summary-label">'+escapeHtml(label)+':</strong> '+escapeHtml(value)+'</div>';
+      }
+      return '<div class="summary-line">'+escapeHtml(line)+'</div>';
+    }).join('');
+  }
 
   function ageLabel(iso){
     var ms = Date.now() - new Date(iso).getTime();
@@ -530,7 +563,7 @@
         '</button>'
       : '';
     var summaryBlock = task.summary
-      ? '<p class="task-summary"'+(expanded ? '' : ' hidden')+'>'+escapeHtml(task.summary)+'</p>'
+      ? '<div class="task-summary"'+(expanded ? '' : ' hidden')+'>'+summaryLinesHtml(task.summary)+'</div>'
       : '';
 
     var pillMenu = ['urgent','high','normal','low'].map(function(p){

@@ -140,9 +140,24 @@ router.post('/refresh', async function (req, res) {
   }
   lastRefresh[userId] = now;
   try {
-    var counts = await taskHub.refreshTasks(userId);
+    // 2026-10-04: the button used to wait for the whole pipeline (monday scan,
+    // Gmail, WhatsApp, then every AI triage call). With a stuck Gmail socket
+    // or many emails that took minutes. Now it waits at most
+    // TASK_HUB_REFRESH_WAIT_SECONDS (default 25); if the pull isn't finished,
+    // it answers with the tasks saved so far and the pull keeps going in the
+    // background. Anything it finds appears on the next load or Refresh.
+    var waitMs = Math.max(5, parseInt(process.env.TASK_HUB_REFRESH_WAIT_SECONDS || '25', 10)) * 1000;
+    var run = taskHub.refreshTasks(userId);
+    run.catch(function (e) { console.error('[mytasks] background refresh failed', e && e.message); });
+    var timer;
+    var outcome = await Promise.race([
+      run.then(function (counts) { return { done: true, counts: counts }; }),
+      new Promise(function (resolve) { timer = setTimeout(function () { resolve({ done: false }); }, waitMs); })
+    ]);
+    clearTimeout(timer);
+    if (!outcome.done) console.log('[mytasks] refresh still running after ' + (waitMs / 1000) + 's for user ' + userId + ' — answering with saved tasks');
     var tasks = await taskHub.listTasks(userId);
-    res.json({ pulled: counts, tasks: tasks });
+    res.json({ pulled: outcome.done ? outcome.counts : null, stillPulling: !outcome.done, tasks: tasks });
   } catch (e) {
     console.error('[mytasks] POST /refresh failed', e);
     res.status(500).json({ error: 'refresh failed' });

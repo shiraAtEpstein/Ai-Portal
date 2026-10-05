@@ -546,6 +546,15 @@ module.exports = function createUnansweredRouter() {
   // different list than the one requested is how a page ends up lying about
   // what it is showing.
   // -------------------------------------------------------------------------
+  // GET /api/live/version — "has anything changed?" for the WhatsApp screens
+  // (2026-10-05, CPU fix). Answered from memory: no database, no decryption,
+  // no AI. Screens call this every ~30s while visible and only reload their
+  // real data when a counter they watch moved. See lib/live-version.js.
+  router.get('/api/live/version', authenticate, (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(require('../lib/live-version').get());
+  });
+
   router.get('/api/me/board', authenticate, async (req, res) => {
     try {
       const email = (req.session && req.session.email) || null;

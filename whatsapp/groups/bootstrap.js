@@ -15,6 +15,7 @@ const db = require('./db');
 const ingestDb = require('../ingest/db');
 const processor = require('../ingest/processor');
 const { BaileysGroupsProvider } = require('./provider');
+const lease = require('./owner-lease');
 
 // Fixed recipient for the "needs a human" alert, per operator's explicit
 // choice — not tied to the general admin/notification-preferences system.
@@ -101,6 +102,11 @@ async function start(transporter) {
     await new Promise((r) => setTimeout(r, bootDelaySec * 1000));
   }
   if (_shuttingDown) return provider;
+  // 2026-10-05: connect only once this server owns the WhatsApp lease, so two
+  // servers can never be connected at the same time (see owner-lease.js).
+  const owned = await lease.acquire(() => _shuttingDown);
+  if (!owned || _shuttingDown) return provider;
+  lease.startRenewing(() => { try { provider && provider.shutdown(); } catch (_) {} });
   await provider.connect();
   startProcessorSchedule();
   return provider;
@@ -108,11 +114,15 @@ async function start(transporter) {
 
 // Called from server.js on SIGTERM / SIGINT.
 let _shuttingDown = false;
+// Closes the connection first, then frees the lease so the new server can
+// connect straight away. Returns a promise (server.js waits for it).
 function shutdown() {
   _shuttingDown = true;
-  if (!provider) return;
-  console.log('[whatsapp/groups] shutting down — keys frozen, connection closed (no logout)');
-  try { provider.shutdown(); } catch (e) { console.warn('[whatsapp/groups] shutdown error:', e.message); }
+  if (provider) {
+    console.log('[whatsapp/groups] shutting down — keys frozen, connection closed (no logout)');
+    try { provider.shutdown(); } catch (e) { console.warn('[whatsapp/groups] shutdown error:', e.message); }
+  }
+  return lease.release();
 }
 
 // Twice-a-day summary batch. Times are firm-local (Asia/Jerusalem), overridable

@@ -190,7 +190,16 @@ async function runQueueDrafts({ limit = 200, dryRun = false, onlyChatJid = null,
   // monday round-trip when someone is actively forcing a re-check.
   if (force) monday.invalidateDealGroupIndex();
 
-  const board = await buildBoard({ fresh: true });
+  // 2026-10-05 (CPU fix): was always fresh:true — a full from-scratch board
+  // rebuild on EVERY live-trigger run (each client message). The board cache
+  // now knows when a message arrived (lib/live-version.js), so the normal read
+  // is already current. Fresh only when a person forces it, or when the one
+  // chat we were asked about isn't in the cached snapshot yet (it may have
+  // landed inside the cache's 20s minimum gap) — never miss a draft for that.
+  let board = await buildBoard({ fresh: !!force });
+  if (!force && onlyChatJid && !(board.items || []).some((i) => i.chatJid === onlyChatJid)) {
+    board = await buildBoard({ fresh: true });
+  }
   let items = (board.items || []).slice(0, limit);
   if (onlyChatJid) items = (board.items || []).filter((i) => i.chatJid === onlyChatJid);
   const jids = items.map((i) => i.chatJid).filter(Boolean);

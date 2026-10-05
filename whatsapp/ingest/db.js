@@ -1094,7 +1094,7 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
     else if (dismissed) decision = `SKIP (marked handled at ${row.dismissed_at}, no newer client msg)`;
     else if (tooRecent) decision = `SKIP (too recent — oldest unanswered waited ${calendarWaited}h wall-clock < threshold ${h}h)`;
     else decision = `TAKE (${msgCount} unanswered client msg(s), oldest waited ${waited} working h, no firm reply after)`;
-    console.log(`[unanswered/why] "${label}" | oldestUnanswered=${row.first_unanswered_at || 'none'} (${row.last_client_phone || 'lid/unknown'}) | lastClient=${row.last_client_at} | lastFirm=${row.last_firm_at || 'never'} | block=${msgCount} | waited=${waited} working h (${calendarWaited}h wall-clock) -> ${decision}`);
+    if (process.env.UNANSWERED_WHY_LOG === '1') console.log(`[unanswered/why] "${label}" | oldestUnanswered=${row.first_unanswered_at || 'none'} (${row.last_client_phone || 'lid/unknown'}) | lastClient=${row.last_client_at} | lastFirm=${row.last_firm_at || 'never'} | block=${msgCount} | waited=${waited} working h (${calendarWaited}h wall-clock) -> ${decision}`);
 
     if (!hasBlock || !needsReply || tooRecent || dismissed) continue;
 

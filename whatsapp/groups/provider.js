@@ -212,6 +212,11 @@ class BaileysGroupsProvider extends EventEmitter {
       // history — we only care about new messages going forward.
       markOnlineOnConnect: false,
       syncFullHistory: false,
+      // 2026-10-05: skip Baileys' "init queries" on connect (account props,
+      // blocklist, privacy settings). LAWLY uses none of them, and fetchProps
+      // timing out (408) right after connecting was what kept tearing the
+      // connection down and restarting it on 4 Oct.
+      fireInitQueries: false,
     });
 
     this.sock.ev.on('creds.update', () => {
@@ -400,6 +405,9 @@ class BaileysGroupsProvider extends EventEmitter {
         });
         if (jobId) {
           enqueued++;
+          // 2026-10-05 (CPU fix): tell the open WhatsApp screens something
+          // changed — a client message OR a firm reply both move the board.
+          try { require('../../lib/live-version').bump('board'); } catch (_) {}
           if (dealId) {
             // Mark for the summary processor, and update the deterministic
             // "awaiting reply" signal (client in / firm out).

@@ -142,6 +142,18 @@ class BaileysGroupsProvider extends EventEmitter {
     await this._setStatus('disconnected');
   }
 
+  // 2026-10-05: called when Render stops this server (SIGTERM during a deploy
+  // or restart). Unlike disconnect() it does NOT log out — the linked device
+  // must stay registered for the new server — it just stops writing keys and
+  // closes this server's connection so the new one is the only one.
+  shutdown() {
+    this._stopped = true;
+    this._clearReconnectTimer();
+    this._clearStableTimer();
+    try { if (this.authStore && this.authStore.freeze) this.authStore.freeze(); } catch (_) {}
+    this._teardownSocket();
+  }
+
   async getGroups() {
     return db.listGroups(this.accountId);
   }

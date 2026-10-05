@@ -82,9 +82,31 @@ async function start(transporter) {
     console.log(`[whatsapp/groups] group seen: ${group.name} (${group.provider_group_jid})`);
   });
 
+  // 2026-10-05: during a deploy Render starts this (new) server while the old
+  // one is still connected, and only stops the old one once this one is
+  // live. Two connections on one WhatsApp account fight (stream:error) and
+  // both write the encryption keys. Waiting a little before connecting gives
+  // the old server time to get its stop signal, freeze its keys and close
+  // (see shutdown() below) — and we load the keys only after that, so we
+  // start from its final copy. WA_BOOT_DELAY_SECONDS=0 turns the wait off.
+  const bootDelaySec = Math.max(0, parseInt(process.env.WA_BOOT_DELAY_SECONDS || '20', 10));
+  if (bootDelaySec) {
+    console.log(`[whatsapp/groups] waiting ${bootDelaySec}s before connecting (lets the previous server shut down first)`);
+    await new Promise((r) => setTimeout(r, bootDelaySec * 1000));
+  }
+  if (_shuttingDown) return provider;
   await provider.connect();
   startProcessorSchedule();
   return provider;
+}
+
+// Called from server.js on SIGTERM / SIGINT.
+let _shuttingDown = false;
+function shutdown() {
+  _shuttingDown = true;
+  if (!provider) return;
+  console.log('[whatsapp/groups] shutting down — keys frozen, connection closed (no logout)');
+  try { provider.shutdown(); } catch (e) { console.warn('[whatsapp/groups] shutdown error:', e.message); }
 }
 
 // Twice-a-day summary batch. Times are firm-local (Asia/Jerusalem), overridable
@@ -215,4 +237,4 @@ async function reset() {
   return { ok: true };
 }
 
-module.exports = { start, getStatus, getLatestQr, getGroups, reset, getIngestHealth };
+module.exports = { start, getStatus, getLatestQr, getGroups, reset, getIngestHealth, shutdown };

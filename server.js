@@ -174,7 +174,11 @@ async function refreshAgents(reason) {
   if (r.ok) {
     console.log('[AGENTS] loaded ' + r.count + ' agent file(s) from Dropbox (' + reason + ')');
   } else {
-    console.warn('[AGENTS] using bundled agents — Dropbox skipped: ' + r.reason + ' (' + reason + ')');
+    // Print once per distinct reason (it repeats every 5 min otherwise).
+    if (refreshAgents._lastSkip !== r.reason || process.env.LOG_VERBOSE === '1') {
+      refreshAgents._lastSkip = r.reason;
+      console.warn('[AGENTS] using bundled agents — Dropbox skipped: ' + r.reason + ' (' + reason + ')');
+    }
   }
 }
 refreshAgents('boot');

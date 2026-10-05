@@ -78,8 +78,14 @@ async function start(transporter) {
   provider.on('qr', (qr) => {
     latestQr = qr;
   });
+  // 2026-10-05: the per-group "group seen" line is off by default — every
+  // connect printed all ~290 groups (twice), burying the useful lines. The
+  // "discovery found N group(s)" summary still prints. WA_LOG_GROUPS=1 turns
+  // the per-group lines back on when debugging group discovery.
   provider.on('group', (group) => {
-    console.log(`[whatsapp/groups] group seen: ${group.name} (${group.provider_group_jid})`);
+    if (process.env.WA_LOG_GROUPS === '1') {
+      console.log(`[whatsapp/groups] group seen: ${group.name} (${group.provider_group_jid})`);
+    }
   });
 
   // 2026-10-05: during a deploy Render starts this (new) server while the old

@@ -115,6 +115,8 @@
   .task-editrow input[type=text]{flex:1; min-width:160px;}
   .task-editrow input[type=number]{width:64px;}
   .task-metarow{display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap;}
+  .task-metarow .deal{font-size:12.5px; font-weight:600; color:var(--accent); text-decoration:none; border:1px solid var(--border); border-radius:999px; padding:2px 9px; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .task-metarow .deal:hover{border-color:var(--accent);}
   .est{font-size:12.5px; color:var(--ink-muted); font-weight:600; display:inline-flex; align-items:center; gap:4px; font-variant-numeric:tabular-nums;}
   .est svg{width:12px;height:12px;}
   .age{font-size:12.5px; font-weight:600; display:inline-flex; align-items:center; gap:4px;}
@@ -521,7 +523,8 @@
     var q = state.search.trim().toLowerCase();
     if (!q) return true;
     return (task.title || '').toLowerCase().indexOf(q) !== -1 ||
-      (task.summary || '').toLowerCase().indexOf(q) !== -1;
+      (task.summary || '').toLowerCase().indexOf(q) !== -1 ||
+      (task.deal_name || '').toLowerCase().indexOf(q) !== -1;
   }
 
   // Where the card's "open" button (email/WhatsApp icon) should point.
@@ -539,6 +542,15 @@
       if (digits.length >= 9) return 'https://wa.me/972' + digits.slice(-9);
     }
     return null; // WhatsApp group chats with no known invite link — nothing to open
+  }
+
+  // 2026-10-05 (deal linking): the monday deal this task belongs to, as a
+  // small link on the card. Only shown when the server linked it for sure.
+  function dealChip(task){
+    if (!task.deal_id || !task.deal_board) return '';
+    var href = 'https://epstein-law-firm.monday.com/boards/' + encodeURIComponent(task.deal_board) + '/pulses/' + encodeURIComponent(task.deal_id);
+    var label = task.deal_name || 'monday';
+    return '<a class="deal" href="'+escapeAttr(href)+'" target="_blank" rel="noopener noreferrer" title="'+t('openDeal')+'">'+escapeHtml(label)+'</a>';
   }
 
   function taskCard(task){
@@ -603,7 +615,7 @@
                 '<div class="pmenu-list">'+pillMenu+'</div>'+
               '</div>'+
               '<span class="est">'+TIMER+' '+(task.estimated_minutes||'—')+' '+t('min')+'</span>'+
-              '<span class="age '+ageCls+'">'+CLOCK+' '+ageLabel(task.first_seen_at)+'</span>'+
+              '<span class="age '+ageCls+'">'+CLOCK+' '+ageLabel(task.first_seen_at)+'</span>'+dealChip(task)+
             '</div>'+
           '</div>'+
           '<div class="task-actions">'+
@@ -638,7 +650,7 @@
               '<div class="pmenu-list">'+pillMenu+'</div>'+
             '</div>'+
             '<span class="est">'+TIMER+' '+(task.estimated_minutes||'—')+' '+t('min')+'</span>'+
-            '<span class="age '+ageCls+'">'+CLOCK+' '+ageLabel(task.first_seen_at)+'</span>'+
+            '<span class="age '+ageCls+'">'+CLOCK+' '+ageLabel(task.first_seen_at)+'</span>'+dealChip(task)+
           '</div>'+
         '</div>'+
         '<div class="task-actions">'+

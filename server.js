@@ -195,8 +195,11 @@ whatsappGroups.start(transporter).catch((e) => {
 // never overwrite the new server's keys (that caused "Bad MAC" on 5 Oct).
 function onStopSignal(sig) {
   console.log('[server] ' + sig + ' received — closing WhatsApp and exiting');
-  try { whatsappGroups.shutdown(); } catch (_) {}
-  setTimeout(() => process.exit(0), 1500).unref();
+  setTimeout(() => process.exit(0), 4000).unref(); // hard stop if the DB is slow
+  Promise.resolve()
+    .then(() => whatsappGroups.shutdown())
+    .catch(() => {})
+    .then(() => setTimeout(() => process.exit(0), 300));
 }
 process.once('SIGTERM', () => onStopSignal('SIGTERM'));
 process.once('SIGINT', () => onStopSignal('SIGINT'));

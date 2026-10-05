@@ -186,6 +186,16 @@ refreshAgents('boot');
 whatsappGroups.start(transporter).catch((e) => {
   console.error('[whatsapp/groups] failed to start:', e.message);
 });
+// 2026-10-05: on a deploy/restart Render sends SIGTERM to the OLD server.
+// Close WhatsApp cleanly and stop writing its keys before exiting, so it can
+// never overwrite the new server's keys (that caused "Bad MAC" on 5 Oct).
+function onStopSignal(sig) {
+  console.log('[server] ' + sig + ' received — closing WhatsApp and exiting');
+  try { whatsappGroups.shutdown(); } catch (_) {}
+  setTimeout(() => process.exit(0), 1500).unref();
+}
+process.once('SIGTERM', () => onStopSignal('SIGTERM'));
+process.once('SIGINT', () => onStopSignal('SIGINT'));
 // Daily unanswered-chat digest scheduler (Asia/Jerusalem). In-process; on a
 // sleeping host it fires when the instance is next awake (see lib/scheduler.js).
 try { unansweredScheduler.start(); } catch (e) {

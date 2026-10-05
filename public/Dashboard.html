@@ -64,6 +64,7 @@
     <div class="foot" id="foot"></div>
   </div>
 
+  <script src="/js/live-poll.js"></script>
   <script>
     /* TWO CLOCKS, and they must never share a formatter — that is exactly how
        this page ended up showing "הוותיקה ביותר" in working hours next to
@@ -216,7 +217,10 @@
     daysSel.addEventListener('change', load);
     refreshBtn.addEventListener('click', load);
     load();
-    setInterval(load, 300 * 1000); // refresh every 5 min
+    // 2026-10-05 (CPU fix): was setInterval(load, 5 min). Now reloads only
+    // when something changed (at most every 15 min otherwise), and only
+    // while this tab is visible.
+    LawlyLive.watch(['board'], load, { maxAgeMs: 15 * 60 * 1000 });
   </script>
 </body>
 </html>

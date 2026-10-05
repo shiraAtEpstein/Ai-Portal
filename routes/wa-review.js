@@ -81,11 +81,14 @@ function prettyReason(raw) {
 // item right now (already handled, or simply not on the board) has no board
 // entry — it still appears here (never hidden), just without a name or a
 // responsible person to match, so only an admin sees that particular row.
-async function boardMap() {
-  // fresh:true — buildBoard() caches for ~45s; without this, the review
-  // screen's isQueued/status/waitedLabel/messageAt fields could be stale on
-  // top of the page's own refresh interval, compounding it.
-  const board = await buildBoard({ fresh: true });
+async function boardMap(fresh) {
+  // 2026-10-05 (CPU fix): this used fresh:true on EVERY call, and the review
+  // page called it every 25s per open tab — a full board rebuild each time,
+  // which pinned the server's CPU at 100% (4 Oct). The board cache now stays
+  // current by itself (it's invalidated when a message arrives or the Board
+  // is edited — lib/live-version.js), so the normal read is enough. Only the
+  // page's own Refresh button asks for a forced rebuild (?refresh=1).
+  const board = await buildBoard({ fresh: !!fresh });
   const map = new Map();
   for (const item of board.items || []) map.set(item.chatJid, item);
   return map;
@@ -149,7 +152,8 @@ module.exports = function createWaReviewRouter() {
       const admin = isAdmin(req);
       const myEmail = req.session && req.session.email;
       const rows = await waDb.listRecentDrafts({ limit: 300 });
-      const [board, dir] = await Promise.all([boardMap(), chatDirectory(rows.map((r) => r.chat_jid))]);
+      const forced = String((req.query && req.query.refresh) || '') === '1';
+      const [board, dir] = await Promise.all([boardMap(forced), chatDirectory(rows.map((r) => r.chat_jid))]);
 
       const out = [];
       for (const r of rows) {

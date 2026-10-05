@@ -293,7 +293,7 @@ class BaileysGroupsProvider extends EventEmitter {
       // Diagnostic: logs EVERY upsert before any filtering, so we can see
       // whether WhatsApp is delivering messages to this device at all, and
       // with what type ('notify' = live, 'append' = history-style).
-      if (process.env.WA_INGEST_LOG === '1') console.log(`[whatsapp/ingest] upsert received: type=${up && up.type} count=${up && up.messages ? up.messages.length : 0}`);
+      if (process.env.LOG_VERBOSE === '1') console.log(`[whatsapp/ingest] upsert received: type=${up && up.type} count=${up && up.messages ? up.messages.length : 0}`);
       // (Removed the 'first message key' diagnostic that dumped raw message
       // keys — those include client phone numbers, which must not be written
       // to the logs. LID→phone resolution is confirmed working.)
@@ -457,7 +457,7 @@ class BaileysGroupsProvider extends EventEmitter {
         console.error('[whatsapp/ingest] failed to ingest one message:', e.message);
       }
     }
-    if ((enqueued || skipped) && process.env.WA_INGEST_LOG === '1') {
+    if ((enqueued || skipped) && process.env.LOG_VERBOSE === '1') {
       console.log(`[whatsapp/ingest] enqueued ${enqueued}, skipped/duplicate ${skipped}`);
     }
   }
@@ -811,6 +811,31 @@ class BaileysGroupsProvider extends EventEmitter {
   }
 }
 
+// 2026-10-05: one short line per Baileys warning instead of a 15-line dump.
+//  - stream:error -> names WHY WhatsApp closed us (e.g. "conflict/replaced" =
+//    another copy of the server logged in with the same account).
+//  - SessionError "No session record" / "Bad MAC" for our own (fromMe) messages
+//    -> one line; WhatsApp re-sends the keys on its own. LOG_VERBOSE=1 = full dump.
+function baileysLine(level, obj, msg) {
+  const out = level === 'error' ? console.error : console.warn;
+  if (process.env.LOG_VERBOSE === '1') return out('[baileys]', obj, msg || '');
+  try {
+    const node = obj && obj.node;
+    if (node && node.tag === 'stream:error') {
+      const c = Array.isArray(node.content) && node.content[0];
+      const why = c ? (c.tag + (c.attrs && c.attrs.type ? '/' + c.attrs.type : '')) : (node.attrs && node.attrs.code) || 'unknown';
+      return out(`[baileys] stream:error — WhatsApp closed the connection: ${why}${/conflict/.test(why) ? ' (another copy logged in with this account)' : ''}`);
+    }
+    const err = obj && (obj.err || obj.error);
+    if (err && (err.name === 'SessionError' || /Bad MAC|No session/i.test(String(err.message)))) {
+      const jid = obj.key && obj.key.remoteJid;
+      return out(`[baileys] could not decrypt a message (${err.message})${jid ? ' from ' + String(jid).split('@')[0].slice(-4).padStart(8, '*') : ''}${obj.key && obj.key.fromMe ? ' [our own device]' : ''}`);
+    }
+    if (typeof obj === 'string') return out('[baileys]', obj);
+    return out('[baileys]', msg || (err && err.message) || JSON.stringify(obj).slice(0, 200));
+  } catch (_) { return out('[baileys]', msg || ''); }
+}
+
 // Baileys wants a pino-shaped logger; we don't want its verbose default
 // output mixed into the portal's console. A tiny no-op logger that
 // forwards only warn/error keeps things quiet without a real dependency.
@@ -819,8 +844,8 @@ function silentLogger() {
   const logger = {
     level: 'silent',
     trace: noop, debug: noop, info: noop,
-    warn: (msg) => console.warn('[baileys]', msg),
-    error: (msg) => console.error('[baileys]', msg),
+    warn: (obj, msg) => baileysLine('warn', obj, msg),
+    error: (obj, msg) => baileysLine('error', obj, msg),
     child: () => logger,
   };
   return logger;

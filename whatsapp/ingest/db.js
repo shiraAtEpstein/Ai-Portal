@@ -918,7 +918,7 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
   // "Firm side" = direction='out' OR sender_phone in the staff directory. A chat
   // is unanswered only when there is at least one client message the firm hasn't
   // replied to, and the oldest such message is older than N hours.
-  console.log(`[unanswered/staff] scan using ${staff.length} staff phone(s): ${staff.join(', ') || '(none)'}`);
+  if (process.env.LOG_VERBOSE === '1') console.log(`[unanswered/staff] scan using ${staff.length} staff phone(s): ${staff.join(', ') || '(none)'}`);
 
   const r = await p.query(
     `WITH staff AS (SELECT unnest($1::text[]) AS phone9),
@@ -1094,7 +1094,7 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
     else if (dismissed) decision = `SKIP (marked handled at ${row.dismissed_at}, no newer client msg)`;
     else if (tooRecent) decision = `SKIP (too recent — oldest unanswered waited ${calendarWaited}h wall-clock < threshold ${h}h)`;
     else decision = `TAKE (${msgCount} unanswered client msg(s), oldest waited ${waited} working h, no firm reply after)`;
-    if (process.env.UNANSWERED_WHY_LOG === '1') console.log(`[unanswered/why] "${label}" | oldestUnanswered=${row.first_unanswered_at || 'none'} (${row.last_client_phone || 'lid/unknown'}) | lastClient=${row.last_client_at} | lastFirm=${row.last_firm_at || 'never'} | block=${msgCount} | waited=${waited} working h (${calendarWaited}h wall-clock) -> ${decision}`);
+    if (process.env.LOG_VERBOSE === '1') console.log(`[unanswered/why] "${label}" | oldestUnanswered=${row.first_unanswered_at || 'none'} (${row.last_client_phone || 'lid/unknown'}) | lastClient=${row.last_client_at} | lastFirm=${row.last_firm_at || 'never'} | block=${msgCount} | waited=${waited} working h (${calendarWaited}h wall-clock) -> ${decision}`);
 
     if (!hasBlock || !needsReply || tooRecent || dismissed) continue;
 
@@ -1149,7 +1149,7 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
   // oldest message stops heading the list. The timestamp cannot tie.
   out.sort((a, b) => new Date(a.firstUnansweredAt).getTime() - new Date(b.firstUnansweredAt).getTime());
 
-  console.log(`[unanswered/why] ${out.length} chat(s) TAKEN out of ${r.rows.length} chat(s) with a client message`);
+  if (process.env.LOG_VERBOSE === '1') console.log(`[unanswered/why] ${out.length} chat(s) TAKEN out of ${r.rows.length} chat(s) with a client message`);
   return out;
 }
 

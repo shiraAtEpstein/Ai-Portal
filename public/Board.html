@@ -84,6 +84,7 @@
     </div>
   </div>
 
+  <script src="/js/live-poll.js"></script>
   <script>
     /* The label of the firm's WORKING clock, from /api/board/meta, used only in
        the footnote — it is the clock the response-speed figures are measured
@@ -350,7 +351,11 @@
 
     refreshBtn.addEventListener('click', load);
     loadMeta().then(load);
-    setInterval(load, 180 * 1000); // every 3 min (each load runs AI triage)
+    // 2026-10-05 (CPU fix): was setInterval(load, 3 min) — rebuilt the board
+    // whether or not anything had happened. Now reloads only when a WhatsApp
+    // message arrived or someone edited the Board, and only while this tab
+    // is visible (public/js/live-poll.js).
+    LawlyLive.watch(['board'], load);
   </script>
 </body>
 </html>

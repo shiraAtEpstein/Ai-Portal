@@ -156,6 +156,7 @@
   </div>
 </div>
 
+<script src="/js/live-poll.js"></script>
 <script>
 function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e;}
 function esc(s){return String(s==null?'':s);}
@@ -414,9 +415,11 @@ function render(data){
   list.forEach(function(d){ cards.appendChild(renderCard(d)); });
 }
 
-function load(){
+// forced===true only from the Refresh buttons: asks the server for a fresh
+// board rebuild. Automatic reloads (LawlyLive) use the server's cached board.
+function load(forced){
   document.getElementById('meta').textContent='טוען…';
-  fetch('/api/wa-review',{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}})
+  fetch('/api/wa-review'+(forced===true?'?refresh=1':''),{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}})
     .then(function(r){
       if(r.status===401){ goSignIn(); return null; }
       if(!r.ok) throw new Error('bad status '+r.status);
@@ -458,8 +461,8 @@ document.getElementById('reconcileBtn').addEventListener('click',function(){
     return r ? ('נבדקו '+r.checked+', נמצאה תשובה בפועל עבור '+r.filled+'.') : 'הסתיים.';
   });
 });
-document.getElementById('refreshBtn').addEventListener('click',load);
-document.getElementById('refreshBtn2').addEventListener('click',load);
+document.getElementById('refreshBtn').addEventListener('click',function(){ load(true); });
+document.getElementById('refreshBtn2').addEventListener('click',function(){ load(true); });
 
 document.querySelectorAll('.tab').forEach(function(tab){
   tab.addEventListener('click',function(){
@@ -486,7 +489,11 @@ load();
 // refresh. Poll quietly in the background instead — render() already
 // rebuilds the cards from lastData using the current activeTab/searchQuery,
 // so this just keeps that data current without disturbing what's on screen.
-setInterval(load, 25000);
+// 2026-10-05 (CPU fix): was setInterval(load, 25000) — every open tab
+// forced a full board rebuild every 25 seconds, which pinned the server's
+// CPU at 100% on 4 Oct. Now it reloads only when a draft was created or
+// acted on, or a WhatsApp message arrived — and only while visible.
+LawlyLive.watch(['drafts', 'board'], load);
 </script>
 </body>
 </html>

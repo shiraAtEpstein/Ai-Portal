@@ -293,7 +293,7 @@ class BaileysGroupsProvider extends EventEmitter {
       // Diagnostic: logs EVERY upsert before any filtering, so we can see
       // whether WhatsApp is delivering messages to this device at all, and
       // with what type ('notify' = live, 'append' = history-style).
-      console.log(`[whatsapp/ingest] upsert received: type=${up && up.type} count=${up && up.messages ? up.messages.length : 0}`);
+      if (process.env.WA_INGEST_LOG === '1') console.log(`[whatsapp/ingest] upsert received: type=${up && up.type} count=${up && up.messages ? up.messages.length : 0}`);
       // (Removed the 'first message key' diagnostic that dumped raw message
       // keys — those include client phone numbers, which must not be written
       // to the logs. LID→phone resolution is confirmed working.)
@@ -457,7 +457,7 @@ class BaileysGroupsProvider extends EventEmitter {
         console.error('[whatsapp/ingest] failed to ingest one message:', e.message);
       }
     }
-    if (enqueued || skipped) {
+    if ((enqueued || skipped) && process.env.WA_INGEST_LOG === '1') {
       console.log(`[whatsapp/ingest] enqueued ${enqueued}, skipped/duplicate ${skipped}`);
     }
   }

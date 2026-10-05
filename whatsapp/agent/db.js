@@ -158,6 +158,12 @@ async function listAnswerBank({ activeOnly = true } = {}) {
 }
 
 // ---- drafts ---------------------------------------------------------------
+// 2026-10-05 (CPU fix): every write to the drafts tables tells the open
+// wa-review screens "something changed" — they no longer reload on a timer.
+function bumpDrafts() {
+  try { require('../../lib/live-version').bump('drafts'); } catch (_) {}
+}
+
 async function insertDraft(d) {
   await ensureTables();
   const p = getPool();
@@ -173,6 +179,7 @@ async function insertDraft(d) {
      JSON.stringify(d.validation || {}), JSON.stringify(d.skill_versions || {}),
      d.model_classify || null, d.model_compose || null, d.tokens_in || null, d.tokens_out || null, d.reference_text || null]
   );
+  bumpDrafts();
   return r.rows[0] && r.rows[0].id;
 }
 
@@ -185,6 +192,7 @@ async function recordReview({ draft_id, reviewer, action, final_text, reject_rea
      VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
     [draft_id, reviewer, action, final_text || null, reject_reason || null, seconds_to_review || null]
   );
+  bumpDrafts();
   return r.rows[0] && r.rows[0].id;
 }
 
@@ -247,6 +255,7 @@ async function setReferenceText(id, referenceText) {
   const p = getPool();
   if (!p || !id || !referenceText) return false;
   const r = await p.query(`UPDATE wa_drafts SET reference_text = $2 WHERE id = $1 AND reference_text IS NULL`, [id, referenceText]);
+  if (r.rowCount > 0) bumpDrafts();
   return r.rowCount > 0;
 }
 
@@ -270,6 +279,7 @@ async function deleteDraftsForJob(jobId) {
   const p = getPool();
   if (!p || !jobId) return 0;
   const r = await p.query(`DELETE FROM wa_drafts WHERE job_id = $1`, [String(jobId)]);
+  if (r.rowCount) bumpDrafts();
   return r.rowCount || 0;
 }
 

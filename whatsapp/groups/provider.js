@@ -625,6 +625,12 @@ class BaileysGroupsProvider extends EventEmitter {
     this._reconnectTimer = setTimeout(() => {
       this._reconnectTimer = null;
       if (this._stopped) return;
+      // 2026-10-05: never reconnect if another server now owns WhatsApp.
+      if (!require('./owner-lease').isHeld()) {
+        console.warn('[whatsapp/groups] not reconnecting — another server owns the WhatsApp connection');
+        this._stopped = true;
+        return;
+      }
       this._startSocket().catch((e) => {
         console.error('[whatsapp/groups] reconnect failed:', e.message);
         // _openSocket threw before any socket was wired, so nothing will emit

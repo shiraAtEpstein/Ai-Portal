@@ -179,20 +179,54 @@ router.post('/chat', async function (req, res) {
 
 // 6 Oct: "choose a deal" on a card — body { deal_id } (one of the task's
 // candidates) or { deal_id: null } for "none of these".
-router.post('/:id/deal', async function (req, res) {
-  var id = parseInt(req.params.id, 10);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
-  var dealId = req.body && req.body.deal_id ? String(req.body.deal_id) : null;
+// 6 Oct: link a task to a monday deal from the card (choose / search).
+function dealHandler(asAdmin) {
+  return async function (req, res) {
+    var id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+    var dealId = req.body && req.body.deal_id ? String(req.body.deal_id) : null;
+    var remove = !!(req.body && req.body.remove);
+    try {
+      var task = remove
+        ? await taskHub.removeDealFromTask(req.session.userId, id, dealId, { asAdmin: asAdmin })
+        : await taskHub.chooseDealForTask(req.session.userId, id, dealId, { asAdmin: asAdmin, add: !!(req.body && req.body.add) });
+      if (!task) return res.status(404).json({ error: 'not found' });
+      res.json({ task: task });
+    } catch (e) {
+      if (e.status === 400) return res.status(400).json({ error: e.message });
+      console.error('[mytasks] POST deal failed', e);
+      res.status(500).json({ error: 'update failed' });
+    }
+  };
+}
+// 6 Oct: save a WhatsApp group's invite link from the card.
+function groupLinkHandler(asAdmin) {
+  return async function (req, res) {
+    var id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+    try {
+      var task = await taskHub.setGroupLink(req.session.userId, id, req.body && req.body.link, { asAdmin: asAdmin });
+      if (!task) return res.status(404).json({ error: 'not found' });
+      res.json({ task: task });
+    } catch (e) {
+      if (e.status === 400) return res.status(400).json({ error: e.message });
+      console.error('[mytasks] POST group-link failed', e);
+      res.status(500).json({ error: 'update failed' });
+    }
+  };
+}
+router.get('/deals/search', async function (req, res) {
   try {
-    var task = await taskHub.chooseDealForTask(req.session.userId, id, dealId);
-    if (!task) return res.status(404).json({ error: 'not found' });
-    res.json({ task: task });
+    res.json({ deals: await taskHub.searchDeals(String(req.query.q || '').slice(0, 80)) });
   } catch (e) {
-    if (e.status === 400) return res.status(400).json({ error: e.message });
-    console.error('[mytasks] POST /:id/deal failed', e);
-    res.status(500).json({ error: 'update failed' });
+    console.error('[mytasks] deal search failed', e.message);
+    res.status(502).json({ error: 'monday search failed' });
   }
 });
+router.post('/admin/:id/deal', authenticate, requireAdmin, dealHandler(true));
+router.post('/admin/:id/group-link', authenticate, requireAdmin, groupLinkHandler(true));
+router.post('/:id/deal', dealHandler(false));
+router.post('/:id/group-link', groupLinkHandler(false));
 
 router.patch('/:id', async function (req, res) {
   var id = parseInt(req.params.id, 10);

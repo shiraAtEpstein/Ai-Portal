@@ -190,6 +190,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         <span id="teamToggleLabel">כל הצוות</span>
       </button>
+      <button class="btn" id="readSentBtn" type="button" hidden title="קורא את כל המיילים שנשלחו של כל הצוות (בלי AI)">קרא מיילים שנשלחו – כולם</button>
       <button class="btn" id="langToggle" type="button">EN</button>
       <button class="btn btn-primary" id="refreshBtn" type="button">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 4v6h-6"/></svg>
@@ -1134,6 +1135,15 @@
   // dropdown. The button disables itself and shows a loading label for the
   // one moment that takes, specifically so a slow connection can't be
   // mistaken for "the click didn't register" and mashed repeatedly.
+  // 6 Oct (admin): read everyone's sent mail now — Gmail only, no AI.
+  document.getElementById('readSentBtn').addEventListener('click', async function(){
+    var b = this;
+    b.disabled = true;
+    try {
+      var r = await api('/admin/read-sent-all', { method:'POST' });
+      b.textContent = r.running ? 'כבר רץ…' : 'התחיל – רץ ברקע';
+    } catch (e) { showError(e.message); b.disabled = false; }
+  });
   document.getElementById('teamToggleBtn').addEventListener('click', async function(){
     if (state.teamRosterLoading) return;
     state.mode = state.mode === 'mine' ? 'team' : 'mine';
@@ -1152,7 +1162,7 @@
   // from seeing a button that would 403 on them.
   fetch('/api/me', { credentials: 'same-origin' })
     .then(function (r) { return r.ok ? r.json() : null; })
-    .then(function (me) { if (me && me.isAdmin) document.getElementById('teamToggleBtn').hidden = false; })
+    .then(function (me) { if (me && me.isAdmin) { document.getElementById('teamToggleBtn').hidden = false; document.getElementById('readSentBtn').hidden = false; } })
     .catch(function () { /* non-fatal — button just stays hidden */ });
 
   try { var savedTab = localStorage.getItem('mytasks.tab'); if (['all','client','office','other'].indexOf(savedTab) !== -1) state.tab = savedTab; } catch (e) {}

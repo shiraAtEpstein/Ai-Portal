@@ -122,6 +122,19 @@
   .task-metarow{display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap;}
   .task-metarow .deal{font-size:12.5px; font-weight:600; color:var(--accent); text-decoration:none; border:1px solid var(--border); border-radius:999px; padding:2px 9px; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .task-metarow .deal:hover{border-color:var(--accent);}
+  .src-name{font-size:12px; color:var(--ink-faint); max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .task-metarow .linkbtn{font-size:12px; font-weight:600; color:var(--ink-muted); background:none; border:1px dashed var(--border); border-radius:999px; padding:2px 9px; cursor:pointer;}
+  .task-metarow .linkbtn:hover{color:var(--accent); border-color:var(--accent);}
+  .linkbox{flex-basis:100%; display:flex; flex-direction:column; gap:6px; margin-top:4px;}
+  .linkbox-row{display:flex; gap:6px;}
+  .linkbox input{flex:1; min-width:0; font:inherit; font-size:13px; padding:5px 9px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--ink);}
+  .linkbox .lb-results{display:flex; flex-direction:column; gap:3px;}
+  .linkbox .lb-item{text-align:start; font:inherit; font-size:12.5px; padding:5px 9px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--ink); cursor:pointer;}
+  .linkbox .lb-item:hover{border-color:var(--accent); color:var(--accent);}
+  .linkbox .lb-msg{font-size:12px; color:var(--ink-faint);}
+  .task-metarow .deal-wrap{display:inline-flex; align-items:center; gap:2px;}
+  .task-metarow .deal-x{border:none; background:none; color:var(--ink-faint); cursor:pointer; font-size:14px; line-height:1; padding:0 3px;}
+  .task-metarow .deal-x:hover{color:var(--accent);}
   .task-metarow .deal-pick{font-size:12.5px; font-weight:600; color:var(--accent); background:var(--surface); border:1px dashed var(--accent); border-radius:999px; padding:2px 8px; max-width:260px; cursor:pointer;}
   .est{font-size:12.5px; color:var(--ink-muted); font-weight:600; display:inline-flex; align-items:center; gap:4px; font-variant-numeric:tabular-nums;}
   .est svg{width:12px;height:12px;}
@@ -234,7 +247,7 @@
       pUrgent:'דחוף', pHigh:'גבוה', pNormal:'רגיל', pLow:'נמוך',
       escalated:'הועלה בגלל המתנה ארוכה',
       min:'דק׳', doneList:'הושלמו היום', empty:'אין כאן משימות כרגע — כל הכבוד.',
-      save:'שמור', cancel:'בטל', edit:'ערוך', openSource:'פתח מקור', openDeal:'פתח בדיל במאנדיי', chooseDeal:'בחר עסקה…', noneOfThese:'אף אחת מאלה',
+      save:'שמור', cancel:'בטל', edit:'ערוך', openSource:'פתח מקור', openDeal:'פתח בדיל במאנדיי', chooseDeal:'בחר עסקה…', noneOfThese:'אף אחת מאלה', searchOtherDeal:'חפש עסקה אחרת…', linkDeal:'+ קשר לעסקה', addDeal:'+ עסקה נוספת', removeDeal:'הסר עסקה זו', dealSearchPh:'שם הלקוח / העסקה…', noDealsFound:'לא נמצאה עסקה', searching:'מחפש…', addGroupLink:'+ קישור לקבוצה', groupLinkPh:'הדביקי קישור https://chat.whatsapp.com/…', from:'מאת:', autoReminder:'תזכורת אוטומטית',
       showMore:'הצג פרטים', showLess:'הסתר פרטים',
       search:'חיפוש משימות…', noResults:'אין משימות שתואמות לחיפוש',
       addTask:'הוסף משימה', addPlaceholder:'הוסיפי כאן משימה ל-LAWLY…', adding:'מוסיף…',
@@ -254,7 +267,7 @@
       pUrgent:'Urgent', pHigh:'High', pNormal:'Normal', pLow:'Low',
       escalated:'Escalated for waiting too long',
       min:'min', doneList:'Done today', empty:'Nothing here right now — nice work.',
-      save:'Save', cancel:'Cancel', edit:'Edit', openSource:'Open source', openDeal:'Open deal in monday.com', chooseDeal:'Choose a deal…', noneOfThese:'None of these',
+      save:'Save', cancel:'Cancel', edit:'Edit', openSource:'Open source', openDeal:'Open deal in monday.com', chooseDeal:'Choose a deal…', noneOfThese:'None of these', searchOtherDeal:'Search another deal…', linkDeal:'+ Link to deal', addDeal:'+ Another deal', removeDeal:'Remove this deal', dealSearchPh:'Client / deal name…', noDealsFound:'No deal found', searching:'Searching…', addGroupLink:'+ Group link', groupLinkPh:'Paste https://chat.whatsapp.com/… link', from:'From:', autoReminder:'Automatic reminder',
       showMore:'Show details', showLess:'Hide details',
       search:'Search tasks…', noResults:'No tasks match your search',
       addTask:'Add task', addPlaceholder:'Type a task for LAWLY…', adding:'Adding…',
@@ -563,7 +576,9 @@
     if (!q) return true;
     return (task.title || '').toLowerCase().indexOf(q) !== -1 ||
       (task.summary || '').toLowerCase().indexOf(q) !== -1 ||
-      (task.deal_name || '').toLowerCase().indexOf(q) !== -1;
+      (task.deal_name || '').toLowerCase().indexOf(q) !== -1 ||
+      (task.source_name || '').toLowerCase().indexOf(q) !== -1 ||
+      (Array.isArray(task.extra_deals) ? task.extra_deals : []).some(function(d){ return String(d.name || '').toLowerCase().indexOf(q) !== -1; });
   }
 
   // Where the card's "open" button (email/WhatsApp icon) should point.
@@ -586,18 +601,62 @@
   // 2026-10-05 (deal linking): the monday deal this task belongs to, as a
   // small link on the card. Only shown when the server linked it for sure.
   function dealChip(task){
-    // 6 Oct: the client has several deals and nothing said which — let the
-    // person choose (only the task's own candidates are offered).
-    if (state.mode !== 'team' && !task.deal_id && Array.isArray(task.deal_candidates) && task.deal_candidates.length > 1) {
+    var out = '';
+    if (task.deal_id && task.deal_board) {
+      // 6 Oct: a task can have several deals — the main one plus any added.
+      var all = [{ id: task.deal_id, board: task.deal_board, name: task.deal_name }]
+        .concat(Array.isArray(task.extra_deals) ? task.extra_deals : []);
+      all.forEach(function(d){
+        var href = 'https://epstein-law-firm.monday.com/boards/' + encodeURIComponent(d.board) + '/pulses/' + encodeURIComponent(d.id);
+        out += '<span class="deal-wrap"><a class="deal" href="'+escapeAttr(href)+'" target="_blank" rel="noopener noreferrer" title="'+t('openDeal')+'">'+escapeHtml(d.name || 'monday')+'</a>'+
+          '<button type="button" class="deal-x" data-remove-deal="'+escapeAttr(String(d.id))+'" data-id="'+task.id+'" title="'+escapeAttr(t('removeDeal'))+'">×</button></span>';
+      });
+      out += '<button type="button" class="linkbtn" data-open-box="deal" data-id="'+task.id+'">'+escapeHtml(t('addDeal'))+'</button>';
+    } else if (Array.isArray(task.deal_candidates) && task.deal_candidates.length > 1) {
+      // 6 Oct: the client has several deals and nothing said which.
       var opts = '<option value="">'+escapeHtml(t('chooseDeal'))+'</option>' +
         task.deal_candidates.map(function(d){ return '<option value="'+escapeAttr(String(d.id))+'">'+escapeHtml(d.name || d.id)+'</option>'; }).join('') +
+        '<option value="__search">'+escapeHtml(t('searchOtherDeal'))+'</option>' +
         '<option value="__none">'+escapeHtml(t('noneOfThese'))+'</option>';
-      return '<select class="deal-pick" data-deal-pick="'+task.id+'" title="'+escapeAttr(t('chooseDeal'))+'">'+opts+'</select>';
+      out += '<select class="deal-pick" data-deal-pick="'+task.id+'" title="'+escapeAttr(t('chooseDeal'))+'">'+opts+'</select>';
+    } else {
+      out += '<button type="button" class="linkbtn" data-open-box="deal" data-id="'+task.id+'">'+escapeHtml(t('linkDeal'))+'</button>';
     }
-    if (!task.deal_id || !task.deal_board) return '';
-    var href = 'https://epstein-law-firm.monday.com/boards/' + encodeURIComponent(task.deal_board) + '/pulses/' + encodeURIComponent(task.deal_id);
-    var label = task.deal_name || 'monday';
-    return '<a class="deal" href="'+escapeAttr(href)+'" target="_blank" rel="noopener noreferrer" title="'+t('openDeal')+'">'+escapeHtml(label)+'</a>';
+    // 6 Oct: a WhatsApp group with no link — paste it here once.
+    if (task.source === 'whatsapp' && /@g\.us$/.test(String(task.source_ref || '')) && !task.link) {
+      out += '<button type="button" class="linkbtn" data-open-box="group" data-id="'+task.id+'">'+escapeHtml(t('addGroupLink'))+'</button>';
+    }
+    var box = state.linkBox;
+    if (box && String(box.id) === String(task.id)) {
+      out += '<div class="linkbox" data-box="'+task.id+'">'+
+        '<div class="linkbox-row"><input type="text" data-box-input="'+box.kind+'" value="'+escapeAttr(box.q || '')+'" placeholder="'+escapeAttr(t(box.kind === 'deal' ? 'dealSearchPh' : 'groupLinkPh'))+'"/>'+
+        (box.kind === 'group' ? '<button class="btn" type="button" data-box-save="'+task.id+'">'+t('save')+'</button>' : '')+
+        '<button class="btn" type="button" data-box-close="'+task.id+'">'+t('cancel')+'</button></div>'+
+        '<div class="lb-results" data-box-results="'+task.id+'">'+linkBoxResultsHtml(box)+'</div>'+
+      '</div>';
+    }
+    return out;
+  }
+
+  function linkBoxResultsHtml(box){
+    if (box.kind !== 'deal') return box.msg ? '<span class="lb-msg">'+escapeHtml(box.msg)+'</span>' : '';
+    if (box.loading) return '<span class="lb-msg">'+t('searching')+'</span>';
+    if (box.msg) return '<span class="lb-msg">'+escapeHtml(box.msg)+'</span>';
+    if (!box.results) return '';
+    if (!box.results.length) return '<span class="lb-msg">'+t('noDealsFound')+'</span>';
+    return box.results.map(function(d){
+      return '<button type="button" class="lb-item" data-pick-deal="'+escapeAttr(String(d.id))+'">'+escapeHtml(d.name || d.id)+'</button>';
+    }).join('');
+  }
+
+  // Who it's from: the sender for email, the group / chat for WhatsApp.
+  function sourceNameHtml(task){
+    var isSys = /^sys:/.test(String(task.source_ref || ''));
+    var name = task.source_name;
+    if (!name && task.source === 'email' && isSys) name = t('autoReminder');
+    if (!name) return '';
+    var label = (task.source === 'email' && !isSys) ? t('from') + ' ' + name : name;
+    return '<span class="src-name" title="'+escapeAttr(label)+'">'+escapeHtml(label)+'</span>';
   }
 
   function taskCard(task){
@@ -642,7 +701,7 @@
       return (
         '<article class="task is-readonly" data-id="'+task.id+'" data-eff="'+eff+'">'+
           '<div class="task-main">'+
-            '<div class="task-toprow">'+whoTag+'<span class="src'+(task.source==='manual'?' is-lawly':'')+'">'+ICONS[task.source]+srcLabel+'</span></div>'+
+            '<div class="task-toprow">'+whoTag+'<span class="src'+(task.source==='manual'?' is-lawly':'')+'">'+ICONS[task.source]+srcLabel+'</span>'+sourceNameHtml(task)+'</div>'+
             '<div class="task-view" data-view="'+task.id+'">'+
               '<p class="task-title">'+escapeHtml(task.title)+'</p>'+
               moreToggle+summaryBlock+
@@ -677,7 +736,7 @@
       '<article class="task" data-id="'+task.id+'" data-eff="'+eff+'">'+
         '<button class="task-check" data-toggle="'+task.id+'" aria-label="toggle"></button>'+
         '<div class="task-main">'+
-          '<div class="task-toprow"><span class="src'+(task.source==='manual'?' is-lawly':'')+'">'+ICONS[task.source]+srcLabel+'</span></div>'+
+          '<div class="task-toprow"><span class="src'+(task.source==='manual'?' is-lawly':'')+'">'+ICONS[task.source]+srcLabel+'</span>'+sourceNameHtml(task)+'</div>'+
           '<div class="task-view" data-view="'+task.id+'">'+
             '<p class="task-title">'+escapeHtml(task.title)+'</p>'+
             moreToggle+summaryBlock+
@@ -791,18 +850,91 @@
 
   function wireList(){
     var list = document.getElementById('taskList');
+    // 6 Oct: link to a deal / save a group link — works in Team view too (admin).
+    function taskPath(id, what){ return (state.mode === 'team' ? '/admin/' : '/') + id + '/' + what; }
+    async function reloadAfterLink(){
+      state.linkBox = null;
+      if (state.mode === 'team') { if (state.personFilter) await loadTeamSelection(state.personFilter); else render(); }
+      else await loadTasks();
+    }
+    async function postDeal(id, dealId, extra){
+      await api(taskPath(id, 'deal'), { method:'POST', body: JSON.stringify(Object.assign({ deal_id: dealId }, extra || {})) });
+      await reloadAfterLink();
+    }
+    Array.prototype.forEach.call(list.querySelectorAll('[data-remove-deal]'), function(btn){
+      btn.addEventListener('click', async function(){
+        btn.disabled = true;
+        try { await postDeal(btn.getAttribute('data-id'), btn.getAttribute('data-remove-deal'), { remove: true }); }
+        catch (e) { showError(e.message); btn.disabled = false; }
+      });
+    });
     Array.prototype.forEach.call(list.querySelectorAll('[data-deal-pick]'), function(sel){
       sel.addEventListener('change', async function(){
         var id = sel.getAttribute('data-deal-pick');
         var v = sel.value;
         if (!v) return;
+        if (v === '__search') { state.linkBox = { id: id, kind: 'deal', q: '' }; render(); return; }
         sel.disabled = true;
-        try {
-          await api('/'+id+'/deal', { method:'POST', body: JSON.stringify({ deal_id: v === '__none' ? null : v }) });
-          await loadTasks();
-        } catch (e) { showError(e.message); sel.disabled = false; }
+        try { await postDeal(id, v === '__none' ? null : v); }
+        catch (e) { showError(e.message); sel.disabled = false; }
       });
     });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-open-box]'), function(btn){
+      btn.addEventListener('click', function(){
+        var id = btn.getAttribute('data-id'), kind = btn.getAttribute('data-open-box');
+        state.linkBox = (state.linkBox && String(state.linkBox.id) === id && state.linkBox.kind === kind) ? null : { id: id, kind: kind, q: '' };
+        render();
+      });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-box-close]'), function(btn){
+      btn.addEventListener('click', function(){ state.linkBox = null; render(); });
+    });
+    var boxInput = list.querySelector('[data-box-input]');
+    if (boxInput && state.linkBox) {
+      var box = state.linkBox;
+      var resultsEl = list.querySelector('[data-box-results]');
+      var wirePicks = function(){
+        Array.prototype.forEach.call(list.querySelectorAll('[data-pick-deal]'), function(b){
+          b.onclick = async function(){
+            b.disabled = true;
+            try { await postDeal(box.id, b.getAttribute('data-pick-deal'), { add: true }); }
+            catch (e) { box.msg = e.message; paint(); }
+          };
+        });
+      };
+      var paint = function(){ if (resultsEl) resultsEl.innerHTML = linkBoxResultsHtml(box); wirePicks(); };
+      wirePicks();
+      boxInput.focus();
+      try { boxInput.setSelectionRange(boxInput.value.length, boxInput.value.length); } catch (e) {}
+      var saveGroup = async function(){
+        box.msg = '';
+        try {
+          await api(taskPath(box.id, 'group-link'), { method:'POST', body: JSON.stringify({ link: boxInput.value }) });
+          await reloadAfterLink();
+        } catch (e) { box.msg = e.message; paint(); }
+      };
+      boxInput.addEventListener('input', function(){
+        box.q = boxInput.value; box.msg = '';
+        if (box.kind !== 'deal') return;
+        clearTimeout(box.timer);
+        var q = box.q.trim();
+        if (q.length < 2) { box.results = null; box.loading = false; paint(); return; }
+        box.loading = true; paint();
+        box.timer = setTimeout(async function(){
+          try {
+            var r = await api('/deals/search?q=' + encodeURIComponent(q));
+            if (state.linkBox !== box || box.q.trim() !== q) return;
+            box.results = r.deals || []; box.loading = false; paint();
+          } catch (e) { box.loading = false; box.msg = e.message; paint(); }
+        }, 350);
+      });
+      boxInput.addEventListener('keydown', function(ev){
+        if (ev.key === 'Escape') { state.linkBox = null; render(); }
+        if (ev.key === 'Enter' && box.kind === 'group') saveGroup();
+      });
+      var saveBtn = list.querySelector('[data-box-save]');
+      if (saveBtn) saveBtn.addEventListener('click', saveGroup);
+    }
     Array.prototype.forEach.call(list.querySelectorAll('[data-toggle]'), function(btn){
       btn.addEventListener('click', async function(){
         var id = btn.getAttribute('data-toggle');

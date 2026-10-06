@@ -70,6 +70,11 @@
   .person-select-status{color:var(--ink-muted); font-size:12.5px; font-weight:600; display:inline-flex; align-items:center; gap:6px;}
   .person-select-status:empty{display:none;}
   .filters{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px;}
+  .tabs{display:flex; gap:4px; border-bottom:1px solid var(--border); margin:14px 0 10px; flex-wrap:wrap;}
+  .tab{background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-1px; padding:8px 14px; font-size:14.5px; font-weight:700; color:var(--ink-muted); cursor:pointer;}
+  .tab:hover{color:var(--ink);}
+  .tab.is-active{color:var(--accent); border-bottom-color:var(--accent);}
+  .tab .n{font-weight:600; opacity:.7; font-variant-numeric:tabular-nums; margin-inline-start:4px;}
   .chip{border:1px solid var(--border); background:var(--surface); color:var(--ink-muted); padding:6px 13px; border-radius:999px; font-size:13.5px; font-weight:600; cursor:pointer;}
   .chip:hover{border-color:var(--accent);}
   .chip.is-active{background:var(--accent); border-color:var(--accent); color:var(--accent-ink);}
@@ -117,6 +122,7 @@
   .task-metarow{display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap;}
   .task-metarow .deal{font-size:12.5px; font-weight:600; color:var(--accent); text-decoration:none; border:1px solid var(--border); border-radius:999px; padding:2px 9px; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .task-metarow .deal:hover{border-color:var(--accent);}
+  .task-metarow .deal-pick{font-size:12.5px; font-weight:600; color:var(--accent); background:var(--surface); border:1px dashed var(--accent); border-radius:999px; padding:2px 8px; max-width:260px; cursor:pointer;}
   .est{font-size:12.5px; color:var(--ink-muted); font-weight:600; display:inline-flex; align-items:center; gap:4px; font-variant-numeric:tabular-nums;}
   .est svg{width:12px;height:12px;}
   .age{font-size:12.5px; font-weight:600; display:inline-flex; align-items:center; gap:4px;}
@@ -196,6 +202,7 @@
     <select id="personSelect" class="person-select"></select>
     <span id="personSelectStatus" class="person-select-status" aria-live="polite"></span>
   </div>
+  <div class="tabs" id="tabs" role="tablist"></div>
   <div class="filters" id="filters"></div>
   <section id="taskList" aria-live="polite"></section>
 </div>
@@ -220,13 +227,14 @@
     he:{
       title:'מוקד המשימות שלי', live:'עדכון ידני', refresh:'רענן', refreshing:'מרענן…',
       statOpen:'משימות פתוחות', statUrgent:'דחופות', statTime:'זמן משוער היום', statDone:'הושלמו היום',
+      tabAll:'הכול', tabClient:'לקוחות', tabOffice:'משרד', tabOther:'אחר',
       filterAll:'הכול', filterUrgent:'דחוף', filterEmail:'אימייל', filterWhatsapp:'וואטסאפ', filterManual:'LAWLY',
       groupUrgent:'קריטי', groupHigh:'היום', groupLater:'בהמשך',
       srcEmail:'אימייל', srcWhatsapp:'וואטסאפ — קבוצת עסקה', srcManual:'נשלח ל-LAWLY בוואטסאפ',
       pUrgent:'דחוף', pHigh:'גבוה', pNormal:'רגיל', pLow:'נמוך',
       escalated:'הועלה בגלל המתנה ארוכה',
       min:'דק׳', doneList:'הושלמו היום', empty:'אין כאן משימות כרגע — כל הכבוד.',
-      save:'שמור', cancel:'בטל', edit:'ערוך', openSource:'פתח מקור', openDeal:'פתח בדיל במאנדיי',
+      save:'שמור', cancel:'בטל', edit:'ערוך', openSource:'פתח מקור', openDeal:'פתח בדיל במאנדיי', chooseDeal:'בחר עסקה…', noneOfThese:'אף אחת מאלה',
       showMore:'הצג פרטים', showLess:'הסתר פרטים',
       search:'חיפוש משימות…', noResults:'אין משימות שתואמות לחיפוש',
       addTask:'הוסף משימה', addPlaceholder:'הוסיפי כאן משימה ל-LAWLY…', adding:'מוסיף…',
@@ -239,13 +247,14 @@
     en:{
       title:"My Task Hub", live:'Manual update', refresh:'Refresh', refreshing:'Refreshing…',
       statOpen:'Open tasks', statUrgent:'Urgent', statTime:'Est. time today', statDone:'Done today',
+      tabAll:'All', tabClient:'Clients', tabOffice:'Office', tabOther:'Other',
       filterAll:'All', filterUrgent:'Urgent', filterEmail:'Email', filterWhatsapp:'WhatsApp', filterManual:'LAWLY',
       groupUrgent:'Critical', groupHigh:'Today', groupLater:'Later',
       srcEmail:'Email', srcWhatsapp:'WhatsApp — deal group', srcManual:'Sent to LAWLY on WhatsApp',
       pUrgent:'Urgent', pHigh:'High', pNormal:'Normal', pLow:'Low',
       escalated:'Escalated for waiting too long',
       min:'min', doneList:'Done today', empty:'Nothing here right now — nice work.',
-      save:'Save', cancel:'Cancel', edit:'Edit', openSource:'Open source', openDeal:'Open deal in monday.com',
+      save:'Save', cancel:'Cancel', edit:'Edit', openSource:'Open source', openDeal:'Open deal in monday.com', chooseDeal:'Choose a deal…', noneOfThese:'None of these',
       showMore:'Show details', showLess:'Hide details',
       search:'Search tasks…', noResults:'No tasks match your search',
       addTask:'Add task', addPlaceholder:'Type a task for LAWLY…', adding:'Adding…',
@@ -270,7 +279,7 @@
   // /admin/roster call, used to populate the dropdown and to stitch a name
   // onto single-person task rows (which don't carry one server-side).
   var state = {
-    lang: 'he', mode: 'mine', filter: 'all', personFilter: '', doneOpen: false,
+    lang: 'he', mode: 'mine', filter: 'all', tab: 'all', personFilter: '', doneOpen: false,
     tasks: [], done: [], teamTasks: [], teamRoster: [], teamRosterLoading: false, teamLoading: false,
     search: '', collapsed: {},
     // 2026-09-16 (Shira): task cards now show a collapsed one-liner by
@@ -467,6 +476,36 @@
     }
   }
 
+  // 6 Oct: Clients / Office / Other — who the task is with. Decided by the
+  // server without AI (deal link, the people on the email, the source).
+  function categoryOf(task){
+    if (task.deal_id || (Array.isArray(task.deal_candidates) && task.deal_candidates.length > 1)) return 'client';
+    if (task.party === 'client' || task.party === 'office') return task.party;
+    if (task.party === 'other' || task.party === 'unknown') return 'other';
+    if (task.source === 'whatsapp') return 'client';
+    if (task.source === 'manual') return 'office';
+    if (/^sys:/.test(String(task.source_ref || ''))) return 'client';
+    return 'other';
+  }
+  function matchesTab(task){ return state.tab === 'all' || categoryOf(task) === state.tab; }
+  function renderTabs(list){
+    var counts = { all: list.length, client:0, office:0, other:0 };
+    list.forEach(function(x){ counts[categoryOf(x)]++; });
+    var defs = [['all',t('tabAll')],['client',t('tabClient')],['office',t('tabOffice')],['other',t('tabOther')]];
+    var el = document.getElementById('tabs');
+    el.innerHTML = defs.map(function(d){
+      return '<button class="tab'+(state.tab===d[0]?' is-active':'')+'" role="tab" aria-selected="'+(state.tab===d[0])+'" data-tab="'+d[0]+'" type="button">'+
+        d[1]+'<span class="n">'+counts[d[0]]+'</span></button>';
+    }).join('');
+    Array.prototype.forEach.call(el.querySelectorAll('.tab'), function(btn){
+      btn.addEventListener('click', function(){
+        state.tab = btn.getAttribute('data-tab');
+        try { localStorage.setItem('mytasks.tab', state.tab); } catch (e) {}
+        render();
+      });
+    });
+  }
+
   function renderFilters(list){
     var counts = { all:0, urgent:0, email:0, whatsapp:0, manual:0 };
     list.forEach(function(x){
@@ -547,6 +586,14 @@
   // 2026-10-05 (deal linking): the monday deal this task belongs to, as a
   // small link on the card. Only shown when the server linked it for sure.
   function dealChip(task){
+    // 6 Oct: the client has several deals and nothing said which — let the
+    // person choose (only the task's own candidates are offered).
+    if (state.mode !== 'team' && !task.deal_id && Array.isArray(task.deal_candidates) && task.deal_candidates.length > 1) {
+      var opts = '<option value="">'+escapeHtml(t('chooseDeal'))+'</option>' +
+        task.deal_candidates.map(function(d){ return '<option value="'+escapeAttr(String(d.id))+'">'+escapeHtml(d.name || d.id)+'</option>'; }).join('') +
+        '<option value="__none">'+escapeHtml(t('noneOfThese'))+'</option>';
+      return '<select class="deal-pick" data-deal-pick="'+task.id+'" title="'+escapeAttr(t('chooseDeal'))+'">'+opts+'</select>';
+    }
     if (!task.deal_id || !task.deal_board) return '';
     var href = 'https://epstein-law-firm.monday.com/boards/' + encodeURIComponent(task.deal_board) + '/pulses/' + encodeURIComponent(task.deal_id);
     var label = task.deal_name || 'monday';
@@ -685,14 +732,16 @@
     document.getElementById('composer').hidden = state.mode === 'team';
     renderPeople();
     renderSummary(scoped);
-    renderFilters(scoped);
+    renderTabs(scoped);
+    var tabbed = scoped.filter(matchesTab);
+    renderFilters(tabbed);
 
     var searchInput = document.getElementById('searchInput');
     searchInput.placeholder = t('search');
     document.getElementById('searchClear').hidden = !state.search;
     document.getElementById('composerInput').placeholder = t('addPlaceholder');
 
-    var visible = scoped.filter(matchesFilter).filter(matchesSearch);
+    var visible = tabbed.filter(matchesFilter).filter(matchesSearch);
     var groups = { urgent:[], high:[], later:[] };
     visible.forEach(function(x){
       if (x.effective_priority === 'urgent') groups.urgent.push(x);
@@ -742,6 +791,18 @@
 
   function wireList(){
     var list = document.getElementById('taskList');
+    Array.prototype.forEach.call(list.querySelectorAll('[data-deal-pick]'), function(sel){
+      sel.addEventListener('change', async function(){
+        var id = sel.getAttribute('data-deal-pick');
+        var v = sel.value;
+        if (!v) return;
+        sel.disabled = true;
+        try {
+          await api('/'+id+'/deal', { method:'POST', body: JSON.stringify({ deal_id: v === '__none' ? null : v }) });
+          await loadTasks();
+        } catch (e) { showError(e.message); sel.disabled = false; }
+      });
+    });
     Array.prototype.forEach.call(list.querySelectorAll('[data-toggle]'), function(btn){
       btn.addEventListener('click', async function(){
         var id = btn.getAttribute('data-toggle');
@@ -947,6 +1008,7 @@
     .then(function (me) { if (me && me.isAdmin) document.getElementById('teamToggleBtn').hidden = false; })
     .catch(function () { /* non-fatal — button just stays hidden */ });
 
+  try { var savedTab = localStorage.getItem('mytasks.tab'); if (['all','client','office','other'].indexOf(savedTab) !== -1) state.tab = savedTab; } catch (e) {}
   loadTasks();
   // Team view keeps its own light poll — this only re-reads whatever's
   // already on screen (loadTeamSelection), it does NOT call POST /refresh

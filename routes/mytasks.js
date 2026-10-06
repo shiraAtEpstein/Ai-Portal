@@ -36,7 +36,7 @@ var REFRESH_COOLDOWN_MS = 30 * 1000;
 
 router.get('/', async function (req, res) {
   try {
-    var tasks = await taskHub.listTasks(req.session.userId);
+    var tasks = await taskHub.listTasks(req.session.userId, { doneToday: true });
     res.json({ tasks: tasks });
   } catch (e) {
     console.error('[mytasks] GET / failed', e);

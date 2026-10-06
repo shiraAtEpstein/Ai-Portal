@@ -122,6 +122,8 @@
   .task-metarow{display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap;}
   .task-metarow .deal{font-size:12.5px; font-weight:600; color:var(--accent); text-decoration:none; border:1px solid var(--border); border-radius:999px; padding:2px 9px; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .task-metarow .deal:hover{border-color:var(--accent);}
+  .closed-why{font-size:12px; color:var(--ink-muted); margin:3px 0 0;}
+  .btn.reopen{font-size:12px; padding:3px 9px;}
   .src-name{font-size:12px; color:var(--ink-faint); max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .task-metarow .linkbtn{font-size:12px; font-weight:600; color:var(--ink-muted); background:none; border:1px dashed var(--border); border-radius:999px; padding:2px 9px; cursor:pointer;}
   .task-metarow .linkbtn:hover{color:var(--accent); border-color:var(--accent);}
@@ -247,7 +249,7 @@
       pUrgent:'דחוף', pHigh:'גבוה', pNormal:'רגיל', pLow:'נמוך',
       escalated:'הועלה בגלל המתנה ארוכה',
       min:'דק׳', doneList:'הושלמו היום', empty:'אין כאן משימות כרגע — כל הכבוד.',
-      save:'שמור', cancel:'בטל', edit:'ערוך', openSource:'פתח מקור', openDeal:'פתח בדיל במאנדיי', chooseDeal:'בחר עסקה…', noneOfThese:'אף אחת מאלה', searchOtherDeal:'חפש עסקה אחרת…', linkDeal:'+ קשר לעסקה', addDeal:'+ עסקה נוספת', removeDeal:'הסר עסקה זו', dealSearchPh:'שם הלקוח / העסקה…', noDealsFound:'לא נמצאה עסקה', searching:'מחפש…', addGroupLink:'+ קישור לקבוצה', groupLinkPh:'הדביקי קישור https://chat.whatsapp.com/…', from:'מאת:', autoReminder:'תזכורת אוטומטית',
+      save:'שמור', cancel:'בטל', edit:'ערוך', openSource:'פתח מקור', openDeal:'פתח בדיל במאנדיי', chooseDeal:'בחר עסקה…', noneOfThese:'אף אחת מאלה', searchOtherDeal:'חפש עסקה אחרת…', linkDeal:'+ קשר לעסקה', reopen:'פתח מחדש', closedByHand:'סומן ידנית', closedReplied:'נסגר — נענה', closedSent:'נסגר — נשלח מייל', closedSentWa:'נסגר — נשלח בוואטסאפ', closedMonday:'נסגר — בוצע במאנדיי', addDeal:'+ עסקה נוספת', removeDeal:'הסר עסקה זו', dealSearchPh:'שם הלקוח / העסקה…', noDealsFound:'לא נמצאה עסקה', searching:'מחפש…', addGroupLink:'+ קישור לקבוצה', groupLinkPh:'הדביקי קישור https://chat.whatsapp.com/…', from:'מאת:', autoReminder:'תזכורת אוטומטית',
       showMore:'הצג פרטים', showLess:'הסתר פרטים',
       search:'חיפוש משימות…', noResults:'אין משימות שתואמות לחיפוש',
       addTask:'הוסף משימה', addPlaceholder:'הוסיפי כאן משימה ל-LAWLY…', adding:'מוסיף…',
@@ -267,7 +269,7 @@
       pUrgent:'Urgent', pHigh:'High', pNormal:'Normal', pLow:'Low',
       escalated:'Escalated for waiting too long',
       min:'min', doneList:'Done today', empty:'Nothing here right now — nice work.',
-      save:'Save', cancel:'Cancel', edit:'Edit', openSource:'Open source', openDeal:'Open deal in monday.com', chooseDeal:'Choose a deal…', noneOfThese:'None of these', searchOtherDeal:'Search another deal…', linkDeal:'+ Link to deal', addDeal:'+ Another deal', removeDeal:'Remove this deal', dealSearchPh:'Client / deal name…', noDealsFound:'No deal found', searching:'Searching…', addGroupLink:'+ Group link', groupLinkPh:'Paste https://chat.whatsapp.com/… link', from:'From:', autoReminder:'Automatic reminder',
+      save:'Save', cancel:'Cancel', edit:'Edit', openSource:'Open source', openDeal:'Open deal in monday.com', chooseDeal:'Choose a deal…', noneOfThese:'None of these', searchOtherDeal:'Search another deal…', linkDeal:'+ Link to deal', reopen:'Reopen', closedByHand:'Marked by hand', closedReplied:'Closed — answered', closedSent:'Closed — email sent', closedSentWa:'Closed — sent on WhatsApp', closedMonday:'Closed — done in monday', addDeal:'+ Another deal', removeDeal:'Remove this deal', dealSearchPh:'Client / deal name…', noDealsFound:'No deal found', searching:'Searching…', addGroupLink:'+ Group link', groupLinkPh:'Paste https://chat.whatsapp.com/… link', from:'From:', autoReminder:'Automatic reminder',
       showMore:'Show details', showLess:'Hide details',
       search:'Search tasks…', noResults:'No tasks match your search',
       addTask:'Add task', addPlaceholder:'Type a task for LAWLY…', adding:'Adding…',
@@ -650,6 +652,14 @@
   }
 
   // Who it's from: the sender for email, the group / chat for WhatsApp.
+  function closedWhy(x){
+    var r = x.closed_reason;
+    var label = r === 'by_hand' ? t('closedByHand') : r === 'replied' ? t('closedReplied') : r === 'sent_email' ? t('closedSent') : r === 'sent_whatsapp' ? t('closedSentWa') :
+      r === 'monday' ? t('closedMonday') : '';
+    if (!label) return '';
+    return x.closed_note && r !== 'by_hand' ? label + ' — ' + x.closed_note : label;
+  }
+
   function sourceNameHtml(task){
     var isSys = /^sys:/.test(String(task.source_ref || ''));
     var name = task.source_name;
@@ -826,9 +836,14 @@
       html += '<button class="done-toggle'+(state.doneOpen?' is-open':'')+'" id="doneToggle" type="button">'+CHEV+' '+t('doneList')+' ('+state.done.length+')</button>';
       if (state.doneOpen) {
         html += '<div class="card-stack" style="margin-top:9px;">' + state.done.map(function(x){
+          // 6 Oct: why it closed (you / a reply / an email sent / monday) and a
+          // way to reopen it — a reopened task is never closed automatically again.
+          var why = closedWhy(x);
           return '<article class="task is-done" data-eff="'+x.priority+'"><button class="task-check" disabled></button>'+
-            '<div class="task-main"><div class="task-toprow"><span class="src">'+ICONS[x.source]+t('src'+cap(x.source))+'</span></div>'+
-            '<p class="task-title">'+escapeHtml(x.title)+'</p></div></article>';
+            '<div class="task-main"><div class="task-toprow"><span class="src">'+ICONS[x.source]+t('src'+cap(x.source))+'</span>'+sourceNameHtml(x)+'</div>'+
+            '<p class="task-title">'+escapeHtml(x.title)+'</p>'+
+            (why ? '<p class="closed-why">'+escapeHtml(why)+'</p>' : '')+
+            '</div><div class="task-actions"><button class="btn reopen" type="button" data-toggle="'+x.id+'">'+t('reopen')+'</button></div></article>';
         }).join('') + '</div>';
       }
     }

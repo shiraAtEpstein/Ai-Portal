@@ -132,6 +132,17 @@ router.patch('/admin/:id', authenticate, requireAdmin, async function (req, res)
   }
 });
 
+// 6 Oct: admin — read everyone's sent mail now (Gmail only, no AI). Background.
+router.post('/admin/read-sent-all', authenticate, requireAdmin, async function (req, res) {
+  try {
+    await taskHub.listTeamRoster(); // makes sure the tables exist
+    res.json(taskHub.readSentForAll());
+  } catch (e) {
+    console.error('[mytasks] read-sent-all failed', e);
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
 router.post('/refresh', async function (req, res) {
   var userId = req.session.userId;
   var now = Date.now();

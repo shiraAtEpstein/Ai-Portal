@@ -177,6 +177,23 @@ router.post('/chat', async function (req, res) {
   }
 });
 
+// 6 Oct: "choose a deal" on a card — body { deal_id } (one of the task's
+// candidates) or { deal_id: null } for "none of these".
+router.post('/:id/deal', async function (req, res) {
+  var id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });
+  var dealId = req.body && req.body.deal_id ? String(req.body.deal_id) : null;
+  try {
+    var task = await taskHub.chooseDealForTask(req.session.userId, id, dealId);
+    if (!task) return res.status(404).json({ error: 'not found' });
+    res.json({ task: task });
+  } catch (e) {
+    if (e.status === 400) return res.status(400).json({ error: e.message });
+    console.error('[mytasks] POST /:id/deal failed', e);
+    res.status(500).json({ error: 'update failed' });
+  }
+});
+
 router.patch('/:id', async function (req, res) {
   var id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'bad id' });

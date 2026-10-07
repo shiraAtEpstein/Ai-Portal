@@ -477,10 +477,10 @@ async function getResponsibleOverrides(chatJids = []) {
   const out = new Map();
   if (!p || !chatJids.length) return out;
   const { rows } = await p.query(
-    `SELECT chat_jid, email, name FROM chat_responsible_override WHERE chat_jid = ANY($1)`,
+    `SELECT chat_jid, email, name, set_at FROM chat_responsible_override WHERE chat_jid = ANY($1)`,
     [chatJids]
   );
-  for (const r of rows) out.set(r.chat_jid, { email: r.email, name: r.name });
+  for (const r of rows) out.set(r.chat_jid, { email: r.email, name: r.name, set_at: r.set_at });
   return out;
 }
 
@@ -898,6 +898,53 @@ async function stats({ recentLimit = 10 } = {}) {
 // only inside the encrypted payload). For live traffic these are ~equal; a
 // message redelivered after a reconnect gap ('append') can carry a later
 // created_at, which would only delay a flag, never invent one.
+// 2026-10-06: the @tags (contextInfo.mentionedJid) in one stored message.
+function mentionsOf(msg) {
+  try {
+    const m = unwrapMessage((msg && (msg.message || msg)) || {});
+    const out = [];
+    for (const k of Object.keys(m || {})) {
+      const v = m[k];
+      const list = v && typeof v === 'object' && v.contextInfo && v.contextInfo.mentionedJid;
+      if (Array.isArray(list)) list.forEach((j) => { if (typeof j === 'string' && j) out.push(j); });
+    }
+    return out;
+  } catch (_) { return []; }
+}
+
+// 2026-10-06: WhatsApp often tags people by their private @lid id, not their
+// phone. Staff messages we already stored tell us which lid is which staff
+// member (the message key's participant + the staff phone resolved at ingest).
+// Map<lid user part, staff phone9>, rebuilt at most once an hour.
+let _lidMap = { at: 0, map: new Map() };
+async function staffLidMap() {
+  if (Date.now() - _lidMap.at < 60 * 60 * 1000) return _lidMap.map;
+  const map = new Map();
+  const p = getPool();
+  if (p) {
+    try {
+      const r = await p.query(
+        `SELECT payload_encrypted, sender_staff_phone9 FROM processing_jobs
+          WHERE sender_staff_phone9 IS NOT NULL AND is_group AND deleted_at IS NULL
+          ORDER BY created_at DESC LIMIT 2000`);
+      for (const row of r.rows) {
+        try {
+          const json = enc.decrypt(row.payload_encrypted || '');
+          const key = (json && JSON.parse(json).key) || {};
+          for (const j of [key.participant, key.participantLid, key.senderLid]) {
+            if (typeof j === 'string' && j.endsWith('@lid')) {
+              const u = j.split('@')[0].split(':')[0];
+              if (!map.has(u)) map.set(u, row.sender_staff_phone9);
+            }
+          }
+        } catch (_) { /* skip */ }
+      }
+    } catch (e) { console.warn('[unanswered] staff lid map failed (non-fatal):', e.message); }
+  }
+  _lidMap = { at: Date.now(), map };
+  return map;
+}
+
 async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
   await ensureTables();
   const p = getPool();
@@ -1103,10 +1150,12 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
     // line. Never logged. On failure, that message contributes empty text.
     const payloads = Array.isArray(row.payloads) ? row.payloads : [];
     const parts = [];
+    const mentionedJids = []; // 2026-10-06: real WhatsApp @tags in the client's messages, oldest first
     for (const pe of payloads) {
       try {
         const json = enc.decrypt(pe || '');
         const msg = json ? JSON.parse(json) : null;
+        mentionsOf(msg).forEach((j) => mentionedJids.push(j));
         // Baileys payloads carry the content under .message; Cloud-API/history
         // payloads ARE the message (type/text at top level) — pass whichever.
         const t = textPreview(msg && (msg.message || msg)) || '';
@@ -1141,7 +1190,40 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
       participant_phones: Array.isArray(row.participant_phones) ? row.participant_phones : [],
       blockText,                          // WHOLE unanswered block -> AI needs-reply check
       lastText,                           // last line only (debugging)
+      mentionedJids,                      // @tags in the client's unanswered messages
+      history: [],                        // recent staff replies + @tags, newest first (filled below)
     });
+  }
+  // 2026-10-07 (Shira): who answers is whoever the LATEST signal in the chat
+  // points to — a tag, or the last staff member who replied — and it stays with
+  // them until a newer signal. So each chat carries its recent history (newest
+  // first, last 60 days, up to 100 messages): staff replies (who) and any @tags.
+  // Reactions / system events are not replies. One query for all chats.
+  if (out.length) {
+    try {
+      const hr = await p.query(
+        `SELECT chat_jid, eff_at, direction, sender_staff_phone9, payload_encrypted FROM (
+           SELECT chat_jid, COALESCE(sent_at, created_at) AS eff_at, direction, sender_staff_phone9, payload_encrypted,
+                  row_number() OVER (PARTITION BY chat_jid ORDER BY COALESCE(sent_at, created_at) DESC) AS rn
+             FROM processing_jobs
+            WHERE chat_jid = ANY($1) AND deleted_at IS NULL
+              AND COALESCE(sent_at, created_at) > now() - interval '60 days'
+              AND (msg_kind IS NULL OR msg_kind <> ALL($2::text[]))
+         ) x WHERE rn <= 100 ORDER BY chat_jid, eff_at DESC`,
+        [out.map((c) => c.chat_jid), REACTION_KINDS.concat(SYSTEM_KINDS)]);
+      const byChat = new Map();
+      for (const r of hr.rows) {
+        const firm = r.direction === 'out' || !!r.sender_staff_phone9;
+        let mentions = [];
+        try { const json = enc.decrypt(r.payload_encrypted || ''); mentions = mentionsOf(json ? JSON.parse(json) : null); } catch (_) { /* none */ }
+        if (!firm && !mentions.length) continue;
+        if (!byChat.has(r.chat_jid)) byChat.set(r.chat_jid, []);
+        byChat.get(r.chat_jid).push({ at: r.eff_at, firm, staff: r.sender_staff_phone9 || null, mentions });
+      }
+      for (const c of out) c.history = byChat.get(c.chat_jid) || [];
+    } catch (e) {
+      console.warn('[unanswered] chat history lookup failed (non-fatal):', e.message);
+    }
   }
   // OLDEST FIRST, by the moment the client actually wrote. Sorting on working
   // hours looked equivalent but is not: at 08:00 everything that arrived
@@ -1602,6 +1684,8 @@ async function lastActiveStaffPhone9s(chatJid, { limit = 10 } = {}) {
 
 module.exports = {
   ensureTables,
+  staffLidMap,
+  mentionsOf,
   listRecentJobs,
   responseStats,
   lastActiveStaffPhone9s,

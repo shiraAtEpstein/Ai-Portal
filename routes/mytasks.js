@@ -173,6 +173,49 @@ router.post('/admin/user/:id/refresh', authenticate, requireAdmin, async functio
   }
 });
 
+// 7 Oct (Shira): "הצעה לביצוע". Made only when someone opens the task's
+// details, then saved — one AI call per task. { fresh: true } makes a new one
+// ("הצעה חדשה"). { cachedOnly: true } only reads a saved one. Owner, or an admin.
+var taskSuggest = require('../lib/task-suggest');
+function isAdminReq(req) {
+  return ((req.session && req.session.roles) || []).some(function (r) { return String(r).toLowerCase() === 'admin'; });
+}
+var _suggesting = {};
+router.post('/:id/suggest', async function (req, res) {
+  var id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'bad id' });
+  var body = req.body || {};
+  if (_suggesting[id] && !body.cachedOnly) return res.status(409).json({ error: 'already being made' });
+  if (!body.cachedOnly) _suggesting[id] = true;
+  try {
+    var r = await taskSuggest.getSuggestion(id, req.session.userId, {
+      fresh: !!body.fresh, cachedOnly: !!body.cachedOnly, isAdmin: isAdminReq(req), by: req.session.email || null });
+    if (r.error) return res.status(r.status || 500).json({ error: r.error });
+    res.json(r);
+  } catch (e) {
+    console.error('[mytasks] POST /:id/suggest failed', e);
+    res.status(500).json({ error: 'suggestion failed' });
+  } finally { delete _suggesting[id]; }
+});
+router.post('/:id/suggest/feedback', async function (req, res) {
+  var id = parseInt(req.params.id, 10);
+  try {
+    var ok = await taskSuggest.setFeedback(id, req.session.userId, isAdminReq(req), (req.body || {}).vote);
+    res.status(ok ? 200 : 404).json({ ok: ok });
+  } catch (e) { res.status(500).json({ error: 'failed' }); }
+});
+// Saves the draft in the task owner's own Gmail Drafts (never sends).
+router.post('/:id/suggest/gmail-draft', async function (req, res) {
+  var id = parseInt(req.params.id, 10);
+  try {
+    var r = await taskSuggest.saveGmailDraft(id, req.session.userId, req.body || {});
+    res.status(r.ok ? 200 : (r.status || (r.scope ? 403 : 500))).json(r);
+  } catch (e) {
+    console.error('[mytasks] gmail-draft failed', e);
+    res.status(500).json({ ok: false, error: 'failed' });
+  }
+});
+
 router.post('/refresh', async function (req, res) {
   var userId = req.session.userId;
   var now = Date.now();

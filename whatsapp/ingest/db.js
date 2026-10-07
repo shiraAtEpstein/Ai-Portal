@@ -1192,6 +1192,7 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
       lastText,                           // last line only (debugging)
       mentionedJids,                      // @tags in the client's unanswered messages
       history: [],                        // recent staff replies + @tags, newest first (filled below)
+      lastStaffEver: [],                  // phone9s of staff who ever replied, newest first (filled below)
     });
   }
   // 2026-10-07 (Shira): who answers is whoever the LATEST signal in the chat
@@ -1221,6 +1222,24 @@ async function listUnansweredChats({ hours = 3, staffPhones = [] } = {}) {
         byChat.get(r.chat_jid).push({ at: r.eff_at, firm, staff: r.sender_staff_phone9 || null, mentions });
       }
       for (const c of out) c.history = byChat.get(c.chat_jid) || [];
+      // 2026-10-07 (Shira): a chat with no owner and no recent signal goes to
+      // the last staff member who EVER replied in it (no time limit, the
+      // partner NOT included — lib/responsible skips him). Every staff member
+      // who ever wrote there, newest first. One query for all chats.
+      const lr = await p.query(
+        `SELECT chat_jid, sender_staff_phone9, max(COALESCE(sent_at, created_at)) AS last_at
+           FROM processing_jobs
+          WHERE chat_jid = ANY($1) AND deleted_at IS NULL AND sender_staff_phone9 IS NOT NULL
+            AND (msg_kind IS NULL OR msg_kind <> ALL($2::text[]))
+          GROUP BY chat_jid, sender_staff_phone9
+          ORDER BY chat_jid, last_at DESC`,
+        [out.map((c) => c.chat_jid), REACTION_KINDS.concat(SYSTEM_KINDS)]);
+      const lastBy = new Map();
+      for (const r of lr.rows) {
+        if (!lastBy.has(r.chat_jid)) lastBy.set(r.chat_jid, []);
+        lastBy.get(r.chat_jid).push(r.sender_staff_phone9);
+      }
+      for (const c of out) c.lastStaffEver = lastBy.get(c.chat_jid) || [];
     } catch (e) {
       console.warn('[unanswered] chat history lookup failed (non-fatal):', e.message);
     }

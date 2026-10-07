@@ -143,6 +143,36 @@ router.post('/admin/read-sent-all', authenticate, requireAdmin, async function (
   }
 });
 
+// 7 Oct (Shira): "does it only update when she refreshes, not me in her name?"
+// Admin, Team view: run the same refresh for the person chosen in the dropdown
+// (their Gmail, WhatsApp, monday — the same checks as their own Refresh).
+// Waits up to TASK_HUB_REFRESH_WAIT_SECONDS; if longer, it keeps going in the
+// background and the next load shows the rest.
+router.post('/admin/user/:id/refresh', authenticate, requireAdmin, async function (req, res) {
+  var id = req.params.id;
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'bad id' });
+  var now = Date.now();
+  if (lastRefresh[id] && now - lastRefresh[id] < REFRESH_COOLDOWN_MS) {
+    return res.status(429).json({ error: 'refreshed too recently, try again shortly' });
+  }
+  lastRefresh[id] = now;
+  try {
+    var waitMs = Math.max(5, parseInt(process.env.TASK_HUB_REFRESH_WAIT_SECONDS || '25', 10)) * 1000;
+    var run = taskHub.refreshTasks(id);
+    run.catch(function (e) { console.error('[mytasks] admin refresh failed', id, e && e.message); });
+    var timer;
+    var outcome = await Promise.race([
+      run.then(function () { return { done: true }; }),
+      new Promise(function (resolve) { timer = setTimeout(function () { resolve({ done: false }); }, waitMs); })
+    ]);
+    clearTimeout(timer);
+    res.json({ ok: true, done: outcome.done });
+  } catch (e) {
+    console.error('[mytasks] POST /admin/user/:id/refresh failed', e);
+    res.status(500).json({ error: 'refresh failed' });
+  }
+});
+
 router.post('/refresh', async function (req, res) {
   var userId = req.session.userId;
   var now = Date.now();

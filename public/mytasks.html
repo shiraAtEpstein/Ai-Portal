@@ -250,7 +250,7 @@
       pUrgent:'דחוף', pHigh:'גבוה', pNormal:'רגיל', pLow:'נמוך',
       escalated:'הועלה בגלל המתנה ארוכה',
       min:'דק׳', doneList:'הושלמו היום', empty:'אין כאן משימות כרגע — כל הכבוד.',
-      save:'שמור', cancel:'בטל', edit:'ערוך', openSource:'פתח מקור', openDeal:'פתח בדיל במאנדיי', chooseDeal:'בחר עסקה…', noneOfThese:'אף אחת מאלה', searchOtherDeal:'חפש עסקה אחרת…', linkDeal:'+ קשר לעסקה', reopen:'פתח מחדש', closedByHand:'סומן ידנית', closedReplied:'נסגר — נענה', closedSent:'נסגר — נשלח מייל', closedSentWa:'נסגר — נשלח בוואטסאפ', closedMonday:'נסגר — בוצע במאנדיי', addDeal:'+ עסקה נוספת', removeDeal:'הסר עסקה זו', dealSearchPh:'שם הלקוח / העסקה…', noDealsFound:'לא נמצאה עסקה', searching:'מחפש…', addGroupLink:'+ קישור לקבוצה', groupLinkPh:'הדביקי קישור https://chat.whatsapp.com/…', from:'מאת:', autoReminder:'תזכורת אוטומטית',
+      save:'שמור', cancel:'בטל', edit:'ערוך', openSource:'פתח מקור', openDeal:'פתח בדיל במאנדיי', chooseDeal:'בחר עסקה…', noneOfThese:'אף אחת מאלה', searchOtherDeal:'חפש עסקה אחרת…', linkDeal:'+ קשר לעסקה', reopen:'פתח מחדש', closedByHand:'סומן ידנית', closedReplied:'נסגר — נענה', closedSent:'נסגר — נשלח מייל', closedSentWa:'נסגר — נשלח בוואטסאפ', closedMonday:'נסגר — בוצע במאנדיי', closedMoved:'הועבר', addDeal:'+ עסקה נוספת', removeDeal:'הסר עסקה זו', dealSearchPh:'שם הלקוח / העסקה…', noDealsFound:'לא נמצאה עסקה', searching:'מחפש…', addGroupLink:'+ קישור לקבוצה', groupLinkPh:'הדביקי קישור https://chat.whatsapp.com/…', from:'מאת:', autoReminder:'תזכורת אוטומטית',
       showMore:'הצג פרטים', showLess:'הסתר פרטים',
       search:'חיפוש משימות…', noResults:'אין משימות שתואמות לחיפוש',
       addTask:'הוסף משימה', addPlaceholder:'הוסיפי כאן משימה ל-LAWLY…', adding:'מוסיף…',
@@ -270,7 +270,7 @@
       pUrgent:'Urgent', pHigh:'High', pNormal:'Normal', pLow:'Low',
       escalated:'Escalated for waiting too long',
       min:'min', doneList:'Done today', empty:'Nothing here right now — nice work.',
-      save:'Save', cancel:'Cancel', edit:'Edit', openSource:'Open source', openDeal:'Open deal in monday.com', chooseDeal:'Choose a deal…', noneOfThese:'None of these', searchOtherDeal:'Search another deal…', linkDeal:'+ Link to deal', reopen:'Reopen', closedByHand:'Marked by hand', closedReplied:'Closed — answered', closedSent:'Closed — email sent', closedSentWa:'Closed — sent on WhatsApp', closedMonday:'Closed — done in monday', addDeal:'+ Another deal', removeDeal:'Remove this deal', dealSearchPh:'Client / deal name…', noDealsFound:'No deal found', searching:'Searching…', addGroupLink:'+ Group link', groupLinkPh:'Paste https://chat.whatsapp.com/… link', from:'From:', autoReminder:'Automatic reminder',
+      save:'Save', cancel:'Cancel', edit:'Edit', openSource:'Open source', openDeal:'Open deal in monday.com', chooseDeal:'Choose a deal…', noneOfThese:'None of these', searchOtherDeal:'Search another deal…', linkDeal:'+ Link to deal', reopen:'Reopen', closedByHand:'Marked by hand', closedReplied:'Closed — answered', closedSent:'Closed — email sent', closedSentWa:'Closed — sent on WhatsApp', closedMonday:'Closed — done in monday', closedMoved:'Moved', addDeal:'+ Another deal', removeDeal:'Remove this deal', dealSearchPh:'Client / deal name…', noDealsFound:'No deal found', searching:'Searching…', addGroupLink:'+ Group link', groupLinkPh:'Paste https://chat.whatsapp.com/… link', from:'From:', autoReminder:'Automatic reminder',
       showMore:'Show details', showLess:'Hide details',
       search:'Search tasks…', noResults:'No tasks match your search',
       addTask:'Add task', addPlaceholder:'Type a task for LAWLY…', adding:'Adding…',
@@ -465,6 +465,9 @@
         });
       }
       state.teamTasks = tasks;
+      // 7 Oct (Shira): the dropdown number was read when Team view opened; the
+      // person's list is read now. Keep the dropdown in step with what's shown.
+      if (personId !== 'all' && person) person.openCount = tasks.length;
       showError(null);
       document.getElementById('updatedAt').textContent = t('agoJust');
     } catch (e) {
@@ -656,9 +659,12 @@
   function closedWhy(x){
     var r = x.closed_reason;
     var label = r === 'by_hand' ? t('closedByHand') : r === 'replied' ? t('closedReplied') : r === 'sent_email' ? t('closedSent') : r === 'sent_whatsapp' ? t('closedSentWa') :
-      r === 'monday' ? t('closedMonday') : '';
+      r === 'monday' ? t('closedMonday') : r === 'moved' ? t('closedMoved') : '';
     if (!label) return '';
-    return x.closed_note && r !== 'by_hand' ? label + ' — ' + x.closed_note : label;
+    // 7 Oct (Shira): "how do I check when and how it closed?" — the time it closed too.
+    var at = '';
+    try { if (x.done_at) at = ' · ' + new Date(x.done_at).toLocaleTimeString('he-IL', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit' }); } catch (e) {}
+    return (x.closed_note && r !== 'by_hand' ? label + ' — ' + x.closed_note : label) + at;
   }
 
   function sourceNameHtml(task){
@@ -1113,8 +1119,16 @@
         // user) — refreshing here just re-reads the current DB state for
         // whatever's currently selected (roster if nothing's picked yet,
         // otherwise that person's — or everyone's — tasks).
+        // 7 Oct (Shira): with a person chosen, really refresh THEM (their
+        // Gmail / WhatsApp / monday checks), not just re-read the list.
+        if (state.personFilter && state.personFilter !== 'all') {
+          try {
+            await fetch('/api/mytasks/admin/user/' + encodeURIComponent(state.personFilter) + '/refresh', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' });
+          } catch (e) { /* the list below still reloads */ }
+        }
+        await loadTeamRoster();
         if (state.personFilter) await loadTeamSelection(state.personFilter);
-        else await loadTeamRoster();
       } else {
         await api('/refresh', { method:'POST' });
         await loadTasks();

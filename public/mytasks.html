@@ -122,6 +122,24 @@
   .task-metarow{display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap;}
   .task-metarow .deal{font-size:12.5px; font-weight:600; color:var(--accent); text-decoration:none; border:1px solid var(--border); border-radius:999px; padding:2px 9px; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .task-metarow .deal:hover{border-color:var(--accent);}
+  /* 7 Oct: הצעה לביצוע */
+  .sugg{margin-top:9px; border:1px solid var(--border); border-inline-start:3px solid var(--accent); border-radius:9px; padding:9px 11px; background:var(--surface-2); font-size:13.5px; line-height:1.5;}
+  .sugg-h{display:flex; align-items:center; gap:8px; font-weight:800; font-size:12.5px; color:var(--accent-soft-ink); margin-bottom:4px;}
+  .sugg-conf{font-weight:600; font-size:11.5px; color:var(--ink-muted);}
+  .sugg-next{font-weight:700; color:var(--ink); margin:0;}
+  .sugg-why{color:var(--ink-muted); margin:2px 0 0;}
+  .sugg-check{margin:6px 0 0; padding-inline-start:18px; color:var(--ink);}
+  .sugg-draft{margin-top:8px;}
+  .sugg-draft label{display:block; font-size:12px; font-weight:700; color:var(--ink-muted); margin-bottom:3px;}
+  .sugg-draft input, .sugg-draft textarea{width:100%; box-sizing:border-box; font-family:inherit; font-size:13.5px; border:1px solid var(--border); border-radius:7px; padding:6px 8px; background:var(--surface); color:var(--ink);}
+  .sugg-draft input{margin-bottom:5px;}
+  .sugg-draft textarea{min-height:120px; resize:vertical; line-height:1.5;}
+  .sugg-actions{display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:7px;}
+  .sugg-actions .btn{font-size:12.5px; padding:4px 10px;}
+  .sugg-foot{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:7px; font-size:11.5px; color:var(--ink-faint);}
+  .sugg-vote{border:1px solid var(--border); background:var(--surface); border-radius:6px; padding:1px 7px; cursor:pointer; font-size:12.5px;}
+  .sugg-vote.is-on{border-color:var(--accent); background:var(--accent-soft);}
+  .sugg-msg{font-size:12px; color:var(--ink-muted);}
   .closed-why{font-size:12px; color:var(--ink-muted); margin:3px 0 0;}
   .btn.reopen{font-size:12px; padding:3px 9px;}
   .src-name{font-size:12px; color:var(--ink-faint); max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
@@ -252,6 +270,7 @@
       min:'דק׳', doneList:'הושלמו היום', empty:'אין כאן משימות כרגע — כל הכבוד.',
       save:'שמור', cancel:'בטל', edit:'ערוך', openSource:'פתח מקור', openDeal:'פתח בדיל במאנדיי', chooseDeal:'בחר עסקה…', noneOfThese:'אף אחת מאלה', searchOtherDeal:'חפש עסקה אחרת…', linkDeal:'+ קשר לעסקה', reopen:'פתח מחדש', closedByHand:'סומן ידנית', closedReplied:'נסגר — נענה', closedSent:'נסגר — נשלח מייל', closedSentWa:'נסגר — נשלח בוואטסאפ', closedMonday:'נסגר — בוצע במאנדיי', closedMoved:'הועבר', addDeal:'+ עסקה נוספת', removeDeal:'הסר עסקה זו', dealSearchPh:'שם הלקוח / העסקה…', noDealsFound:'לא נמצאה עסקה', searching:'מחפש…', addGroupLink:'+ קישור לקבוצה', groupLinkPh:'הדביקי קישור https://chat.whatsapp.com/…', from:'מאת:', autoReminder:'תזכורת אוטומטית',
       showMore:'הצג פרטים', showLess:'הסתר פרטים',
+      suggTitle:'הצעה לביצוע', suggLoading:'מכין הצעה…', suggFail:'לא הצלחתי להכין הצעה', suggRetry:'נסה שוב', suggNew:'הצעה חדשה', suggCheck:'לבדוק קודם:', suggDraftTo:'טיוטה אל', suggCopy:'העתק', suggCopied:'הועתק', suggGmail:'שמור כטיוטה ב-Gmail', suggGmailOk:'נשמר בטיוטות ב-Gmail', suggOpenGroup:'פתח את הצ\'אט', suggBasis:'על סמך:', suggConf_high:'ביטחון גבוה', suggConf_medium:'ביטחון בינוני', suggConf_low:'ביטחון נמוך', suggSentNever:'לא נשלח אוטומטית — את/ה שולח/ת', suggSrc_email:'המייל', suggSrc_whatsapp:'הצ\'אט', suggSrc_sent_mail:'מיילים שנשלחו', suggSrc_deal_group:'קבוצת העסקה', suggSrc_monday:'monday', suggSrc_answer_bank:'תשובות מאושרות', suggSrc_office_process:'נוהל משרדי', suggSubject:'נושא', suggBody:'נוסח',
       search:'חיפוש משימות…', noResults:'אין משימות שתואמות לחיפוש',
       addTask:'הוסף משימה', addPlaceholder:'הוסיפי כאן משימה ל-LAWLY…', adding:'מוסיף…',
       teamView:'כל הצוות', myTasksView:'המשימות שלי', allPeople:'כולם (כל הצוות)', statTimeTeam:'זמן משוער כולל',
@@ -272,6 +291,7 @@
       min:'min', doneList:'Done today', empty:'Nothing here right now — nice work.',
       save:'Save', cancel:'Cancel', edit:'Edit', openSource:'Open source', openDeal:'Open deal in monday.com', chooseDeal:'Choose a deal…', noneOfThese:'None of these', searchOtherDeal:'Search another deal…', linkDeal:'+ Link to deal', reopen:'Reopen', closedByHand:'Marked by hand', closedReplied:'Closed — answered', closedSent:'Closed — email sent', closedSentWa:'Closed — sent on WhatsApp', closedMonday:'Closed — done in monday', closedMoved:'Moved', addDeal:'+ Another deal', removeDeal:'Remove this deal', dealSearchPh:'Client / deal name…', noDealsFound:'No deal found', searching:'Searching…', addGroupLink:'+ Group link', groupLinkPh:'Paste https://chat.whatsapp.com/… link', from:'From:', autoReminder:'Automatic reminder',
       showMore:'Show details', showLess:'Hide details',
+      suggTitle:'Suggested next step', suggLoading:'Preparing a suggestion…', suggFail:'Could not prepare a suggestion', suggRetry:'Try again', suggNew:'New suggestion', suggCheck:'Check first:', suggDraftTo:'Draft to', suggCopy:'Copy', suggCopied:'Copied', suggGmail:'Save as Gmail draft', suggGmailOk:'Saved in Gmail Drafts', suggOpenGroup:'Open the chat', suggBasis:'Based on:', suggConf_high:'high confidence', suggConf_medium:'medium confidence', suggConf_low:'low confidence', suggSentNever:'Never sent automatically — you send it', suggSrc_email:'the email', suggSrc_whatsapp:'the chat', suggSrc_sent_mail:'sent emails', suggSrc_deal_group:'deal group', suggSrc_monday:'monday', suggSrc_answer_bank:'approved answers', suggSrc_office_process:'office process', suggSubject:'Subject', suggBody:'Text',
       search:'Search tasks…', noResults:'No tasks match your search',
       addTask:'Add task', addPlaceholder:'Type a task for LAWLY…', adding:'Adding…',
       teamView:'Team view', myTasksView:'My tasks', allPeople:'Everyone (whole team)', statTimeTeam:'Total est. time',
@@ -302,7 +322,9 @@
     // default with a "Show details" toggle that reveals the full summary —
     // per-task, keyed by id, since render() rebuilds every card from scratch
     // on every poll/refresh and would otherwise forget what was expanded.
-    expandedTasks: {}
+    expandedTasks: {},
+    suggest: {},       // task id -> { loading, data, error, msg }
+    suggestEdit: {}    // task id -> { subject, body } (what the person typed)
   };
   try {
     var savedLang = localStorage.getItem('mytasks-lang');
@@ -593,6 +615,122 @@
   // WhatsApp). Falls back to deriving it from source_ref client-side for
   // rows created before that column existed, so old tasks don't need a
   // refresh to become clickable.
+  // ---- 7 Oct (Shira): הצעה לביצוע ----------------------------------------
+  // Made only when the details are opened (then saved on the server — one AI
+  // call per task), shown from the saved copy after that. Never sends anything.
+  function suggestHtml(task){
+    var st = state.suggest[task.id];
+    var h = '<div class="sugg" data-sugg="'+task.id+'"><div class="sugg-h">💡 '+t('suggTitle');
+    if (!st || st.loading) return h + '</div><p class="sugg-msg">'+t('suggLoading')+'</p></div>';
+    if (st.error) return h + '</div><p class="sugg-msg">'+t('suggFail')+' — '+escapeHtml(st.error)+'</p>'+
+      '<div class="sugg-actions"><button type="button" class="btn" data-sugg-new="'+task.id+'">'+t('suggRetry')+'</button></div></div>';
+    var s = st.data.suggestion || {};
+    h += ' <span class="sugg-conf">· '+t('suggConf_'+(s.confidence||'medium'))+'</span></div>';
+    h += '<p class="sugg-next" dir="auto">'+escapeHtml(s.next_step || '')+'</p>';
+    if (s.why) h += '<p class="sugg-why" dir="auto">'+escapeHtml(s.why)+'</p>';
+    if (s.check_first && s.check_first.length) {
+      h += '<div class="sugg-why" style="margin-top:6px;font-weight:700;color:var(--ink)">'+t('suggCheck')+'</div><ul class="sugg-check">'+
+        s.check_first.map(function(c){ return '<li>'+escapeHtml(c)+'</li>'; }).join('')+'</ul>';
+    }
+    if (s.draft && s.draft.body) {
+      var ed = state.suggestEdit[task.id] || {};
+      var subj = ed.subject != null ? ed.subject : (s.draft.subject || '');
+      var body = ed.body != null ? ed.body : s.draft.body;
+      var isEmail = s.draft.channel === 'email';
+      h += '<div class="sugg-draft"><label>'+t('suggDraftTo')+' '+escapeHtml(s.draft.to || '')+' · '+(isEmail ? t('srcEmail') : t('srcWhatsapp'))+
+        (s.answer_code ? ' · '+escapeHtml(s.answer_code) : '')+'</label>'+
+        (isEmail ? '<input type="text" dir="auto" data-sugg-subject="'+task.id+'" value="'+escapeAttr(subj)+'" aria-label="'+t('suggSubject')+'"/>' : '')+
+        '<textarea dir="auto" data-sugg-body="'+task.id+'" aria-label="'+t('suggBody')+'">'+escapeHtml(body)+'</textarea></div>';
+      h += '<div class="sugg-actions"><button type="button" class="btn" data-sugg-copy="'+task.id+'">'+t('suggCopy')+'</button>';
+      if (isEmail && task.source === 'email' && state.mode !== 'team') h += '<button type="button" class="btn btn-primary" data-sugg-gmail="'+task.id+'">'+t('suggGmail')+'</button>';
+      var href = sourceLink(task);
+      if (!isEmail && href) h += '<a class="btn" href="'+escapeAttr(href)+'" target="_blank" rel="noopener noreferrer">'+t('suggOpenGroup')+'</a>';
+      if (st.msg) h += '<span class="sugg-msg">'+escapeHtml(st.msg)+'</span>';
+      h += '</div>';
+    }
+    var basis = (st.data.sources || []).map(function(k){ return t('suggSrc_'+k); }).join(', ');
+    var fb = st.data.feedback;
+    h += '<div class="sugg-foot">'+
+      '<button type="button" class="sugg-vote'+(fb==='up'?' is-on':'')+'" data-sugg-vote="up" data-id="'+task.id+'" aria-label="good">👍</button>'+
+      '<button type="button" class="sugg-vote'+(fb==='down'?' is-on':'')+'" data-sugg-vote="down" data-id="'+task.id+'" aria-label="not good">👎</button>'+
+      '<button type="button" class="sugg-vote" data-sugg-new="'+task.id+'">↻ '+t('suggNew')+'</button>'+
+      (basis ? '<span>'+t('suggBasis')+' '+escapeHtml(basis)+'</span>' : '')+
+      '<span>· '+t('suggSentNever')+'</span></div>';
+    return h + '</div>';
+  }
+
+  async function loadSuggestion(id, fresh){
+    var cur = state.suggest[id];
+    if (cur && cur.loading) return;
+    state.suggest[id] = { loading: true };
+    if (fresh) delete state.suggestEdit[id];
+    render();
+    try {
+      var data = await api('/' + id + '/suggest', { method: 'POST', body: JSON.stringify({ fresh: !!fresh }) });
+      state.suggest[id] = { data: data };
+    } catch (e) {
+      state.suggest[id] = { error: e.message };
+    }
+    render();
+  }
+
+  function wireSuggestions(list){
+    Array.prototype.forEach.call(list.querySelectorAll('[data-sugg-subject]'), function(el){
+      el.addEventListener('input', function(){
+        var id = el.getAttribute('data-sugg-subject');
+        state.suggestEdit[id] = Object.assign({}, state.suggestEdit[id], { subject: el.value });
+      });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-sugg-body]'), function(el){
+      el.addEventListener('input', function(){
+        var id = el.getAttribute('data-sugg-body');
+        state.suggestEdit[id] = Object.assign({}, state.suggestEdit[id], { body: el.value });
+      });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-sugg-new]'), function(b){
+      b.addEventListener('click', function(){ loadSuggestion(b.getAttribute('data-sugg-new'), true); });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-sugg-copy]'), function(b){
+      b.addEventListener('click', async function(){
+        var id = b.getAttribute('data-sugg-copy');
+        var box = list.querySelector('[data-sugg-body="'+id+'"]');
+        var subj = list.querySelector('[data-sugg-subject="'+id+'"]');
+        var text = (subj && subj.value ? subj.value + '\n\n' : '') + (box ? box.value : '');
+        try { await navigator.clipboard.writeText(text); } catch (e) { if (box) { box.select(); document.execCommand('copy'); } }
+        b.textContent = t('suggCopied');
+      });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-sugg-gmail]'), function(b){
+      b.addEventListener('click', async function(){
+        var id = b.getAttribute('data-sugg-gmail');
+        var box = list.querySelector('[data-sugg-body="'+id+'"]');
+        var subj = list.querySelector('[data-sugg-subject="'+id+'"]');
+        b.disabled = true;
+        try {
+          await api('/' + id + '/suggest/gmail-draft', { method: 'POST', body: JSON.stringify({ body: box ? box.value : undefined, subject: subj ? subj.value : undefined }) });
+          state.suggest[id].msg = t('suggGmailOk');
+        } catch (e) { state.suggest[id].msg = e.message; }
+        render();
+      });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-sugg-vote]'), function(b){
+      var vote = b.getAttribute('data-sugg-vote');
+      if (vote !== 'up' && vote !== 'down') return;
+      b.addEventListener('click', async function(){
+        var id = b.getAttribute('data-id');
+        var st = state.suggest[id];
+        var v = st && st.data && st.data.feedback === vote ? null : vote;
+        try { await api('/' + id + '/suggest/feedback', { method: 'POST', body: JSON.stringify({ vote: v }) }); if (st && st.data) st.data.feedback = v; } catch (e) {}
+        render();
+      });
+    });
+    // Opened details with no suggestion yet -> make (or read the saved) one.
+    Array.prototype.forEach.call(list.querySelectorAll('[data-sugg]'), function(el){
+      var id = el.getAttribute('data-sugg');
+      if (!state.suggest[id]) loadSuggestion(id, false);
+    });
+  }
+
   function sourceLink(task){
     if (task.link) return task.link;
     if (!task.source_ref) return null;
@@ -692,14 +830,15 @@
     // fragment) is collapsed by default behind this toggle. Collapsed is
     // the default for a task not in state.expandedTasks.
     var expanded = !!state.expandedTasks[task.id];
-    var moreToggle = task.summary
+    // 7 Oct: the details always open (they also hold the "הצעה לביצוע").
+    var moreToggle = task.status !== 'done'
       ? '<button type="button" class="task-more" data-more="'+task.id+'" aria-expanded="'+(expanded?'true':'false')+'">'+
           CHEV+(expanded ? t('showLess') : t('showMore'))+
         '</button>'
       : '';
-    var summaryBlock = task.summary
+    var summaryBlock = (task.summary
       ? '<div class="task-summary"'+(expanded ? '' : ' hidden')+'>'+summaryLinesHtml(task.summary)+'</div>'
-      : '';
+      : '') + (expanded && task.status !== 'done' ? suggestHtml(task) : '');
 
     var pillMenu = ['urgent','high','normal','low'].map(function(p){
       return '<button data-set-priority="'+p+'" data-id="'+task.id+'"><span class="dot" data-p="'+p+'"></span>'+t('p'+cap(p))+'</button>';
@@ -1023,6 +1162,7 @@
         render();
       });
     });
+    wireSuggestions(list);
     Array.prototype.forEach.call(list.querySelectorAll('[data-grouptoggle]'), function(btn){
       btn.addEventListener('click', function(){
         var key = btn.getAttribute('data-grouptoggle');

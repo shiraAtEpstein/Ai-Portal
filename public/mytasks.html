@@ -160,6 +160,8 @@
   .est svg{width:12px;height:12px;}
   .age{font-size:12.5px; font-weight:600; display:inline-flex; align-items:center; gap:4px;}
   .age.is-warm{color:var(--high);} .age.is-hot{color:var(--urgent);}
+  .date-chip{font-size:12px; font-weight:600; color:var(--ink-muted); background:var(--surface-2); border:1px solid var(--border); border-radius:999px; padding:1px 8px;}
+  .date-chip.is-overdue{color:var(--urgent); border-color:var(--urgent);}
   .age svg{width:12px;height:12px;}
   .pill{font-size:11.5px; font-weight:800; letter-spacing:.02em; padding:3px 9px; border-radius:999px; border:1px solid transparent; cursor:pointer; display:inline-flex; align-items:center; gap:5px;}
   .pill[data-p="urgent"]{background:var(--urgent-soft); color:var(--urgent-ink);}
@@ -263,7 +265,7 @@
       statOpen:'משימות פתוחות', statUrgent:'דחופות', statTime:'זמן משוער היום', statDone:'הושלמו היום',
       tabAll:'הכול', tabClient:'לקוחות', tabOffice:'משרד', tabOther:'אחר',
       filterAll:'הכול', filterUrgent:'דחוף', filterEmail:'אימייל', filterWhatsapp:'וואטסאפ', filterManual:'LAWLY',
-      groupUrgent:'קריטי', groupHigh:'היום', groupLater:'בהמשך',
+      groupUrgent:'קריטי', groupHigh:'היום', groupLater:'בהמשך', groupExpired:'המועד עבר', expiredOn:'המועד עבר', overdueSince:'באיחור מ-',
       srcEmail:'אימייל', srcWhatsapp:'וואטסאפ — קבוצת עסקה', srcManual:'נשלח ל-LAWLY בוואטסאפ',
       pUrgent:'דחוף', pHigh:'גבוה', pNormal:'רגיל', pLow:'נמוך',
       escalated:'הועלה בגלל המתנה ארוכה',
@@ -284,7 +286,7 @@
       statOpen:'Open tasks', statUrgent:'Urgent', statTime:'Est. time today', statDone:'Done today',
       tabAll:'All', tabClient:'Clients', tabOffice:'Office', tabOther:'Other',
       filterAll:'All', filterUrgent:'Urgent', filterEmail:'Email', filterWhatsapp:'WhatsApp', filterManual:'LAWLY',
-      groupUrgent:'Critical', groupHigh:'Today', groupLater:'Later',
+      groupUrgent:'Critical', groupHigh:'Today', groupLater:'Later', groupExpired:'Date passed', expiredOn:'Date passed', overdueSince:'Overdue since',
       srcEmail:'Email', srcWhatsapp:'WhatsApp — deal group', srcManual:'Sent to LAWLY on WhatsApp',
       pUrgent:'Urgent', pHigh:'High', pNormal:'Normal', pLow:'Low',
       escalated:'Escalated for waiting too long',
@@ -317,7 +319,7 @@
   var state = {
     lang: 'he', mode: 'mine', filter: 'all', tab: 'all', personFilter: '', doneOpen: false,
     tasks: [], done: [], teamTasks: [], teamRoster: [], teamRosterLoading: false, teamLoading: false,
-    search: '', collapsed: {},
+    search: '', collapsed: { expired: true },
     // 2026-09-16 (Shira): task cards now show a collapsed one-liner by
     // default with a "Show details" toggle that reveals the full summary —
     // per-task, keyed by id, since render() rebuilds every card from scratch
@@ -502,7 +504,7 @@
   }
 
   function renderSummary(list){
-    var urgent = list.filter(function(x){ return x.effective_priority === 'urgent'; });
+    var urgent = list.filter(function(x){ return x.effective_priority === 'urgent' && !x.expired; });
     var totalMin = list.reduce(function(a,x){ return a + (x.estimated_minutes||0); }, 0);
     var html =
       stat(list.length, t('statOpen')) +
@@ -551,7 +553,7 @@
     var counts = { all:0, urgent:0, email:0, whatsapp:0, manual:0 };
     list.forEach(function(x){
       counts.all++; counts[x.source] = (counts[x.source]||0)+1;
-      if (x.effective_priority === 'urgent') counts.urgent++;
+      if (x.effective_priority === 'urgent' && !x.expired) counts.urgent++;
     });
     var defs = [['all',t('filterAll')],['urgent',t('filterUrgent')],['email',t('filterEmail')],
       ['whatsapp',t('filterWhatsapp')],['manual',t('filterManual')]];
@@ -595,7 +597,7 @@
 
   function matchesFilter(task){
     if (state.filter === 'all') return true;
-    if (state.filter === 'urgent') return task.effective_priority === 'urgent';
+    if (state.filter === 'urgent') return task.effective_priority === 'urgent' && !task.expired;
     return task.source === state.filter;
   }
 
@@ -739,6 +741,14 @@
       var id = el.getAttribute('data-sugg');
       if (!state.suggest[id]) loadSuggestion(id, false, true);
     });
+  }
+
+  // 8 Oct: the date the task depends on, when it has passed.
+  function dateChip(task){
+    if (!task.event_at || !(task.expired || task.overdue)) return '';
+    var d = '';
+    try { d = new Date(task.event_at).toLocaleString('he-IL', { timeZone: 'Asia/Jerusalem', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch (e) {}
+    return '<span class="date-chip'+(task.overdue ? ' is-overdue' : '')+'">'+(task.overdue ? '⚠ '+t('overdueSince')+' ' : '⌛ '+t('expiredOn')+' · ')+escapeHtml(d)+'</span>';
   }
 
   function sourceLink(task){
@@ -887,7 +897,7 @@
                 '<div class="pmenu-list">'+pillMenu+'</div>'+
               '</div>'+
               '<span class="est">'+TIMER+' '+(task.estimated_minutes||'—')+' '+t('min')+'</span>'+
-              '<span class="age '+ageCls+'">'+CLOCK+' '+ageLabel(task.first_seen_at)+'</span>'+dealChip(task)+
+              '<span class="age '+ageCls+'">'+CLOCK+' '+ageLabel(task.first_seen_at)+'</span>'+dateChip(task)+dealChip(task)+
             '</div>'+
           '</div>'+
           '<div class="task-actions">'+
@@ -922,7 +932,7 @@
               '<div class="pmenu-list">'+pillMenu+'</div>'+
             '</div>'+
             '<span class="est">'+TIMER+' '+(task.estimated_minutes||'—')+' '+t('min')+'</span>'+
-            '<span class="age '+ageCls+'">'+CLOCK+' '+ageLabel(task.first_seen_at)+'</span>'+dealChip(task)+
+            '<span class="age '+ageCls+'">'+CLOCK+' '+ageLabel(task.first_seen_at)+'</span>'+dateChip(task)+dealChip(task)+
           '</div>'+
         '</div>'+
         '<div class="task-actions">'+
@@ -967,9 +977,12 @@
     document.getElementById('composerInput').placeholder = t('addPlaceholder');
 
     var visible = tabbed.filter(matchesFilter).filter(matchesSearch);
-    var groups = { urgent:[], high:[], later:[] };
+    var groups = { urgent:[], high:[], later:[], expired:[] };
     visible.forEach(function(x){
-      if (x.effective_priority === 'urgent') groups.urgent.push(x);
+      // 8 Oct: a task about a time that already passed (a call, a meeting) is
+      // kept apart, under "המועד עבר" — not mixed with the open work.
+      if (x.expired) groups.expired.push(x);
+      else if (x.effective_priority === 'urgent') groups.urgent.push(x);
       else if (x.effective_priority === 'high') groups.high.push(x);
       else groups.later.push(x);
     });
@@ -985,6 +998,7 @@
       if (groups.urgent.length) html += groupHtml('urgent', t('groupUrgent'), groups.urgent);
       if (groups.high.length) html += groupHtml('high', t('groupHigh'), groups.high);
       if (groups.later.length) html += groupHtml('later', t('groupLater'), groups.later);
+      if (groups.expired.length) html += groupHtml('expired', t('groupExpired'), groups.expired);
     }
     // "Done today" is the signed-in user's own completed tasks — the team
     // view never fetches anyone else's done tasks, so this stays mine-only.

@@ -158,6 +158,8 @@ app.get('/healthz', async (req, res) => {
 });
 //tasks
 app.use('/api/mytasks', require('./routes/mytasks'));
+// 8 Oct (Shira): agent cards per task type + the learning log (admin screen /task-agents.html).
+app.use('/api/task-agents', require('./routes/task-agents'));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   let userCount = 0;
@@ -218,4 +220,9 @@ if (dropbox.configured()) {
 // lib/task-hub.js's startServerSideSweep, 2026-09-15).
 try { require('./lib/task-hub').startServerSideSweep(); } catch (e) {
   console.error('[task-hub/sweep] failed to start:', e.message);
+}
+// 8 Oct: the learning log — compare suggestions with what was sent, propose
+// lessons (every TASK_LEARNING_EVERY_HOURS, default 48; claimed in the DB).
+try { require('./lib/task-learning').start(); } catch (e) {
+  console.error('[task-learning] failed to start:', e.message);
 }

@@ -204,6 +204,21 @@ router.post('/:id/suggest/feedback', async function (req, res) {
     res.status(ok ? 200 : 404).json({ ok: ok });
   } catch (e) { res.status(500).json({ error: 'failed' }); }
 });
+// 8 Oct (Shira): "משהו לא נכון" — { categories: [...], note: "...", remember: bool }.
+// The note is used at once for this task; remember -> a lesson for approval.
+router.post('/:id/suggest/issue', async function (req, res) {
+  var id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'bad id' });
+  try {
+    var b = req.body || {};
+    var r = await taskSuggest.reportIssue(id, req.session.userId, isAdminReq(req), {
+      categories: b.categories, note: b.note, remember: !!b.remember, by: req.session.email || null });
+    res.status(r.ok ? 200 : (r.status || 500)).json(r);
+  } catch (e) {
+    console.error('[mytasks] suggest/issue failed', e);
+    res.status(500).json({ ok: false, error: 'failed' });
+  }
+});
 // Saves the draft in the task owner's own Gmail Drafts (never sends).
 router.post('/:id/suggest/gmail-draft', async function (req, res) {
   var id = parseInt(req.params.id, 10);

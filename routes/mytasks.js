@@ -195,7 +195,7 @@ router.post('/:id/suggest', async function (req, res) {
   } catch (e) {
     console.error('[mytasks] POST /:id/suggest failed', e);
     res.status(500).json({ error: 'suggestion failed' });
-  } finally { delete _suggesting[id]; }
+  } finally { if (!body.cachedOnly) delete _suggesting[id]; }
 });
 router.post('/:id/suggest/feedback', async function (req, res) {
   var id = parseInt(req.params.id, 10);

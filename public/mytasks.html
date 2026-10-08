@@ -140,6 +140,10 @@
   .sugg-vote{border:1px solid var(--border); background:var(--surface); border-radius:6px; padding:1px 7px; cursor:pointer; font-size:12.5px;}
   .sugg-vote.is-on{border-color:var(--accent); background:var(--accent-soft);}
   .sugg-msg{font-size:12px; color:var(--ink-muted);}
+  .sugg-issue{margin-top:8px; border-top:1px dashed var(--border); padding-top:7px;}
+  .sugg-chips{display:flex; gap:5px; flex-wrap:wrap; margin:5px 0;}
+  .sugg-issue textarea{width:100%; box-sizing:border-box; min-height:70px; font-family:inherit; font-size:13.5px; border:1px solid var(--border); border-radius:7px; padding:6px 8px; background:var(--surface); color:var(--ink); resize:vertical;}
+  .sugg-remember{display:flex; gap:6px; align-items:center; font-size:12.5px; color:var(--ink-muted); margin-top:5px;}
   .closed-why{font-size:12px; color:var(--ink-muted); margin:3px 0 0;}
   .btn.reopen{font-size:12px; padding:3px 9px;}
   .src-name{font-size:12px; color:var(--ink-faint); max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
@@ -210,6 +214,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         <span id="teamToggleLabel">כל הצוות</span>
       </button>
+      <a class="btn" id="agentsLink" href="/task-agents.html" hidden>סוכנים ולקחים</a>
       <button class="btn" id="readSentBtn" type="button" hidden title="קורא את כל המיילים שנשלחו של כל הצוות (בלי AI)">קרא מיילים שנשלחו – כולם</button>
       <button class="btn" id="langToggle" type="button">EN</button>
       <button class="btn btn-primary" id="refreshBtn" type="button">
@@ -272,7 +277,7 @@
       min:'דק׳', doneList:'הושלמו היום', empty:'אין כאן משימות כרגע — כל הכבוד.',
       save:'שמור', cancel:'בטל', edit:'ערוך', openSource:'פתח מקור', openDeal:'פתח בדיל במאנדיי', chooseDeal:'בחר עסקה…', noneOfThese:'אף אחת מאלה', searchOtherDeal:'חפש עסקה אחרת…', linkDeal:'+ קשר לעסקה', reopen:'פתח מחדש', closedByHand:'סומן ידנית', closedReplied:'נסגר — נענה', closedSent:'נסגר — נשלח מייל', closedSentWa:'נסגר — נשלח בוואטסאפ', closedMonday:'נסגר — בוצע במאנדיי', closedMoved:'הועבר', closedMerged:'אוחד', closedNotTask:'לא משימה', addDeal:'+ עסקה נוספת', removeDeal:'הסר עסקה זו', dealSearchPh:'שם הלקוח / העסקה…', noDealsFound:'לא נמצאה עסקה', searching:'מחפש…', addGroupLink:'+ קישור לקבוצה', groupLinkPh:'הדביקי קישור https://chat.whatsapp.com/…', from:'מאת:', autoReminder:'תזכורת אוטומטית',
       showMore:'הצג פרטים', showLess:'הסתר פרטים',
-      suggTitle:'הצעה לביצוע', suggMake:'הצעה לפתרון', suggLoading:'מכין הצעה…', suggFail:'לא הצלחתי להכין הצעה', suggRetry:'נסה שוב', suggNew:'הצעה חדשה', suggCheck:'לבדוק קודם:', suggDraftTo:'טיוטה אל', suggCopy:'העתק', suggCopied:'הועתק', suggGmail:'שמור כטיוטה ב-Gmail', suggGmailOk:'נשמר בטיוטות ב-Gmail', suggOpenGroup:'פתח את הצ\'אט', suggBasis:'על סמך:', suggConf_high:'ביטחון גבוה', suggConf_medium:'ביטחון בינוני', suggConf_low:'ביטחון נמוך', suggSentNever:'לא נשלח אוטומטית — את/ה שולח/ת', suggSrc_email:'המייל', suggSrc_whatsapp:'הצ\'אט', suggSrc_sent_mail:'מיילים שנשלחו', suggSrc_deal_group:'קבוצת העסקה', suggSrc_monday:'monday', suggSrc_answer_bank:'תשובות מאושרות', suggSrc_office_process:'נוהל משרדי', suggSrc_payments:'לוח התשלומים', suggSrc_playbook:'נוהל לסוג המשימה', suggSubject:'נושא', suggBody:'נוסח',
+      suggTitle:'הצעה לביצוע', suggMake:'הצעה לפתרון', suggLoading:'מכין הצעה…', suggFail:'לא הצלחתי להכין הצעה', suggRetry:'נסה שוב', suggNew:'הצעה חדשה', suggCheck:'לבדוק קודם:', suggDraftTo:'טיוטה אל', suggCopy:'העתק', suggCopied:'הועתק', suggGmail:'שמור כטיוטה ב-Gmail', suggGmailOk:'נשמר בטיוטות ב-Gmail', suggOpenGroup:'פתח את הצ\'אט', suggBasis:'על סמך:', suggConf_high:'ביטחון גבוה', suggConf_medium:'ביטחון בינוני', suggConf_low:'ביטחון נמוך', suggSentNever:'לא נשלח אוטומטית — את/ה שולח/ת', suggSrc_email:'המייל', suggSrc_whatsapp:'הצ\'אט', suggSrc_sent_mail:'מיילים שנשלחו', suggSrc_deal_group:'קבוצת העסקה', suggSrc_monday:'monday', suggSrc_answer_bank:'תשובות מאושרות', suggSrc_office_process:'נוהל משרדי', suggSrc_payments:'לוח התשלומים', suggSrc_playbook:'נוהל לסוג המשימה', suggSrc_agent:'סוכן הסוג', suggSrc_lessons:'לקחים שאושרו', suggSrc_task_notes:'הערות על המשימה', suggSrc_examples:'דוגמאות שנשלחו', suggAgent:'סוכן:', issueBtn:'משהו לא נכון', issueWhat:'מה לא נכון?', issueNotePh:'כתבי בדיוק מה לא נכון ומה היה צריך להיות (חובה)', issueRemember:'לזכור גם למשימות הבאות מהסוג הזה (יישלח לאישור)', issueSend:'שמירה', issueNeedNote:'צריך לכתוב מה לא נכון', issueSaved:'נשמר. ההערה תיכנס להצעה הבאה למשימה הזו.', issueSavedLesson:'נשמר ונשלח לאישור כלקח.', issueRegen:'הצעה חדשה עם ההערה', issueNotes:'הערות על ההצעות למשימה:', cat_action:'פעולה לא נכונה', cat_fact:'עובדה שגויה', cat_missing:'חסר מידע', cat_tone:'טון / ניסוח', cat_recipient:'נמען שגוי', cat_type:'סוג משימה שגוי', cat_other:'אחר', suggSubject:'נושא', suggBody:'נוסח',
       search:'חיפוש משימות…', noResults:'אין משימות שתואמות לחיפוש',
       addTask:'הוסף משימה', addPlaceholder:'הוסיפי כאן משימה ל-LAWLY…', adding:'מוסיף…',
       teamView:'כל הצוות', myTasksView:'המשימות שלי', allPeople:'כולם (כל הצוות)', statTimeTeam:'זמן משוער כולל',
@@ -293,7 +298,7 @@
       min:'min', doneList:'Done today', empty:'Nothing here right now — nice work.',
       save:'Save', cancel:'Cancel', edit:'Edit', openSource:'Open source', openDeal:'Open deal in monday.com', chooseDeal:'Choose a deal…', noneOfThese:'None of these', searchOtherDeal:'Search another deal…', linkDeal:'+ Link to deal', reopen:'Reopen', closedByHand:'Marked by hand', closedReplied:'Closed — answered', closedSent:'Closed — email sent', closedSentWa:'Closed — sent on WhatsApp', closedMonday:'Closed — done in monday', closedMoved:'Moved', closedMerged:'Merged', closedNotTask:'Not a task', addDeal:'+ Another deal', removeDeal:'Remove this deal', dealSearchPh:'Client / deal name…', noDealsFound:'No deal found', searching:'Searching…', addGroupLink:'+ Group link', groupLinkPh:'Paste https://chat.whatsapp.com/… link', from:'From:', autoReminder:'Automatic reminder',
       showMore:'Show details', showLess:'Hide details',
-      suggTitle:'Suggested next step', suggMake:'Suggest a solution', suggLoading:'Preparing a suggestion…', suggFail:'Could not prepare a suggestion', suggRetry:'Try again', suggNew:'New suggestion', suggCheck:'Check first:', suggDraftTo:'Draft to', suggCopy:'Copy', suggCopied:'Copied', suggGmail:'Save as Gmail draft', suggGmailOk:'Saved in Gmail Drafts', suggOpenGroup:'Open the chat', suggBasis:'Based on:', suggConf_high:'high confidence', suggConf_medium:'medium confidence', suggConf_low:'low confidence', suggSentNever:'Never sent automatically — you send it', suggSrc_email:'the email', suggSrc_whatsapp:'the chat', suggSrc_sent_mail:'sent emails', suggSrc_deal_group:'deal group', suggSrc_monday:'monday', suggSrc_answer_bank:'approved answers', suggSrc_office_process:'office process', suggSrc_payments:'payment schedule', suggSrc_playbook:'task playbook', suggSubject:'Subject', suggBody:'Text',
+      suggTitle:'Suggested next step', suggMake:'Suggest a solution', suggLoading:'Preparing a suggestion…', suggFail:'Could not prepare a suggestion', suggRetry:'Try again', suggNew:'New suggestion', suggCheck:'Check first:', suggDraftTo:'Draft to', suggCopy:'Copy', suggCopied:'Copied', suggGmail:'Save as Gmail draft', suggGmailOk:'Saved in Gmail Drafts', suggOpenGroup:'Open the chat', suggBasis:'Based on:', suggConf_high:'high confidence', suggConf_medium:'medium confidence', suggConf_low:'low confidence', suggSentNever:'Never sent automatically — you send it', suggSrc_email:'the email', suggSrc_whatsapp:'the chat', suggSrc_sent_mail:'sent emails', suggSrc_deal_group:'deal group', suggSrc_monday:'monday', suggSrc_answer_bank:'approved answers', suggSrc_office_process:'office process', suggSrc_payments:'payment schedule', suggSrc_playbook:'task playbook', suggSrc_agent:'type agent', suggSrc_lessons:'approved lessons', suggSrc_task_notes:'notes on this task', suggSrc_examples:'sent examples', suggAgent:'Agent:', issueBtn:'Something is wrong', issueWhat:'What is wrong?', issueNotePh:'Write exactly what is wrong and what it should be (required)', issueRemember:'Remember for future tasks of this type (sent for approval)', issueSend:'Save', issueNeedNote:'Please write what is wrong', issueSaved:'Saved. The note goes into the next suggestion for this task.', issueSavedLesson:'Saved and sent for approval as a lesson.', issueRegen:'New suggestion with the note', issueNotes:'Notes on suggestions for this task:', cat_action:'Wrong action', cat_fact:'Wrong fact', cat_missing:'Missing info', cat_tone:'Tone / wording', cat_recipient:'Wrong recipient', cat_type:'Wrong task type', cat_other:'Other', suggSubject:'Subject', suggBody:'Text',
       search:'Search tasks…', noResults:'No tasks match your search',
       addTask:'Add task', addPlaceholder:'Type a task for LAWLY…', adding:'Adding…',
       teamView:'Team view', myTasksView:'My tasks', allPeople:'Everyone (whole team)', statTimeTeam:'Total est. time',
@@ -326,7 +331,8 @@
     // on every poll/refresh and would otherwise forget what was expanded.
     expandedTasks: {},
     suggest: {},       // task id -> { loading, data, error, msg }
-    suggestEdit: {}    // task id -> { subject, body } (what the person typed)
+    suggestEdit: {},   // task id -> { subject, body } (what the person typed)
+    issue: {}          // task id -> { open, cats, note, remember, sending, msg } — "משהו לא נכון"
   };
   try {
     var savedLang = localStorage.getItem('mytasks-lang');
@@ -632,7 +638,8 @@
     if (st.error) return h + '</div><p class="sugg-msg">'+t('suggFail')+' — '+escapeHtml(st.error)+'</p>'+
       '<div class="sugg-actions"><button type="button" class="btn" data-sugg-new="'+task.id+'">'+t('suggRetry')+'</button></div></div>';
     var s = st.data.suggestion || {};
-    h += ' <span class="sugg-conf">· '+t('suggConf_'+(s.confidence||'medium'))+'</span></div>';
+    h += ' <span class="sugg-conf">· '+t('suggConf_'+(s.confidence||'medium'))+'</span>'+
+      (st.data.agent ? ' <span class="sugg-conf">· '+t('suggAgent')+' '+escapeHtml(st.data.agent.name)+'</span>' : '')+'</div>';
     h += '<p class="sugg-next" dir="auto">'+escapeHtml(s.next_step || '')+'</p>';
     if (s.why) h += '<p class="sugg-why" dir="auto">'+escapeHtml(s.why)+'</p>';
     if (s.check_first && s.check_first.length) {
@@ -656,10 +663,28 @@
       h += '</div>';
     }
     var basis = (st.data.sources || []).map(function(k){ return t('suggSrc_'+k); }).join(', ');
-    var fb = st.data.feedback;
+    // 8 Oct (Shira): 👍/👎 removed — "משהו לא נכון" asks WHAT was wrong.
+    var is = state.issue[task.id] || {};
+    var notes = st.data.notes || [];
+    if (notes.length) {
+      h += '<div class="sugg-why" style="margin-top:8px;font-weight:700;color:var(--ink)">'+t('issueNotes')+'</div><ul class="sugg-check">'+
+        notes.map(function(n){ return '<li dir="auto">'+escapeHtml(n.note)+(n.remember ? ' · ✓' : '')+'</li>'; }).join('')+'</ul>';
+    }
+    if (is.open) {
+      var CATS = ['action','fact','missing','tone','recipient','type','other'];
+      h += '<div class="sugg-issue"><div class="sugg-why" style="font-weight:700;color:var(--ink)">'+t('issueWhat')+'</div><div class="sugg-chips">'+
+        CATS.map(function(c){ return '<button type="button" class="sugg-vote'+((is.cats||[]).indexOf(c)!==-1?' is-on':'')+'" data-issue-cat="'+c+'" data-id="'+task.id+'">'+t('cat_'+c)+'</button>'; }).join('')+'</div>'+
+        '<textarea dir="auto" data-issue-note="'+task.id+'" placeholder="'+escapeAttr(t('issueNotePh'))+'">'+escapeHtml(is.note||'')+'</textarea>'+
+        '<label class="sugg-remember"><input type="checkbox" data-issue-remember="'+task.id+'"'+(is.remember?' checked':'')+'/> '+t('issueRemember')+'</label>'+
+        '<div class="sugg-actions"><button type="button" class="btn btn-primary" data-issue-send="'+task.id+'"'+(is.sending?' disabled':'')+'>'+t('issueSend')+'</button>'+
+        '<button type="button" class="btn" data-issue-cancel="'+task.id+'">'+t('cancel')+'</button>'+
+        (is.msg ? '<span class="sugg-msg">'+escapeHtml(is.msg)+'</span>' : '')+'</div></div>';
+    } else if (is.msg) {
+      h += '<div class="sugg-actions"><span class="sugg-msg">'+escapeHtml(is.msg)+'</span>'+
+        (is.saved ? '<button type="button" class="btn" data-sugg-new="'+task.id+'">↻ '+t('issueRegen')+'</button>' : '')+'</div>';
+    }
     h += '<div class="sugg-foot">'+
-      '<button type="button" class="sugg-vote'+(fb==='up'?' is-on':'')+'" data-sugg-vote="up" data-id="'+task.id+'" aria-label="good">👍</button>'+
-      '<button type="button" class="sugg-vote'+(fb==='down'?' is-on':'')+'" data-sugg-vote="down" data-id="'+task.id+'" aria-label="not good">👎</button>'+
+      (is.open ? '' : '<button type="button" class="sugg-vote" data-issue-open="'+task.id+'">⚠ '+t('issueBtn')+'</button>')+
       '<button type="button" class="sugg-vote" data-sugg-new="'+task.id+'">↻ '+t('suggNew')+'</button>'+
       (basis ? '<span>'+t('suggBasis')+' '+escapeHtml(basis)+'</span>' : '')+
       '<span>· '+t('suggSentNever')+'</span></div>';
@@ -724,14 +749,39 @@
         render();
       });
     });
-    Array.prototype.forEach.call(list.querySelectorAll('[data-sugg-vote]'), function(b){
-      var vote = b.getAttribute('data-sugg-vote');
-      if (vote !== 'up' && vote !== 'down') return;
+    // 8 Oct (Shira): "משהו לא נכון" — a category and a note (required).
+    Array.prototype.forEach.call(list.querySelectorAll('[data-issue-open]'), function(b){
+      b.addEventListener('click', function(){ var id = b.getAttribute('data-issue-open'); state.issue[id] = { open: true, cats: [], note: '', remember: false }; render(); });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-issue-cancel]'), function(b){
+      b.addEventListener('click', function(){ delete state.issue[b.getAttribute('data-issue-cancel')]; render(); });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-issue-cat]'), function(b){
+      b.addEventListener('click', function(){
+        var is = state.issue[b.getAttribute('data-id')]; if (!is) return;
+        var c = b.getAttribute('data-issue-cat'), i = is.cats.indexOf(c);
+        if (i === -1) is.cats.push(c); else is.cats.splice(i, 1);
+        render();
+      });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-issue-note]'), function(el){
+      el.addEventListener('input', function(){ var is = state.issue[el.getAttribute('data-issue-note')]; if (is) is.note = el.value; });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-issue-remember]'), function(el){
+      el.addEventListener('change', function(){ var is = state.issue[el.getAttribute('data-issue-remember')]; if (is) is.remember = el.checked; });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-issue-send]'), function(b){
       b.addEventListener('click', async function(){
-        var id = b.getAttribute('data-id');
-        var st = state.suggest[id];
-        var v = st && st.data && st.data.feedback === vote ? null : vote;
-        try { await api('/' + id + '/suggest/feedback', { method: 'POST', body: JSON.stringify({ vote: v }) }); if (st && st.data) st.data.feedback = v; } catch (e) {}
+        var id = b.getAttribute('data-issue-send');
+        var is = state.issue[id]; if (!is) return;
+        if (!String(is.note || '').trim()) { is.msg = t('issueNeedNote'); render(); return; }
+        is.sending = true; is.msg = ''; render();
+        try {
+          await api('/' + id + '/suggest/issue', { method: 'POST', body: JSON.stringify({ categories: is.cats, note: is.note, remember: !!is.remember }) });
+          var st = state.suggest[id];
+          if (st && st.data) st.data.notes = (st.data.notes || []).concat([{ note: is.note, categories: is.cats, remember: !!is.remember }]);
+          state.issue[id] = { msg: is.remember ? t('issueSavedLesson') : t('issueSaved'), saved: true };
+        } catch (e) { is.sending = false; is.msg = e.message; }
         render();
       });
     });
@@ -1340,7 +1390,7 @@
   // from seeing a button that would 403 on them.
   fetch('/api/me', { credentials: 'same-origin' })
     .then(function (r) { return r.ok ? r.json() : null; })
-    .then(function (me) { if (me && me.isAdmin) { document.getElementById('teamToggleBtn').hidden = false; document.getElementById('readSentBtn').hidden = false; } })
+    .then(function (me) { if (me && me.isAdmin) { document.getElementById('teamToggleBtn').hidden = false; document.getElementById('readSentBtn').hidden = false; document.getElementById('agentsLink').hidden = false; } })
     .catch(function () { /* non-fatal — button just stays hidden */ });
 
   try { var savedTab = localStorage.getItem('mytasks.tab'); if (['all','client','office','other'].indexOf(savedTab) !== -1) state.tab = savedTab; } catch (e) {}

@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>סוכנים ולקחים — Lawly</title>
+<!--
+  task-agents.html — 8 Oct 2026 (Shira). One "agent card" per task type (goal,
+  rules, sources, tone) and the learning log: lessons waiting for approval,
+  approved lessons, and what the comparison found. Every admin can see and
+  change everything (server-checked in routes/task-agents.js).
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@400;500&family=Assistant:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F6F2EA; --ink:#14120F; --muted:#6E6656; --faint:#9A9078; --border:#E4DCCC;
+    --head:#F1EDE3; --card:#FFFDF8; --quote:#F4F0E6; --green:#3B6B4A; --gold:#8A6A2F; --red:#A6432E;
+    --serif:"Frank Ruhl Libre",Georgia,serif; --sans:Assistant,"Segoe UI",Arial,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);direction:rtl;font-size:14.5px;}
+  .wrap{max-width:1100px;margin:0 auto;padding:28px 16px 80px;}
+  a{color:var(--gold);}
+  h1{font-family:var(--serif);font-weight:400;font-size:27px;margin:0;}
+  .sub{color:var(--muted);margin-top:5px;font-size:14px;}
+  .top{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:18px;}
+  .runbox{font-size:13px;color:var(--muted);text-align:left;max-width:520px;}
+  .tabs{display:flex;gap:18px;border-bottom:1px solid var(--border);margin-bottom:18px;flex-wrap:wrap;}
+  .tab{border:0;background:none;font:600 15px var(--sans);color:var(--faint);cursor:pointer;padding:6px 0;border-bottom:2px solid transparent;}
+  .tab.on{color:var(--ink);border-bottom-color:var(--gold);}
+  .badge{display:inline-block;min-width:20px;padding:0 6px;border-radius:10px;background:var(--gold);color:#fff;font-size:12px;text-align:center;margin-inline-start:5px;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;margin-bottom:14px;overflow:hidden;}
+  .chead{background:var(--head);padding:10px 16px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;font-size:13px;color:var(--muted);}
+  .cbody{padding:12px 16px;}
+  .ev{background:var(--quote);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:13px;color:var(--muted);white-space:pre-wrap;}
+  textarea,input[type=text],select{width:100%;font:14px var(--sans);border:1px solid var(--border);border-radius:8px;padding:7px 9px;background:#fff;color:var(--ink);direction:rtl;}
+  textarea{min-height:80px;resize:vertical;line-height:1.5;}
+  textarea.big{min-height:280px;}
+  label.f{display:block;font-weight:700;font-size:13px;margin:12px 0 4px;}
+  .hint{font-weight:400;color:var(--faint);font-size:12.5px;}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px;}
+  .btn{border:1px solid var(--border);background:#fff;border-radius:8px;padding:6px 14px;font:600 13.5px var(--sans);cursor:pointer;color:var(--ink);}
+  .btn.ok{background:var(--green);border-color:var(--green);color:#fff;}
+  .btn.no{color:var(--red);}
+  .btn:disabled{opacity:.5;cursor:default;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;}
+  .agent{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;cursor:pointer;}
+  .agent:hover{border-color:var(--gold);}
+  .agent b{display:block;font-size:15px;}
+  .agent small{color:var(--faint);}
+  .pill{display:inline-block;font-size:11.5px;border-radius:10px;padding:1px 8px;margin-top:6px;margin-inline-end:4px;background:var(--quote);color:var(--muted);}
+  .pill.g{background:#E4EFE6;color:var(--green);} .pill.y{background:#F3E8D2;color:var(--gold);}
+  .srcs{display:flex;gap:12px;flex-wrap:wrap;}
+  .srcs label{display:flex;gap:5px;align-items:center;font-size:13.5px;}
+  .msg{font-size:13px;color:var(--muted);}
+  .empty{color:var(--faint);padding:30px 0;text-align:center;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  td,th{border-bottom:1px solid var(--border);padding:7px 6px;text-align:right;vertical-align:top;}
+  th{color:var(--muted);font-weight:600;}
+  details summary{cursor:pointer;color:var(--gold);}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  @media (max-width:700px){ .cols{grid-template-columns:1fr;} td:nth-child(5),th:nth-child(5){display:none;} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div><h1>סוכנים ולקחים</h1><div class="sub">כרטיס לכל סוג משימה, ומה המערכת למדה מההצעות. שום לקח לא משפיע לפני אישור. <a href="/mytasks.html">חזרה למשימות</a></div></div>
+    <div class="runbox"><div id="runInfo">…</div><div class="row" style="justify-content:flex-end"><button class="btn" id="runBtn" hidden>הרץ למידה עכשיו</button></div></div>
+  </div>
+  <div class="tabs">
+    <button class="tab on" data-tab="pending">לקחים לאישור<span class="badge" id="pendingCount" hidden></span></button>
+    <button class="tab" data-tab="agents">סוכנים</button>
+    <button class="tab" data-tab="approved">לקחים מאושרים</button>
+    <button class="tab" data-tab="log">יומן למידה</button>
+  </div>
+  <div id="view"><div class="empty">טוען…</div></div>
+</div>
+<script>
+(function(){
+  var S = { tab:'pending', me:null, agents:[], lessons:[], approved:[], feedback:[], editing:null, msg:{} };
+  var SRC = { monday:'שדות העסקה במאנדיי', payments:'לוח התשלומים', deal_group:'קבוצת הווטסאפ של העסקה', answer_bank:'תשובות מאושרות',
+    office_process:'נהלי משרד', auto_emails:'רשימת המיילים האוטומטיים', firm_notes:'מי עושה מה במשרד', examples:'דוגמאות שנשלחו בלי שינוי' };
+  var OUT = { sent_as_is:'נשלח כמעט כמו שהוא', edited:'נערך', rewritten:'נכתב מחדש', not_sent:'לא נשלח' };
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+  function when(d){ try { return new Date(d).toLocaleString('he-IL',{timeZone:'Asia/Jerusalem',day:'numeric',month:'numeric',hour:'2-digit',minute:'2-digit'}); } catch(e){ return ''; } }
+  async function api(path, opts){
+    opts = opts || {};
+    var r = await fetch('/api/task-agents'+path, Object.assign({ credentials:'same-origin', headers:{'Content-Type':'application/json'} }, opts));
+    var j = {}; try { j = await r.json(); } catch(e){}
+    if (!r.ok) throw new Error(j.error || ('שגיאה '+r.status));
+    return j;
+  }
+  function typeName(k){ if (k==='*') return 'כל הסוגים'; var a = S.agents.find(function(x){return x.key===k;}); return a ? a.type_name : k; }
+  function cats(list){ return (list||[]).map(function(c){ return (S.me && S.me.categories[c]) || c; }).join(', '); }
+  var can = function(){ return S.me && S.me.canApprove; };
+
+  function evHtml(e){
+    var head = e.kind==='note' ? 'הערת צוות'+(e.author?' — '+esc(e.author):'') : 'השוואה — '+(OUT[e.outcome]||e.outcome||'')+(e.similarity!=null?' ('+Math.round(e.similarity*100)+'% דמיון)':'');
+    return '<div class="ev"><b>'+head+'</b> · משימה '+e.task_id+(e.title?' — '+esc(e.title):'')+' · '+when(e.created_at)+
+      (e.categories&&e.categories.length?'\n['+esc(cats(e.categories))+']':'')+(e.note_text?'\n'+esc(e.note_text):'')+'</div>';
+  }
+  function typeSelect(id, cur){
+    return '<select data-ltype="'+id+'"><option value="'+esc(cur)+'">'+esc(typeName(cur))+'</option>'+
+      (cur!=='*'?'<option value="*">כל הסוגים</option>':'')+
+      S.agents.filter(function(a){return a.key!=='*'&&a.key!==cur;}).map(function(a){return '<option value="'+esc(a.key)+'">'+esc(a.type_name)+'</option>';}).join('')+'</select>';
+  }
+  function pendingHtml(){
+    if (!S.lessons.length) return '<div class="empty">אין לקחים שממתינים לאישור.</div>';
+    return S.lessons.map(function(l){
+      return '<div class="card"><div class="chead"><span><b>'+esc(typeName(l.task_type))+'</b> · '+(l.origin==='staff_note'?'מהערת צוות':'מהלמידה')+
+        (l.support_count>1?' · חוזר ב־'+l.support_count+' מקרים':'')+'</span><span>'+when(l.created_at)+'</span></div><div class="cbody">'+
+        '<label class="f">נוסח הלקח <span class="hint">אפשר לתקן לפני אישור. בלי שמות, סכומים ותאריכים</span></label>'+
+        '<textarea data-ltext="'+l.id+'"'+(can()?'':' readonly')+'>'+esc(l.text_he)+'</textarea>'+
+        '<label class="f">חל על</label>'+typeSelect(l.id, l.task_type)+
+        (l.evidence_rows||[]).map(evHtml).join('')+
+        (can()?'<div class="row"><button class="btn ok" data-act="approve" data-id="'+l.id+'">אישור</button><button class="btn no" data-act="reject" data-id="'+l.id+'">דחייה</button>'+
+          (S.msg[l.id]?'<span class="msg">'+esc(S.msg[l.id])+'</span>':'')+'</div>':'')+
+        '</div></div>';
+    }).join('');
+  }
+  function approvedHtml(){
+    if (!S.approved.length) return '<div class="empty">עוד אין לקחים מאושרים.</div>';
+    return '<table><tr><th>חל על</th><th>לקח</th><th>שימושים</th><th>אושר</th><th></th></tr>'+S.approved.map(function(l){
+      return '<tr><td>'+esc(typeName(l.task_type))+'</td><td>'+esc(l.text_he)+'</td><td>'+l.uses_count+'</td><td>'+when(l.decided_at)+(l.decided_by?'<br><small>'+esc(l.decided_by)+'</small>':'')+'</td>'+
+        '<td>'+(can()?'<button class="btn no" data-act="retire" data-id="'+l.id+'">ביטול</button>':'')+'</td></tr>';
+    }).join('')+'</table>';
+  }
+  function agentsHtml(){
+    if (S.editing) return editorHtml(S.agents.find(function(a){return a.key===S.editing;}));
+    return '<div class="grid">'+S.agents.map(function(a){
+      var c = a.card;
+      return '<div class="agent" data-edit="'+esc(a.key)+'"><b>'+esc((c&&c.name_he)||a.type_name)+'</b><small>'+esc(a.key)+'</small><div>'+
+        (c ? (c.active?'<span class="pill g">כרטיס פעיל</span>':'<span class="pill">כבוי</span>') : '<span class="pill">אין כרטיס — משתמש בסוכן הכללי</span>')+
+        (c&&c.rules_md?'<span class="pill">יש כללים</span>':'')+
+        (a.lessons.approved?'<span class="pill g">'+a.lessons.approved+' לקחים</span>':'')+
+        (a.lessons.proposed?'<span class="pill y">'+a.lessons.proposed+' ממתינים</span>':'')+'</div></div>';
+    }).join('')+'</div>';
+  }
+  function editorHtml(a){
+    var c = a.card || {};
+    var srcs = Array.isArray(c.sources) ? c.sources : null;
+    var ro = can() ? '' : ' readonly';
+    var lessons = S.approved.filter(function(l){ return l.task_type===a.key; });
+    return '<div class="card"><div class="chead"><b>'+esc(a.type_name)+' ('+esc(a.key)+')</b><button class="btn" id="backBtn">חזרה לרשימה</button></div><div class="cbody">'+
+      '<label class="f">שם הסוכן</label><input type="text" id="eName" value="'+esc(c.name_he||a.type_name)+'"'+ro+'>'+
+      '<label class="f">מטרה <span class="hint">משפט או שניים: מה הסוכן הזה עושה</span></label><textarea id="eGoal"'+ro+'>'+esc(c.goal_md||'')+'</textarea>'+
+      '<label class="f">כללים <span class="hint">המצבים, ומה הצעד הבא בכל מצב (הנוהל)</span></label><textarea class="big" id="eRules"'+ro+'>'+esc(c.rules_md||'')+'</textarea>'+
+      '<label class="f">מקורות לשלוף <span class="hint">המייל או הצ\'אט של המשימה ומה שכבר נשלח נשלפים תמיד</span></label>'+
+      '<div class="srcs"><label><input type="checkbox" id="eAll"'+(srcs?'':' checked')+(can()?'':' disabled')+'> הכול (ברירת מחדל)</label>'+
+        Object.keys(SRC).map(function(k){ return '<label><input type="checkbox" data-src="'+k+'"'+(!srcs||srcs.indexOf(k)!==-1?' checked':'')+(srcs&&can()?'':' disabled')+'> '+SRC[k]+'</label>'; }).join('')+'</div>'+
+      '<label class="f">טון לסוג הזה <span class="hint">נוסף על הקול של המשרד</span></label><textarea id="eTone"'+ro+'>'+esc(c.tone_md||'')+'</textarea>'+
+      '<div class="row"><label><input type="checkbox" id="eActive"'+(c.active===false?'':' checked')+(can()?'':' disabled')+'> פעיל</label></div>'+
+      (can()?'<div class="row"><button class="btn ok" id="saveBtn">שמירה</button><span class="msg" id="saveMsg">'+esc(S.msg.save||'')+'</span></div>':'')+
+      '<label class="f">לקחים מאושרים לסוג הזה</label>'+(lessons.length?'<ul>'+lessons.map(function(l){return '<li>'+esc(l.text_he)+'</li>';}).join('')+'</ul>':'<div class="msg">אין עדיין.</div>')+
+      '</div></div>';
+  }
+  function logHtml(){
+    if (!S.feedback.length) return '<div class="empty">היומן ריק. הוא מתמלא מהערות הצוות ומההשוואה שרצה כל יומיים.</div>';
+    return '<table><tr><th>מתי</th><th>סוג</th><th>מה</th><th>הערה</th><th>טיוטה מול מה שנשלח</th></tr>'+S.feedback.map(function(f){
+      var what = f.kind==='note' ? 'הערת צוות'+(f.remember?' (לזכור)':'') : (OUT[f.outcome]||f.outcome||'')+(f.similarity!=null?' · '+Math.round(f.similarity*100)+'%':'');
+      return '<tr><td>'+when(f.created_at)+'</td><td>'+esc(typeName(f.task_type||'*'))+'</td><td>'+esc(what)+(f.status==='new'?'<br><small>ממתין ללמידה</small>':'')+'</td>'+
+        '<td>'+(f.categories&&f.categories.length?'['+esc(cats(f.categories))+'] ':'')+esc(f.note_text||'')+'<br><small>משימה '+f.task_id+(f.title?' — '+esc(f.title):'')+'</small></td>'+
+        '<td>'+(f.draft_body||f.sent_text?'<details><summary>להציג</summary><div class="cols"><div class="ev"><b>הוצע</b>\n'+esc(f.draft_body||'')+'</div><div class="ev"><b>נשלח</b>\n'+esc(f.sent_text||'—')+'</div></div></details>':'')+'</td></tr>';
+    }).join('')+'</table>';
+  }
+  function render(){
+    document.querySelectorAll('.tab').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-tab')===S.tab); });
+    var pc = document.getElementById('pendingCount'); pc.hidden = !S.lessons.length; pc.textContent = S.lessons.length;
+    var st = S.me && S.me.state;
+    document.getElementById('runInfo').textContent = st ? ('הלמידה רצה כל '+st.every_hours+' שעות. '+(st.last_run?'ריצה אחרונה: '+when(st.last_run)+(st.last_result?' — '+st.last_result:''):'עוד לא רצה.')) : '';
+    document.getElementById('runBtn').hidden = !can();
+    var v = document.getElementById('view');
+    v.innerHTML = S.tab==='pending' ? pendingHtml() : S.tab==='agents' ? agentsHtml() : S.tab==='approved' ? approvedHtml() : logHtml();
+    wire(v);
+  }
+  function wire(v){
+    v.querySelectorAll('[data-act]').forEach(function(b){
+      b.addEventListener('click', async function(){
+        var id = b.getAttribute('data-id'), act = b.getAttribute('data-act');
+        var t = v.querySelector('[data-ltext="'+id+'"]'), ty = v.querySelector('[data-ltype="'+id+'"]');
+        b.disabled = true;
+        try { await api('/lessons/'+id+'/'+act, { method:'POST', body: JSON.stringify({ text_he: t ? t.value : undefined, task_type: ty ? ty.value : undefined }) }); await load(); }
+        catch(e){ S.msg[id] = e.message; render(); }
+      });
+    });
+    v.querySelectorAll('[data-edit]').forEach(function(el){ el.addEventListener('click', function(){ S.editing = el.getAttribute('data-edit'); S.msg.save=''; render(); }); });
+    var back = document.getElementById('backBtn'); if (back) back.addEventListener('click', function(){ S.editing = null; render(); });
+    var all = document.getElementById('eAll');
+    if (all) all.addEventListener('change', function(){ v.querySelectorAll('[data-src]').forEach(function(c){ c.disabled = all.checked; if (all.checked) c.checked = true; }); });
+    var save = document.getElementById('saveBtn');
+    if (save) save.addEventListener('click', async function(){
+      var srcs = all.checked ? null : Array.prototype.filter.call(v.querySelectorAll('[data-src]'), function(c){return c.checked;}).map(function(c){return c.getAttribute('data-src');});
+      save.disabled = true;
+      try {
+        await api('/agents/'+encodeURIComponent(S.editing), { method:'PUT', body: JSON.stringify({
+          name_he: document.getElementById('eName').value, goal_md: document.getElementById('eGoal').value, rules_md: document.getElementById('eRules').value,
+          tone_md: document.getElementById('eTone').value, sources: srcs, active: document.getElementById('eActive').checked }) });
+        S.msg.save = 'נשמר. ההצעות הבאות מסוג זה ישתמשו בכרטיס.';
+        await load();
+      } catch(e){ S.msg.save = e.message; render(); }
+    });
+  }
+  async function load(){
+    try {
+      var r = await Promise.all([api('/me'), api('/agents'), api('/lessons?status=proposed'), api('/lessons?status=approved'), api('/feedback?limit=150')]);
+      S.me = r[0]; S.agents = r[1].agents; S.lessons = r[2].lessons; S.approved = r[3].lessons; S.feedback = r[4].feedback;
+      render();
+    } catch(e){ document.getElementById('view').innerHTML = '<div class="empty">'+esc(e.message)+' — המסך הזה פתוח לאדמין בלבד.</div>'; }
+  }
+  document.querySelectorAll('.tab').forEach(function(b){ b.addEventListener('click', function(){ S.tab = b.getAttribute('data-tab'); S.editing = null; render(); }); });
+  document.getElementById('runBtn').addEventListener('click', async function(){
+    var b = this; b.disabled = true; b.textContent = 'רץ…';
+    try { var r = await api('/run', { method:'POST' }); alertBox(r.summary || r.error); } catch(e){ alertBox(e.message); }
+    b.disabled = false; b.textContent = 'הרץ למידה עכשיו'; load();
+  });
+  function alertBox(t){ document.getElementById('runInfo').textContent = t; }
+  load();
+})();
+</script>
+</body>
+</html>
